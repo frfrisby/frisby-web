@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>software.frisby.web</groupId>
+        <artifactId>frisby-web</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>test-support</artifactId>
+    <packaging>jar</packaging>
+    <name>${project.artifactId}</name>
+
+    <description>
+        Non-published test utility module.  Provides:
+        - SystemLogVerifier infrastructure for asserting on System.Logger output
+        - JacksonSerializer (concrete JsonSerializer for tests)
+        - JAX-RS resource classes and domain types for client integration tests
+        - TestResources factory for assembling the standard test server resource set
+
+        Not deployed to any remote repository.  Never listed in the BOM.
+    </description>
+
+    <properties>
+        <!-- This module is never deployed to a remote repository. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencies>
+        <!-- Provides the embedded Jersey+Jetty server that hosts test resources. -->
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>server</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Log capture infrastructure — re-exported so consumers get SystemLogVerifier
+             without declaring test-log explicitly. -->
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>test-log</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Multipart support for UploadResource; consumers must register MultiPartFeature
+             via ServerBuilder.components() when starting the test server. -->
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-multipart</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>software.frisby.web.test</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <configuration>
+                    <!-- Install to local repo so other modules can depend on it as test scope. -->
+                    <skip>false</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+

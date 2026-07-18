@@ -1,0 +1,24 @@
+# Normalize line endings to LF on commit for all text files.
+* text=auto eol=lf
+
+# Java & Maven source files — always LF
+*.java    text eol=lf
+*.xml     text eol=lf
+*.properties text eol=lf
+
+# Config & docs
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.txt     text eol=lf
+*.sh      text eol=lf
+
+# Binary — never diff or merge
+*.jar     binary
+*.class   binary
+*.gz      binary
+*.zip     binary
+*.png     binary
+*.jpg     binary
+*.ico     binary

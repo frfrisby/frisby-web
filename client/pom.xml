@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>software.frisby.web</groupId>
+        <artifactId>frisby-web</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>client</artifactId>
+    <packaging>jar</packaging>
+    <name>${project.artifactId}</name>
+
+    <properties>
+        <sonar.language>java</sonar.language>
+        <sonar.java.source>${java.version}</sonar.java.source>
+        <sonar.exclusions>**/*Test*/**</sonar.exclusions>
+        <sonar.test.inclusions>**/*Test*/**</sonar.test.inclusions>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>serial</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>software.frisby.core</groupId>
+            <artifactId>validation</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.frisby.core</groupId>
+            <artifactId>util</artifactId>
+        </dependency>
+
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>jackson-serializer</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Provides the embedded Jersey+Jetty server and JAX-RS resources used by
+            client integration tests.  Not deployed to any remote repo.
+        -->
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Routes Jetty's SLF4J log output through java.util.logging so that Jetty
+            logs are visible in tests and the SLF4J "no providers found" warning is
+            silenced.  Test-scoped only.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Mockito JUnit 5 extension — used for hard-to-reach exception paths that
+            require injecting a mock at an interface boundary (e.g. InputStream that
+            throws IOException).
+        -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>software.frisby.web.client</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <configuration>
+                    <skip>false</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration>
+                    <skip>false</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Pass the test-scoped logging.properties to the forked JVM so that
+                         System.Logger output (via JUL) appears on the console during test runs.
+                         @{argLine} preserves the JaCoCo agent argument injected at prepare-agent.
+                         The byte-buddy-agent is loaded statically here to prevent Mockito from
+                         self-attaching it dynamically, which is deprecated in newer JDK releases. -->
+                    <argLine>@{argLine}
+                        -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy-agent.version}/byte-buddy-agent-${byte-buddy-agent.version}.jar
+                        -Djava.util.logging.config.file=${project.build.testOutputDirectory}/logging.properties
+                    </argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+

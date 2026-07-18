@@ -1,0 +1,24 @@
+# IDE
+.settings/
+.idea/
+.vscode/
+.project
+.classpath
+*.iml
+*.iws
+
+# OS files
+.DS_Store
+**/.DS_Store
+
+# Maven build output
+target/
+out/
+classes/
+.flattened-pom.xml
+
+# local temporary files
+temp/
+
+# Safety net — never commit the exported GPG private key
+gpg-private.asc
