@@ -89,6 +89,7 @@ final class DefaultServer implements Server {
      */
     private static final String BUFFERED_BODY_KEY =
             "software.frisby.web.server.DefaultServer.requestBody";
+    private static final String HTTP_1_1 = "http/1.1";
 
     private final Object syncRoot = new Object();
 
@@ -801,8 +802,8 @@ final class DefaultServer implements Server {
             // all others fall back to HTTP/1.1 transparently.
             HTTP2ServerConnectionFactory h2Factory = new HTTP2ServerConnectionFactory(httpsConfig);
 
-            ALPNServerConnectionFactory alpn = new ALPNServerConnectionFactory("h2", "http/1.1");
-            alpn.setDefaultProtocol("http/1.1");
+            ALPNServerConnectionFactory alpn = new ALPNServerConnectionFactory("h2", HTTP_1_1);
+            alpn.setDefaultProtocol(HTTP_1_1);
 
             httpsConnector = new ServerConnector(
                     server,
@@ -814,7 +815,7 @@ final class DefaultServer implements Server {
         } else {
             httpsConnector = new ServerConnector(
                     server,
-                    new SslConnectionFactory(sslFactory, "http/1.1"),
+                    new SslConnectionFactory(sslFactory, HTTP_1_1),
                     new HttpConnectionFactory(httpsConfig)
             );
         }
