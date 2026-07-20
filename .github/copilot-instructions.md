@@ -1,5 +1,19 @@
 # AGENTS.md — jweb (`frisby-web`)
 
+## ⚠️ Session Setup — Attach These Files
+
+At the start of **every** session, attach the following three reference documents.
+They are not fetched automatically — they must be explicitly attached to the conversation:
+
+- `.github/docs/validation.md` — full API reference for `software.frisby.core.validation`
+- `.github/docs/util.md` — full API reference for `software.frisby.core.util`
+- `.github/docs/java-coding-style.md` — full Java coding style guide
+
+Without these files in context, the AI will not have the complete validation method
+signatures, utility class behavior, or style rules needed to generate correct code.
+
+---
+
 ## Project Overview
 
 Maven multi-module library (`software.frisby.web`, v1.0.0, Java 17). Two publishable artifacts:
@@ -33,7 +47,7 @@ Surefire is configured in `client/pom.xml` to pass `@{argLine}` (JaCoCo agent) a
 
 ## Validation Library (`software.frisby.core.validation`)
 
-All validation calls follow `(String name, T value, ...)` → returns `value` unchanged or throws. Reference: [`.github/docs/validation.md`](.github/docs/validation.md).
+All validation calls follow `(String name, T value, ...)` → returns `value` unchanged or throws. Full API reference: attach `.github/docs/validation.md` at session start.
 
 Key rules:
 - Use `Sequences.notEmpty()` / `Maps.notEmpty()` — never `Values.notNull()` — for collections and maps.
@@ -45,7 +59,7 @@ Key rules:
 
 ## Utility Library (`software.frisby.core.util`)
 
-Full reference: [`.github/docs/util.md`](.github/docs/util.md).
+Full reference: attach `.github/docs/util.md` at session start.
 
 ### StopWatch
 
@@ -75,7 +89,7 @@ Full reference: [`.github/docs/util.md`](.github/docs/util.md).
 
 ## Java Coding Style
 
-Full guide: [`.github/docs/java-coding-style.md`](.github/docs/java-coding-style.md). Essential rules:
+Full guide: attach `.github/docs/java-coding-style.md` at session start. Essential rules:
 
 - **Null checks**: Yoda style — `if (null == value)`, never `if (value == null)`.
 - **Accessors**: no `get` prefix — `duration()` not `getDuration()`; `boolean isRunning()` is fine.

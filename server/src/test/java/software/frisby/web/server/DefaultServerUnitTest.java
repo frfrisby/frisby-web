@@ -98,6 +98,7 @@ class DefaultServerUnitTest {
     @Nested
     class UnwrapJerseyException {
         private static final Method METHOD = resolveMethod(
+                resolveNestedClass("ServerRequestEventListener"),
                 "unwrapJerseyException",
                 Throwable.class
         );
@@ -512,13 +513,24 @@ class DefaultServerUnitTest {
     }
 
     private static Method resolveMethod(String name, Class<?>... paramTypes) {
+        return resolveMethod(DefaultServer.class, name, paramTypes);
+    }
+
+    private static Method resolveMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
         try {
-            Method m = DefaultServer.class.getDeclaredMethod(name, paramTypes);
+            Method m = clazz.getDeclaredMethod(name, paramTypes);
             m.setAccessible(true);
             return m;
         } catch (NoSuchMethodException e) {
-            throw new RuntimeException("Could not find DefaultServer." + name, e);
+            throw new RuntimeException("Could not find " + clazz.getSimpleName() + "." + name, e);
         }
+    }
+
+    private static Class<?> resolveNestedClass(String simpleName) {
+        return Arrays.stream(DefaultServer.class.getDeclaredClasses())
+                .filter(c -> c.getSimpleName().equals(simpleName))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Could not find nested class: " + simpleName));
     }
 }
 
