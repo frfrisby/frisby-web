@@ -1,0 +1,89 @@
+name: Release Please
+
+on:
+  # Fires whenever CI, SonarCloud, or CodeQL completes on main.
+  # The check step below verifies that ALL THREE have passed for the same commit
+  # before allowing release-please to create a release.
+  workflow_run:
+    workflows: [ "CI", "SonarCloud", "CodeQL" ]
+    types: [ completed ]
+    branches: [ main ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    # Skip immediately if the workflow that just completed did not itself succeed.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+
+    steps:
+      - name: Check all quality gates passed for this commit
+        id: gates
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "Checking quality gates for commit $SHA..."
+          ALL_PASSED=true
+
+          for WORKFLOW in "CI" "SonarCloud" "CodeQL"; do
+            # Query the most recent run of this workflow for the exact commit.
+            RESULT=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --commit "$SHA" \
+              --workflow "$WORKFLOW" \
+              --json status,conclusion \
+              --jq '.[0] | if . == null then "not_found"
+                           elif .status != "completed" then "pending"
+                           else .conclusion end' \
+              2>/dev/null || echo "not_found")
+
+            echo "  $WORKFLOW: $RESULT"
+
+            if [ "$RESULT" = "success" ]; then
+              : # gate passed — continue
+            elif [ "$RESULT" = "pending" ] || [ "$RESULT" = "not_found" ]; then
+              ALL_PASSED=false # not ready yet — skip release on this trigger
+            else
+              # failure, cancelled, skipped, etc. — hard block
+              echo "Quality gate '$WORKFLOW' did not pass ($RESULT). Release blocked."
+              exit 1
+            fi
+          done
+
+          if [ "$ALL_PASSED" = "true" ]; then
+            echo "All quality gates passed — proceeding with release."
+            echo "all_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not all quality gates have completed yet — skipping release on this trigger."
+            echo "all_passed=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Run Release Please
+        id: release
+        if: ${{ steps.gates.outputs.all_passed == 'true' }}
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+  publish:
+    name: Publish to Maven Central
+    needs: release-please
+    # Only run when release-please actually created a new release.
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/publish.yml
+    secrets: inherit
+

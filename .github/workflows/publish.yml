@@ -1,0 +1,77 @@
+name: Publish to Maven Central
+
+on:
+  # Called directly from release-please.yml once a GitHub Release is created.
+  # A separate `release: published` trigger is intentionally omitted: because
+  # release-please uses a PAT, the release it creates fires a real release event,
+  # which would cause this workflow to run twice simultaneously.
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+          # Imports the GPG key so maven-gpg-plugin can sign artifacts.
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Set release version (strip -SNAPSHOT suffix)
+        run: mvn --batch-mode --no-transfer-progress versions:set -DremoveSnapshot -DgenerateBackupPoms=false
+
+      - name: Build, sign and stage all modules to local directory
+        # Deploys every module's signed artifacts into a local Maven repository
+        # layout under target/maven-central-staging.  Using altDeploymentRepository
+        # bypasses central-publishing-maven-plugin entirely, which avoids the
+        # per-module bundle upload issue that causes overlapping deployments.
+        run: |
+          mvn --batch-mode --no-transfer-progress -P release deploy \
+            -DaltDeploymentRepository=local::file://$(pwd)/target/maven-central-staging
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Create Central Portal bundle ZIP
+        run: |
+          cd target/maven-central-staging
+          zip -r ../../central-bundle.zip .
+          echo "Bundle contents:"
+          unzip -l ../../central-bundle.zip | tail -20
+          echo "Bundle size: $(du -sh ../../central-bundle.zip | awk '{print $1}')"
+
+      - name: Upload bundle to Maven Central
+        run: |
+          BEARER=$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_TOKEN" | base64 | tr -d '\n')
+
+          echo "Uploading bundle to Central Portal..."
+          HTTP_STATUS=$(curl --silent --show-error --output upload-response.txt \
+            --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer $BEARER" \
+            --form "bundle=@central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=frisby-web")
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Deployment ID: $(cat upload-response.txt | tr -d '[:space:]')"
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "Upload failed."
+            echo "Response: $(cat upload-response.txt)"
+            exit 1
+          fi
+          echo "Bundle accepted by Central Portal — publishing asynchronously."
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+
