@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 
+import static software.frisby.web.client.RequestConstants.*;
+
 /**
  * Package-private implementation of {@link PostSpec}.
  * <p>
@@ -23,11 +25,6 @@ import java.util.concurrent.CompletableFuture;
  */
 final class PostRequest implements PostSpec {
     private static final String POST = "POST";
-    private static final String RESPONSE_TYPE_ARGUMENT_NAME = "responseType";
-    private static final String BODY_ARGUMENT_NAME = "body";
-    private static final String COMPRESSOR_ARGUMENT_NAME = "compressor";
-    private static final String COMPRESS_WITH_FORM_ERROR =
-            "The 'compress' value is invalid.  Compression is only supported for JSON entity bodies.";
 
     private static final ContentCompressor GZIP_COMPRESSOR =
             ContentCompressor.of("gzip", GZip::compress);

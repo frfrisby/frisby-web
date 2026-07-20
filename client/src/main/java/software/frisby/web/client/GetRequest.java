@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
+import static software.frisby.web.client.RequestConstants.RESPONSE_TYPE_ARGUMENT_NAME;
+
 /**
  * Package-private implementation of {@link GetSpec}.
  * <p>
@@ -22,7 +24,6 @@ import java.util.function.Function;
  */
 final class GetRequest implements GetSpec {
     private static final String GET = "GET";
-    private static final String RESPONSE_TYPE = "responseType";
 
     private final HttpEngine engine;
     private final RequestState state;
@@ -88,7 +89,7 @@ final class GetRequest implements GetSpec {
 
     @Override
     public <T> HttpResponse<T> send(Class<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
@@ -105,7 +106,7 @@ final class GetRequest implements GetSpec {
 
     @Override
     public <T> HttpResponse<T> send(GenericType<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
@@ -133,7 +134,7 @@ final class GetRequest implements GetSpec {
 
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(Class<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
@@ -150,7 +151,7 @@ final class GetRequest implements GetSpec {
 
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(GenericType<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = OutboundRequest.of(state.buildRequest(

@@ -248,23 +248,7 @@ final class RequestLogger {
             String lowerName = name.toLowerCase(Locale.ROOT);
 
             if (COOKIE.equals(lowerName)) {
-                // Preserve cookie names, redact values — one line per cookie.
-                // A single Cookie header can carry multiple cookies separated by ';'.
-                for (String headerValue : entry.getValue()) {
-                    for (String pair : headerValue.split(";")) {
-                        String trimmed = pair.trim();
-                        if (trimmed.isEmpty()) {
-                            continue;
-                        }
-
-                        int eq = trimmed.indexOf('=');
-                        String formatted = eq > 0
-                                ? trimmed.substring(0, eq + 1) + REDACTED
-                                : trimmed;
-
-                        sb.append(INDENT_2).append(name).append(": ").append(formatted);
-                    }
-                }
+                appendCookieHeader(sb, name, entry.getValue());
             } else if (config.redactedHeaders().contains(lowerName)) {
                 sb.append(INDENT_2).append(name).append(": ").append(REDACTED);
             } else {
@@ -274,6 +258,32 @@ final class RequestLogger {
         }
 
         appendRequestBody(sb, outbound);
+    }
+
+    /**
+     * Appends one {@code Cookie: name=[redacted]} line per cookie to {@code sb}.
+     * <p>
+     * A single {@code Cookie} header can carry multiple cookies separated by {@code ;}.
+     * Each pair is formatted individually so cookie names remain visible in the log
+     * while their values are replaced with {@code [redacted]}.
+     */
+    private void appendCookieHeader(StringBuilder sb, String headerName, List<String> headerValues) {
+        for (String headerValue : headerValues) {
+            for (String pair : headerValue.split(";")) {
+                String trimmed = pair.trim();
+
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+
+                int eq = trimmed.indexOf('=');
+                String formatted = eq > 0
+                        ? trimmed.substring(0, eq + 1) + REDACTED
+                        : trimmed;
+
+                sb.append(INDENT_2).append(headerName).append(": ").append(formatted);
+            }
+        }
     }
 
     private void appendRequestBody(StringBuilder sb, OutboundRequest outbound) {
