@@ -31,7 +31,7 @@ import java.util.List;
  * @see PutSpec#body(FormData)
  */
 public final class FormData {
-    private static final String PARTS = "parts";
+    private static final String PARTS_ARGUMENT_NAME = "parts";
 
     private final List<FormPart> parts;
 
@@ -50,7 +50,7 @@ public final class FormData {
      * @throws software.frisby.core.validation.NullElementException     if any element of {@code parts} is null.
      */
     public static FormData of(FormPart... parts) {
-        Sequences.notEmpty(PARTS, parts);
+        Sequences.notEmpty(PARTS_ARGUMENT_NAME, parts);
 
         return new FormData(List.of(parts));
     }
@@ -66,7 +66,7 @@ public final class FormData {
      * @throws software.frisby.core.validation.NullElementException     if any element of {@code parts} is null.
      */
     public static FormData of(List<FormPart> parts) {
-        Sequences.notEmpty(PARTS, parts);
+        Sequences.notEmpty(PARTS_ARGUMENT_NAME, parts);
 
         return new FormData(List.copyOf(parts));
     }

@@ -8,6 +8,7 @@ import software.frisby.core.validation.BlankValueException;
 import software.frisby.core.validation.MissingElementsException;
 import software.frisby.core.validation.NullValueException;
 import software.frisby.core.validation.PatternMismatchException;
+import software.frisby.core.validation.StringLengthOutsideRangeException;
 
 import java.security.Principal;
 import java.util.List;
@@ -196,6 +197,30 @@ class DefaultServerBuilderTest {
             assertThrows(
                     PatternMismatchException.class,
                     () -> Server.builder().healthCheck("/health?ready=true")
+            );
+        }
+
+        @Test
+        void pathExceedingMaxLength_throwsStringLengthOutsideRangeException() {
+            // 257 characters: "/a" + "/segment" repeated until over 256 chars
+            String longPath = "/a" + "/segment".repeat(33); // 2 + (8 * 33) = 266 chars
+
+            assertThrows(
+                    StringLengthOutsideRangeException.class,
+                    () -> Server.builder().healthCheck(longPath)
+            );
+        }
+
+        @Test
+        void pathWithTooManySegments_throwsPatternMismatchException() {
+            // Pattern allows 1 leading segment + up to 64 additional = 65 total.
+            // 66 segments using "/a" per segment = 132 chars — well under the 256-char limit,
+            // so the pattern check fires rather than the length guard.
+            String tooManySegments = "/a".repeat(66); // 66 segments, 132 chars
+
+            assertThrows(
+                    PatternMismatchException.class,
+                    () -> Server.builder().healthCheck(tooManySegments)
             );
         }
 

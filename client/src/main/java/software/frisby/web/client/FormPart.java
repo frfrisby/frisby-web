@@ -157,9 +157,9 @@ public sealed interface FormPart permits FormPart.FilePart, FormPart.JsonPart, F
      * @see FormPart#file(String, InputStream, String, MediaType)
      */
     final class FilePart implements FormPart {
-        private static final String NAME = "name";
-        private static final String STREAM = "stream";
-        private static final String FILE_NAME = "fileName";
+        private static final String NAME_ARGUMENT_NAME = "name";
+        private static final String STREAM_ARGUMENT_NAME = "stream";
+        private static final String FILE_NAME_ARGUMENT_NAME = "fileName";
 
         private final String name;
         private final InputStream stream;
@@ -170,9 +170,9 @@ public sealed interface FormPart permits FormPart.FilePart, FormPart.JsonPart, F
                          InputStream stream,
                          String fileName,
                          MediaType contentType) {
-            this.name = Strings.notBlank(NAME, name);
-            this.stream = Values.notNull(STREAM, stream);
-            this.fileName = Strings.notBlank(FILE_NAME, fileName);
+            this.name = Strings.notBlank(NAME_ARGUMENT_NAME, name);
+            this.stream = Values.notNull(STREAM_ARGUMENT_NAME, stream);
+            this.fileName = Strings.notBlank(FILE_NAME_ARGUMENT_NAME, fileName);
             this.contentType = contentType;
         }
 
@@ -227,15 +227,15 @@ public sealed interface FormPart permits FormPart.FilePart, FormPart.JsonPart, F
      * @see FormPart#json(String, Object)
      */
     final class JsonPart implements FormPart {
-        private static final String NAME = "name";
-        private static final String BODY = "body";
+        private static final String NAME_ARGUMENT_NAME = "name";
+        private static final String BODY_ARGUMENT_NAME = "body";
 
         private final String name;
         private final Object body;
 
         private JsonPart(String name, Object body) {
-            this.name = Strings.notBlank(NAME, name);
-            this.body = Values.notNull(BODY, body);
+            this.name = Strings.notBlank(NAME_ARGUMENT_NAME, name);
+            this.body = Values.notNull(BODY_ARGUMENT_NAME, body);
         }
 
         /**
@@ -263,18 +263,18 @@ public sealed interface FormPart permits FormPart.FilePart, FormPart.JsonPart, F
      * @see FormPart#entity(String, String, MediaType)
      */
     final class ContentPart implements FormPart {
-        private static final String NAME = "name";
-        private static final String CONTENT = "content";
-        private static final String MEDIA_TYPE = "mediaType";
+        private static final String NAME_ARGUMENT_NAME = "name";
+        private static final String CONTENT_ARGUMENT_NAME = "content";
+        private static final String MEDIA_TYPE_ARGUMENT_NAME = "mediaType";
 
         private final String name;
         private final String content;
         private final MediaType mediaType;
 
         private ContentPart(String name, String content, MediaType mediaType) {
-            this.name = Strings.notBlank(NAME, name);
-            this.content = Values.notNull(CONTENT, content);
-            this.mediaType = Values.notNull(MEDIA_TYPE, mediaType);
+            this.name = Strings.notBlank(NAME_ARGUMENT_NAME, name);
+            this.content = Values.notNull(CONTENT_ARGUMENT_NAME, content);
+            this.mediaType = Values.notNull(MEDIA_TYPE_ARGUMENT_NAME, mediaType);
         }
 
         /**

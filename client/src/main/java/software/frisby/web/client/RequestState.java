@@ -31,13 +31,13 @@ import java.util.stream.Collectors;
  */
 final class RequestState {
     private static final String COOKIE_HEADER = "Cookie";
-    private static final String PATH = "path";
-    private static final String PARAMETERS = "parameters";
-    private static final String NAME = "name";
-    private static final String VALUE = "value";
-    private static final String VALUES = "values";
-    private static final String COOKIE = "cookie";
-    private static final String PROVIDER = "provider";
+    private static final String PATH_ARGUMENT_NAME = "path";
+    private static final String PARAMETERS_ARGUMENT_NAME = "parameters";
+    private static final String NAME_ARGUMENT_NAME = "name";
+    private static final String VALUE_ARGUMENT_NAME = "value";
+    private static final String VALUES_ARGUMENT_NAME = "values";
+    private static final String COOKIE_ARGUMENT_NAME = "cookie";
+    private static final String PROVIDER_ARGUMENT_NAME = "provider";
 
     private static final Set<String> RESTRICTED_HEADERS = Set.of(
             "accept",
@@ -108,7 +108,7 @@ final class RequestState {
     }
 
     void path(String path) {
-        this.path = Strings.notBlank(PATH, path);
+        this.path = Strings.notBlank(PATH_ARGUMENT_NAME, path);
     }
 
     /**
@@ -124,51 +124,51 @@ final class RequestState {
      *                            correspond to a {@code {name}} placeholder in {@code path}.
      */
     void path(String path, PathParameter... parameters) {
-        Values.notNull(PARAMETERS, parameters);
+        Values.notNull(PARAMETERS_ARGUMENT_NAME, parameters);
 
         if (parameters.length > 0) {
             this.path = UriBuilder.substitutePath(
-                    Strings.notBlank(PATH, path),
+                    Strings.notBlank(PATH_ARGUMENT_NAME, path),
                     List.of(parameters)
             );
         } else {
-            this.path = Strings.notBlank(PATH, path);
+            this.path = Strings.notBlank(PATH_ARGUMENT_NAME, path);
         }
     }
 
     void parameter(String name, String value) {
-        this.queryParameters.add(Map.entry(Strings.notBlank(NAME, name), Strings.notBlank(VALUE, value)));
+        this.queryParameters.add(Map.entry(Strings.notBlank(NAME_ARGUMENT_NAME, name), Strings.notBlank(VALUE_ARGUMENT_NAME, value)));
     }
 
     void parameter(String name, String... values) {
-        Strings.notBlank(NAME, name);
-        Sequences.notEmpty(VALUES, values);
+        Strings.notBlank(NAME_ARGUMENT_NAME, name);
+        Sequences.notEmpty(VALUES_ARGUMENT_NAME, values);
 
         for (String value : values) {
-            this.queryParameters.add(Map.entry(name, Strings.notBlank(VALUE, value)));
+            this.queryParameters.add(Map.entry(name, Strings.notBlank(VALUE_ARGUMENT_NAME, value)));
         }
     }
 
     void header(String name, String value) {
-        checkNotRestricted(Strings.notBlank(NAME, name));
-        this.headers.add(Map.entry(name, Strings.notBlank(VALUE, value)));
+        checkNotRestricted(Strings.notBlank(NAME_ARGUMENT_NAME, name));
+        this.headers.add(Map.entry(name, Strings.notBlank(VALUE_ARGUMENT_NAME, value)));
     }
 
     void header(String name, String... values) {
-        checkNotRestricted(Strings.notBlank(NAME, name));
-        Sequences.notEmpty(VALUES, values);
+        checkNotRestricted(Strings.notBlank(NAME_ARGUMENT_NAME, name));
+        Sequences.notEmpty(VALUES_ARGUMENT_NAME, values);
 
         for (String value : values) {
-            this.headers.add(Map.entry(name, Strings.notBlank(VALUE, value)));
+            this.headers.add(Map.entry(name, Strings.notBlank(VALUE_ARGUMENT_NAME, value)));
         }
     }
 
     void cookie(HttpCookie cookie) {
-        this.cookies.add(Values.notNull(COOKIE, cookie));
+        this.cookies.add(Values.notNull(COOKIE_ARGUMENT_NAME, cookie));
     }
 
     void security(SecurityProvider provider) {
-        this.security = Values.notNull(PROVIDER, provider);
+        this.security = Values.notNull(PROVIDER_ARGUMENT_NAME, provider);
     }
 
     /**

@@ -26,13 +26,13 @@ import java.util.Map;
  * @see PutSpec#body(FormUrlEncoded)
  */
 public final class FormUrlEncoded {
-    private static final String FIELDS = "fields";
+    private static final String FIELDS_ARGUMENT_NAME = "fields";
 
     private final Map<String, String> fields;
 
     private FormUrlEncoded(Map<String, String> fields) {
         this.fields = Collections.unmodifiableMap(
-                Maps.notEmpty(FIELDS, fields)
+                Maps.notEmpty(FIELDS_ARGUMENT_NAME, fields)
         );
     }
 

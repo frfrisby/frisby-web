@@ -42,7 +42,7 @@ public final class MediaType {
      */
     public static final MediaType FORM_URL_ENCODED = new MediaType("application/x-www-form-urlencoded");
 
-    private static final String VALUE = "value";
+    private static final String VALUE_ARGUMENT_NAME = "value";
     private final String value;
 
     private MediaType(String value) {
@@ -57,7 +57,7 @@ public final class MediaType {
      * @throws IllegalArgumentException if {@code value} is null or blank.
      */
     public static MediaType of(String value) {
-        return new MediaType(Strings.notBlank(VALUE, value));
+        return new MediaType(Strings.notBlank(VALUE_ARGUMENT_NAME, value));
     }
 
     /**
