@@ -25,6 +25,7 @@ final class DefaultServerConfiguration implements ServerConfiguration {
     private final Executor executor;
     private final Duration stopTimeout;
 
+    @SuppressWarnings("java:S107") // all parameters are required — this class is the product of DefaultServerConfigurationBuilder
     DefaultServerConfiguration(Integer port,
                                String host,
                                long maxRequestSize,

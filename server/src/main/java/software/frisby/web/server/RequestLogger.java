@@ -28,6 +28,7 @@ final class RequestLogger {
 
     private static final String ARROW_RIGHT = "→";
     private static final String CROSS = "✕";
+    private static final String METHOD_PATH_PREFIX = "{0} {1} ";
 
     RequestLogger() {
     }
@@ -132,7 +133,7 @@ final class RequestLogger {
         } else if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
             LOGGER.log(
                     System.Logger.Level.INFO,
-                    "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms)",
+                    METHOD_PATH_PREFIX + ARROW_RIGHT + " {2} ({3}ms)",
                     method,
                     path,
                     statusCode,
@@ -194,7 +195,7 @@ final class RequestLogger {
         if (LOGGER.isLoggable(System.Logger.Level.TRACE)) {
             LOGGER.log(
                     System.Logger.Level.TRACE,
-                    "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms)",
+                    METHOD_PATH_PREFIX + ARROW_RIGHT + " {2} ({3}ms)",
                     method,
                     path,
                     statusCode,
@@ -222,7 +223,7 @@ final class RequestLogger {
         if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "{0} {1} " + CROSS + " 503 ({2}ms)  [capacity limit]",
+                    METHOD_PATH_PREFIX + CROSS + " 503 ({2}ms)  [capacity limit]",
                     method,
                     path,
                     latencyMs

@@ -193,7 +193,7 @@ class ServerComponentsTest {
 
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                 .expect(LogExpectation.builder()
-                        .logger(DefaultServer.class)
+                        .logger(ServerRequestEventListener.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message()
                                 .contains("ServerEventListener.onRequestCompleted threw an exception."))
@@ -247,7 +247,7 @@ class ServerComponentsTest {
         throwingServer.start();
 
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
-                .configure(DefaultServer.class, System.Logger.Level.ERROR) // ERROR is too high — the exception is logged at WARNING.
+                .configure(ServerRequestEventListener.class, System.Logger.Level.ERROR) // ERROR is too high — the exception is logged at WARNING.
                 .build()) {
             // First request: onRequestCompleted throws — must be caught and logged as WARNING.
             HttpResponse<String> first = HTTP.send(

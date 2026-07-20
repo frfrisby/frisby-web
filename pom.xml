@@ -71,6 +71,13 @@
              Using project expressions here ensures each module is evaluated
              with its own coordinates rather than inheriting the root value. -->
         <sonar.moduleKey>${project.groupId}:${project.artifactId}</sonar.moduleKey>
+        <!-- Exclude internal test-infrastructure modules from coverage reporting.
+             These modules exist only to support tests in other modules and are
+             never deployed; their coverage numbers are not meaningful. -->
+        <sonar.coverage.exclusions>
+            test-log/**,
+            test-support/**
+        </sonar.coverage.exclusions>
     </properties>
 
     <modules>
