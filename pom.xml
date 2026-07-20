@@ -62,6 +62,17 @@
 
         <!-- SLF4J JUL bridge — version must match what jersey-container-jetty-http pulls in -->
         <slf4j.version>2.0.17</slf4j.version>
+
+        <!-- SonarCloud -->
+        <sonar.projectKey>frfrisby_frisby-web</sonar.projectKey>
+        <sonar.organization>frfrisby</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <!-- Ensure each Maven module gets a unique Sonar module key.
+             sonar.projectKey is inherited by all child modules, which causes a
+             "2 modules with the same key" error without this override.
+             Using project expressions here ensures each module is evaluated
+             with its own coordinates rather than inheriting the root value. -->
+        <sonar.moduleKey>${project.groupId}:${project.artifactId}</sonar.moduleKey>
     </properties>
 
     <modules>
