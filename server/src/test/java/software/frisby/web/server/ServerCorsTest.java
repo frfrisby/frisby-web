@@ -139,6 +139,24 @@ class ServerCorsTest {
             assertEquals(200, response.statusCode());
             assertFalse(response.headers().firstValue(HEADER_ALLOW_ORIGIN).isPresent());
         }
+
+        @Test
+        void requestMethodHeaderPresentButNotOptions_treatedAsActualRequest() throws Exception {
+            // Exercises the second condition of the isPreflight check:
+            // Access-Control-Request-Method is non-null but the HTTP method is not OPTIONS,
+            // so isPreflight evaluates to false and the response filter adds the CORS header.
+            HttpResponse<String> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUri.resolve("/ping"))
+                            .header("Origin", ALLOWED_ORIGIN)
+                            .header("Access-Control-Request-Method", "POST")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertEquals(ALLOWED_ORIGIN, response.headers().firstValue(HEADER_ALLOW_ORIGIN).orElse(null));
+        }
     }
 
     // -------------------------------------------------------------------------

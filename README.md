@@ -37,15 +37,16 @@ own metrics backend, and add only the modules you actually use.
 
 ## Maven Setup
 
-Import the BOM in your `<dependencyManagement>` block, then declare only the modules you need
-without specifying versions:
+Import the BOM in your project's `dependencyManagement` section, then declare dependencies
+without a version.  Replace `LATEST_VERSION` with the version shown in the Maven Central
+badge above:
 
 ```xml
 <!-- dependencyManagement -->
 <dependency>
     <groupId>software.frisby.web</groupId>
     <artifactId>bom</artifactId>
-    <version>1.0.0</version>
+    <version>LATEST_VERSION</version>
     <type>pom</type>
     <scope>import</scope>
 </dependency>
