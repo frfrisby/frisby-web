@@ -25,6 +25,8 @@
     <properties>
         <!-- This module is never deployed to a remote repository. -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- Skip Javadoc generation — this is an internal test utility, not a published artifact. -->
+        <maven.javadoc.skip>true</maven.javadoc.skip>
     </properties>
 
     <dependencies>
