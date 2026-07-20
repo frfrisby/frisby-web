@@ -36,6 +36,8 @@ final class TokenRequestLogger {
     private static final String ARROW_RIGHT = "→";
     private static final String ARROW_LEFT = "←";
     private static final String CROSS = "✕";
+    private static final String INDENT_1 = "\n  ";
+    private static final String INDENT_2 = "\n    ";
 
     private TokenRequestLogger() {
     }
@@ -133,16 +135,16 @@ final class TokenRequestLogger {
 
     private static void appendRequestSection(StringBuilder sb, HttpRequest request) {
         sb.append(ARROW_RIGHT).append(" ").append(request.method()).append(" ").append(request.uri());
-        sb.append("\n  ").append(REQUEST_HEADERS);
+        sb.append(INDENT_1).append(REQUEST_HEADERS);
 
         for (Map.Entry<String, List<String>> entry : request.headers().map().entrySet()) {
             String name = entry.getKey();
             String lowerName = name.toLowerCase(Locale.ROOT);
 
             if (AUTHORIZATION.equals(lowerName)) {
-                sb.append("\n    ").append(name).append(": ").append(REDACTED);
+                sb.append(INDENT_2).append(name).append(": ").append(REDACTED);
             } else {
-                sb.append("\n    ").append(name).append(": ")
+                sb.append(INDENT_2).append(name).append(": ")
                         .append(String.join(", ", entry.getValue()));
             }
         }
@@ -151,10 +153,10 @@ final class TokenRequestLogger {
     }
 
     private static void appendResponseHeaders(StringBuilder sb, HttpHeaders headers) {
-        sb.append("\n  ").append(RESPONSE_HEADERS);
+        sb.append(INDENT_1).append(RESPONSE_HEADERS);
 
         for (Map.Entry<String, List<String>> entry : headers.map().entrySet()) {
-            sb.append("\n    ").append(entry.getKey()).append(": ")
+            sb.append(INDENT_2).append(entry.getKey()).append(": ")
                     .append(String.join(", ", entry.getValue()));
         }
 

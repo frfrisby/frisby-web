@@ -17,15 +17,15 @@ import java.util.List;
  */
 final class DefaultClientCredentialsSecurityProviderBuilder
         implements ClientCredentialsSecurityProviderBuilder {
-    private static final String TOKEN_ENDPOINT = "tokenEndpoint";
-    private static final String CREDENTIALS = "credentials";
-    private static final String SERIALIZER = "serializer";
-    private static final String SCOPES = "scopes";
-    private static final String CONNECT_TIMEOUT = "connectTimeout";
-    private static final String REQUEST_TIMEOUT = "requestTimeout";
-    private static final String SSL_CONTEXT = "sslContext";
-    private static final String EVENT_LISTENER = "eventListener";
-    private static final String EXPIRY_BUFFER = "expiryBuffer";
+    private static final String TOKEN_ENDPOINT_ARGUMENT_NAME = "tokenEndpoint";
+    private static final String CREDENTIALS_ARGUMENT_NAME = "credentials";
+    private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
+    private static final String SCOPES_ARGUMENT_NAME = "scopes";
+    private static final String CONNECT_TIMEOUT_ARGUMENT_NAME = "connectTimeout";
+    private static final String REQUEST_TIMEOUT_ARGUMENT_NAME = "requestTimeout";
+    private static final String SSL_CONTEXT_ARGUMENT_NAME = "sslContext";
+    private static final String EVENT_LISTENER_ARGUMENT_NAME = "eventListener";
+    private static final String EXPIRY_BUFFER_ARGUMENT_NAME = "expiryBuffer";
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
@@ -57,13 +57,13 @@ final class DefaultClientCredentialsSecurityProviderBuilder
 
     @Override
     public ClientCredentialsSecurityProviderBuilder tokenEndpoint(URI uri) {
-        this.tokenEndpoint = Values.notNull(TOKEN_ENDPOINT, uri);
+        this.tokenEndpoint = Values.notNull(TOKEN_ENDPOINT_ARGUMENT_NAME, uri);
         return this;
     }
 
     @Override
     public ClientCredentialsSecurityProviderBuilder credentials(ClientCredentials credentials) {
-        this.credentials = Values.notNull(CREDENTIALS, credentials);
+        this.credentials = Values.notNull(CREDENTIALS_ARGUMENT_NAME, credentials);
         return this;
     }
 
@@ -75,13 +75,13 @@ final class DefaultClientCredentialsSecurityProviderBuilder
 
     @Override
     public ClientCredentialsSecurityProviderBuilder serializer(JsonSerializer serializer) {
-        this.serializer = Values.notNull(SERIALIZER, serializer);
+        this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         return this;
     }
 
     @Override
     public ClientCredentialsSecurityProviderBuilder scope(String... scopes) {
-        StringSequences.notBlank(SCOPES, scopes);
+        StringSequences.notBlank(SCOPES_ARGUMENT_NAME, scopes);
 
         Collections.addAll(this.scopes, scopes);
         return this;
@@ -89,25 +89,25 @@ final class DefaultClientCredentialsSecurityProviderBuilder
 
     @Override
     public ClientCredentialsSecurityProviderBuilder connectTimeout(Duration timeout) {
-        this.connectTimeout = Durations.positive(CONNECT_TIMEOUT, timeout);
+        this.connectTimeout = Durations.positive(CONNECT_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
     @Override
     public ClientCredentialsSecurityProviderBuilder requestTimeout(Duration timeout) {
-        this.requestTimeout = Durations.positive(REQUEST_TIMEOUT, timeout);
+        this.requestTimeout = Durations.positive(REQUEST_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
     @Override
     public ClientCredentialsSecurityProviderBuilder sslContext(SSLContext sslContext) {
-        this.sslContext = Values.notNull(SSL_CONTEXT, sslContext);
+        this.sslContext = Values.notNull(SSL_CONTEXT_ARGUMENT_NAME, sslContext);
         return this;
     }
 
     @Override
     public ClientCredentialsSecurityProviderBuilder eventListener(TokenEventListener listener) {
-        this.eventListener = Values.notNull(EVENT_LISTENER, listener);
+        this.eventListener = Values.notNull(EVENT_LISTENER_ARGUMENT_NAME, listener);
         return this;
     }
 
@@ -119,7 +119,7 @@ final class DefaultClientCredentialsSecurityProviderBuilder
 
     @Override
     public ClientCredentialsSecurityProviderBuilder expiryBuffer(Duration buffer) {
-        this.expiryBuffer = Durations.positive(EXPIRY_BUFFER, buffer);
+        this.expiryBuffer = Durations.positive(EXPIRY_BUFFER_ARGUMENT_NAME, buffer);
         return this;
     }
 

@@ -6,7 +6,7 @@ import software.frisby.core.validation.Values;
  * Package-private implementation of {@link BasicSecurityProviderBuilder}.
  */
 final class DefaultBasicSecurityProviderBuilder implements BasicSecurityProviderBuilder {
-    private static final String CREDENTIALS = "credentials";
+    private static final String CREDENTIALS_ARGUMENT_NAME = "credentials";
 
     private Credentials credentials;
 
@@ -16,7 +16,7 @@ final class DefaultBasicSecurityProviderBuilder implements BasicSecurityProvider
 
     @Override
     public BasicSecurityProviderBuilder credentials(Credentials credentials) {
-        this.credentials = Values.notNull(CREDENTIALS, credentials);
+        this.credentials = Values.notNull(CREDENTIALS_ARGUMENT_NAME, credentials);
         return this;
     }
 
