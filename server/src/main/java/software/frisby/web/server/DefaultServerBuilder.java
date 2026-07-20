@@ -10,12 +10,12 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 final class DefaultServerBuilder implements ServerBuilder {
-    private static final String CONFIGURATION = "configuration";
-    private static final String RESOURCES = "resources";
-    private static final String COMPONENTS = "components";
-    private static final String AUTHENTICATION = "authentication";
-    private static final String EVENT_LISTENER = "eventListener";
-    private static final String HEALTH_CHECK_PATH = "healthCheck.path";
+    private static final String CONFIGURATION_ARGUMENT_NAME = "configuration";
+    private static final String RESOURCES_ARGUMENT_NAME = "resources";
+    private static final String COMPONENTS_ARGUMENT_NAME = "components";
+    private static final String AUTHENTICATION_PROVIDERS_ARGUMENT_NAME = "authentication";
+    private static final String EVENT_LISTENER_ARGUMENT_NAME = "eventListener";
+    private static final String HEALTH_CHECK_PATH_ARGUMENT_NAME = "healthCheck.path";
     private static final String DEFAULT_HEALTH_CHECK_PATH = "/health";
 
     // Maximum character length enforced before the regex runs — prevents ReDoS on
@@ -49,46 +49,46 @@ final class DefaultServerBuilder implements ServerBuilder {
 
     @Override
     public ServerBuilder configuration(ServerConfiguration configuration) {
-        this.configuration = Values.notNull(CONFIGURATION, configuration);
+        this.configuration = Values.notNull(CONFIGURATION_ARGUMENT_NAME, configuration);
         return this;
     }
 
     @Override
     public ServerBuilder resources(Object... resources) {
-        return this.resources(List.of(Sequences.notEmpty(RESOURCES, resources)));
+        return this.resources(List.of(Sequences.notEmpty(RESOURCES_ARGUMENT_NAME, resources)));
     }
 
     @Override
     public ServerBuilder resources(List<Object> resources) {
-        this.resources.addAll(Sequences.notEmpty(RESOURCES, resources));
+        this.resources.addAll(Sequences.notEmpty(RESOURCES_ARGUMENT_NAME, resources));
         return this;
     }
 
     @Override
     public ServerBuilder components(Object... components) {
-        return this.components(List.of(Sequences.notEmpty(COMPONENTS, components)));
+        return this.components(List.of(Sequences.notEmpty(COMPONENTS_ARGUMENT_NAME, components)));
     }
 
     @Override
     public ServerBuilder components(List<Object> components) {
-        this.components.addAll(Sequences.notEmpty(COMPONENTS, components));
+        this.components.addAll(Sequences.notEmpty(COMPONENTS_ARGUMENT_NAME, components));
         return this;
     }
 
     @Override
     public ServerBuilder eventListener(ServerEventListener eventListener) {
-        this.eventListener = Values.notNull(EVENT_LISTENER, eventListener);
+        this.eventListener = Values.notNull(EVENT_LISTENER_ARGUMENT_NAME, eventListener);
         return this;
     }
 
     @Override
     public ServerBuilder authentication(AuthenticationProvider... providers) {
-        return this.authentication(List.of(Sequences.notEmpty(AUTHENTICATION, providers)));
+        return this.authentication(List.of(Sequences.notEmpty(AUTHENTICATION_PROVIDERS_ARGUMENT_NAME, providers)));
     }
 
     @Override
     public ServerBuilder authentication(List<AuthenticationProvider> providers) {
-        this.authenticationProviders.addAll(Sequences.notEmpty(AUTHENTICATION, providers));
+        this.authenticationProviders.addAll(Sequences.notEmpty(AUTHENTICATION_PROVIDERS_ARGUMENT_NAME, providers));
         return this;
     }
 
@@ -100,7 +100,7 @@ final class DefaultServerBuilder implements ServerBuilder {
 
     @Override
     public ServerBuilder healthCheck(String path) {
-        this.healthCheckPath = Strings.notBlankWithMaxLengthAndMatches(HEALTH_CHECK_PATH, path, MAX_PATH_LENGTH, VALID_PATH_PATTERN);
+        this.healthCheckPath = Strings.notBlankWithMaxLengthAndMatches(HEALTH_CHECK_PATH_ARGUMENT_NAME, path, MAX_PATH_LENGTH, VALID_PATH_PATTERN);
         return this;
     }
 

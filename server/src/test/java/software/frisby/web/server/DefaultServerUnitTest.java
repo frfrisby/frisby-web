@@ -51,6 +51,7 @@ class DefaultServerUnitTest {
     @Nested
     class SerializeEntityForLog {
         private static final Method METHOD = resolveMethod(
+                ServerRequestEventListener.class,
                 "serializeEntityForLog",
                 Object.class,
                 JsonSerializer.class
@@ -98,7 +99,7 @@ class DefaultServerUnitTest {
     @Nested
     class UnwrapJerseyException {
         private static final Method METHOD = resolveMethod(
-                resolveNestedClass("ServerRequestEventListener"),
+                ServerRequestEventListener.class,
                 "unwrapJerseyException",
                 Throwable.class
         );
@@ -135,6 +136,7 @@ class DefaultServerUnitTest {
     @Nested
     class IsTextBody {
         private static final Method METHOD = resolveMethod(
+                ServerRequestEventListener.class,
                 "isTextBody",
                 MediaType.class
         );

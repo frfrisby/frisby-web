@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
  * which layer intercepts the request.
  */
 final class LogDetail {
+    private static final String REDACTED = "[redacted]";
+
     private LogDetail() {
     }
 
@@ -58,13 +60,13 @@ final class LogDetail {
 
                 int eq = trimmed.indexOf('=');
                 String formatted = eq > 0
-                        ? trimmed.substring(0, eq + 1) + "[redacted]"
+                        ? trimmed.substring(0, eq + 1) + REDACTED
                         : trimmed;
 
                 sb.append("\n    ").append(name).append(": ").append(formatted);
             }
         } else {
-            String v = masked.contains(lowerName) ? "[redacted]" : value;
+            String v = masked.contains(lowerName) ? REDACTED : value;
             sb.append("\n    ").append(name).append(": ").append(v);
         }
     }
@@ -87,7 +89,7 @@ final class LogDetail {
      */
     static String redactSetCookieHeader(String value) {
         if (null == value || value.isBlank()) {
-            return "[redacted]";
+            return REDACTED;
         }
 
         // The first segment (before the first ';') is name=value.
@@ -99,10 +101,10 @@ final class LogDetail {
         int eq = cookiePair.indexOf('=');
 
         if (eq > 0) {
-            return cookiePair.substring(0, eq + 1) + "[redacted]" + attributes;
+            return cookiePair.substring(0, eq + 1) + REDACTED + attributes;
         }
 
-        return "[redacted]" + attributes;
+        return REDACTED + attributes;
     }
 
     // -------------------------------------------------------------------------

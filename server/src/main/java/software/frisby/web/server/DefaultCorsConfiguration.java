@@ -5,6 +5,7 @@ import software.frisby.core.validation.Values;
 
 import java.util.List;
 
+@SuppressWarnings("java:S6206") // intentionally a class — consistent with all other Default* implementations; constructor validation + List.copyOf() is cleaner than a compact record constructor
 final class DefaultCorsConfiguration implements CorsConfiguration {
     private final List<String> allowedOrigins;
     private final List<String> allowedMethods;

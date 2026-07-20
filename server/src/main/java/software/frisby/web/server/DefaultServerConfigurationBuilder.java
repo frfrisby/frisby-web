@@ -14,16 +14,16 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
     private static final String DEFAULT_HOST = "0.0.0.0";
     private static final long DEFAULT_MAX_REQUEST_SIZE = 4L * 1024L * 1024L;
 
-    private static final String PORT = "port";
-    private static final String HOST = "host";
-    private static final String MAX_REQUEST_SIZE = "maxRequestSize";
-    private static final String SERIALIZER = "serializer";
-    private static final String SSL_CONTEXT = "sslContext";
-    private static final String CORS = "cors";
-    private static final String LOGGING = "logging";
-    private static final String MAX_CONCURRENT_REQUESTS = "maxConcurrentRequests";
-    private static final String EXECUTOR = "executor";
-    private static final String STOP_TIMEOUT = "stopTimeout";
+    private static final String PORT_ARGUMENT_NAME = "port";
+    private static final String HOST_ARGUMENT_NAME = "host";
+    private static final String MAX_REQUEST_SIZE_ARGUMENT_NAME = "maxRequestSize";
+    private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
+    private static final String SSL_CONTEXT_ARGUMENT_NAME = "sslContext";
+    private static final String CORS_ARGUMENT_NAME = "cors";
+    private static final String LOGGING_ARGUMENT_NAME = "logging";
+    private static final String MAX_CONCURRENT_REQUESTS_ARGUMENT_NAME = "maxConcurrentRequests";
+    private static final String EXECUTOR_ARGUMENT_NAME = "executor";
+    private static final String STOP_TIMEOUT_ARGUMENT_NAME = "timeout";
 
     private static final String HTTP2_WITHOUT_SSL_MESSAGE =
             "http2() requires ssl() to also be configured — HTTP/2 is only supported over TLS (h2).  "
@@ -59,37 +59,37 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
 
     @Override
     public ServerConfigurationBuilder port(int port) {
-        this.port = Numbers.range(PORT, port, 0, 65535);
+        this.port = Numbers.range(PORT_ARGUMENT_NAME, port, 0, 65535);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder host(String host) {
-        this.host = Strings.notBlank(HOST, host);
+        this.host = Strings.notBlank(HOST_ARGUMENT_NAME, host);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder maxRequestSize(long maxRequestSize) {
-        this.maxRequestSize = Numbers.positive(MAX_REQUEST_SIZE, maxRequestSize);
+        this.maxRequestSize = Numbers.positive(MAX_REQUEST_SIZE_ARGUMENT_NAME, maxRequestSize);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder serializer(JsonSerializer serializer) {
-        this.serializer = Values.notNull(SERIALIZER, serializer);
+        this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder ssl(SSLContext sslContext) {
-        this.sslContext = Values.notNull(SSL_CONTEXT, sslContext);
+        this.sslContext = Values.notNull(SSL_CONTEXT_ARGUMENT_NAME, sslContext);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder cors(CorsConfiguration cors) {
-        this.cors = Values.notNull(CORS, cors);
+        this.cors = Values.notNull(CORS_ARGUMENT_NAME, cors);
         return this;
     }
 
@@ -107,25 +107,25 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
 
     @Override
     public ServerConfigurationBuilder logging(ServerLoggingConfiguration logging) {
-        this.logging = Values.notNull(LOGGING, logging);
+        this.logging = Values.notNull(LOGGING_ARGUMENT_NAME, logging);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder maxConcurrentRequests(int maxConcurrentRequests) {
-        this.maxConcurrentRequests = Numbers.positive(MAX_CONCURRENT_REQUESTS, maxConcurrentRequests);
+        this.maxConcurrentRequests = Numbers.positive(MAX_CONCURRENT_REQUESTS_ARGUMENT_NAME, maxConcurrentRequests);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder executor(Executor executor) {
-        this.executor = Values.notNull(EXECUTOR, executor);
+        this.executor = Values.notNull(EXECUTOR_ARGUMENT_NAME, executor);
         return this;
     }
 
     @Override
     public ServerConfigurationBuilder stopTimeout(Duration timeout) {
-        Durations.positive(STOP_TIMEOUT, timeout);
+        Durations.positive(STOP_TIMEOUT_ARGUMENT_NAME, timeout);
         this.stopTimeout = timeout;
         return this;
     }

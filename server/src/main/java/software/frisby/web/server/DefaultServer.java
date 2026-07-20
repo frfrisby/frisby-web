@@ -4,10 +4,8 @@ import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
-import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.PreMatching;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpHeader;
@@ -24,7 +22,6 @@ import org.glassfish.jersey.message.GZipEncoder;
 import org.glassfish.jersey.process.Inflector;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.ServerProperties;
-import org.glassfish.jersey.server.internal.process.MappableException;
 import org.glassfish.jersey.server.model.Resource;
 import org.glassfish.jersey.server.monitoring.ApplicationEvent;
 import org.glassfish.jersey.server.monitoring.ApplicationEventListener;
@@ -48,7 +45,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 
 /**
  * Jersey + Jetty 12 implementation of {@link Server}.
@@ -83,13 +79,6 @@ final class DefaultServer implements Server {
      */
     private static final int JETTY_INFRASTRUCTURE_THREADS = 4;
 
-    /**
-     * Request context property key under which {@link RequestBodyBufferingFilter} stores
-     * the first {@code maxLogBodySize} bytes of the request body as a {@code byte[]}.
-     * Read by {@link ServerRequestEventListener} when building failure log detail.
-     */
-    private static final String BUFFERED_BODY_KEY =
-            "software.frisby.web.server.DefaultServer.requestBody";
     private static final String HTTP_1_1 = "http/1.1";
 
     private final Object syncRoot = new Object();
@@ -135,83 +124,8 @@ final class DefaultServer implements Server {
         this.port = configuration.port();
     }
 
-    /**
-     * Converts a response entity to a loggable string.
-     * <ul>
-     *   <li>{@code String} entities are returned as-is.</li>
-     *   <li>{@code InputStream} entities return {@code null} — they are binary or streaming
-     *       and cannot be safely re-read after the response has been written.</li>
-     *   <li>All other entities are serialized via {@code serializer}; if serialization
-     *       fails the entity's simple class name is returned in brackets.</li>
-     * </ul>
-     *
-     * @return A loggable string, or {@code null} if the entity should not be logged.
-     */
-    private static String serializeEntityForLog(Object entity, software.frisby.web.serial.JsonSerializer serializer) {
-        if (null == entity) {
-            return null;
-        }
-
-        if (entity instanceof String s) {
-            return s;
-        }
-
-        if (entity instanceof InputStream) {
-            // Binary or streaming — cannot be re-read; skip silently.
-            return null;
-        }
-
-        try {
-            return new String(serializer.serialize(entity), StandardCharsets.UTF_8);
-        } catch (Exception ex) {
-            return "[" + entity.getClass().getSimpleName() + "]";
-        }
-    }
-
-    /**
-     * Returns {@code true} for content types that are safe to buffer and display as
-     * UTF-8 text in failure logs.
-     * <p>
-     * Whitelisted families:
-     * <ul>
-     *   <li>{@code text/*} — any text type</li>
-     *   <li>{@code application/json}, {@code application/*+json}</li>
-     *   <li>{@code application/xml}, {@code application/*+xml}</li>
-     *   <li>{@code application/x-www-form-urlencoded}</li>
-     *   <li>{@code application/graphql}</li>
-     * </ul>
-     * Everything else — {@code application/octet-stream}, {@code image/*},
-     * {@code audio/*}, {@code video/*}, etc. — is treated as binary and not buffered.
-     * A {@code null} media type returns {@code true} so that requests without a
-     * {@code Content-Type} header are buffered optimistically (they typically have no
-     * body and the buffer remains empty).
-     */
-    private static boolean isTextBody(MediaType mediaType) {
-        if (null == mediaType) {
-            return true;
-        }
-
-        String type = mediaType.getType().toLowerCase(Locale.ROOT);
-        String subtype = mediaType.getSubtype().toLowerCase(Locale.ROOT);
-
-        if ("text".equals(type)) {
-            return true;
-        }
-
-        if ("application".equals(type)) {
-            return "json".equals(subtype)
-                    || subtype.endsWith("+json")
-                    || "xml".equals(subtype)
-                    || subtype.endsWith("+xml")
-                    || "x-www-form-urlencoded".equals(subtype)
-                    || "graphql".equals(subtype);
-        }
-
-        return false;
-    }
-
     // -------------------------------------------------------------------------
-    // Private helpers
+    // Server interface — port, uri, configuration, lifecycle
     // -------------------------------------------------------------------------
 
     @Override
@@ -231,9 +145,6 @@ final class DefaultServer implements Server {
         return configuration;
     }
 
-    // -------------------------------------------------------------------------
-    // Failure-log detail builders (shared by ServerRequestEventListener)
-    // -------------------------------------------------------------------------
 
     @Override
     public boolean isRunning() {
@@ -864,304 +775,6 @@ final class DefaultServer implements Server {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Jersey RequestEventListener — fires per-request at FINISHED
-    // -------------------------------------------------------------------------
-
-    private static final class ServerRequestEventListener implements RequestEventListener {
-        private final ServerConfiguration configuration;
-        private final ServerEventListener eventListener;
-        private final RequestLogger requestLogger;
-        private final String healthCheckPath;
-        private final StopWatch watch;
-
-        // Captured at ON_EXCEPTION — the FINISHED event clears its exception field once
-        // an ExceptionMapper has successfully produced a response, so we must preserve
-        // the original throwable here for inclusion in the 5xx failure log.
-        private Throwable requestException;
-
-        private ServerRequestEventListener(ServerConfiguration configuration,
-                                           ServerEventListener eventListener,
-                                           RequestLogger requestLogger,
-                                           String healthCheckPath) {
-            this.configuration = configuration;
-            this.eventListener = eventListener;
-            this.requestLogger = requestLogger;
-            this.healthCheckPath = healthCheckPath;
-            this.watch = StopWatch.start();
-            this.requestException = null;
-        }
-
-        /**
-         * Unwraps Jersey's internal {@link MappableException} to expose the original exception
-         * thrown by application code.
-         * <p>
-         * When a resource method throws any exception, Jersey wraps it in a
-         * {@link MappableException} before the exception-mapper lookup phase.  That wrapper
-         * is what appears on the {@code ON_EXCEPTION} event.  Unwrapping it here means the
-         * original application exception — with its real type and message — is what gets
-         * attached to the log record.
-         *
-         * @return The cause of {@code cause} if it is a {@link MappableException}; otherwise
-         * {@code cause} unchanged.
-         */
-        private static Throwable unwrapJerseyException(Throwable cause) {
-            if (null == cause) {
-                return null;
-            }
-
-            if (cause instanceof MappableException) {
-                return cause.getCause();
-            }
-
-            return cause;
-        }
-
-        private static String formatRequestHeaders(MultivaluedMap<String, String> headers,
-                                                   Set<String> masked) {
-
-            StringBuilder sb = new StringBuilder();
-
-            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-                String name = entry.getKey();
-                String lowerName = name.toLowerCase(Locale.ROOT);
-
-                if (masked.contains(lowerName) && "cookie".equals(lowerName)) {
-                    // Each Cookie header value may contain multiple cookies separated by ';'.
-                    // Iterate the value list and delegate to LogDetail for per-cookie handling.
-                    for (String cookieValue : entry.getValue()) {
-                        LogDetail.appendRequestHeader(sb, name, cookieValue, masked);
-                    }
-                } else {
-                    LogDetail.appendRequestHeader(sb, name, String.join(", ", entry.getValue()), masked);
-                }
-            }
-
-            return sb.toString();
-        }
-
-        private static String formatResponseHeaders(MultivaluedMap<String, Object> headers,
-                                                    Set<String> masked) {
-
-            StringBuilder sb = new StringBuilder();
-
-            for (Map.Entry<String, List<Object>> entry : headers.entrySet()) {
-                String name = entry.getKey();
-                String lowerName = name.toLowerCase(Locale.ROOT);
-
-                if (masked.contains(lowerName) && "set-cookie".equals(lowerName)) {
-                    // Each Set-Cookie value is an independent cookie — render one line per
-                    // value so attributes remain readable, with the value redacted.
-                    for (Object cookieValue : entry.getValue()) {
-                        sb.append("\n    ").append(name).append(": ")
-                                .append(LogDetail.redactSetCookieHeader(cookieValue.toString()));
-                    }
-                } else {
-                    String value = masked.contains(lowerName)
-                            ? "[redacted]"
-                            : entry.getValue().stream()
-                            .map(Object::toString)
-                            .collect(Collectors.joining(", "));
-
-                    sb.append("\n    ").append(name).append(": ").append(value);
-                }
-            }
-
-            return sb.toString();
-        }
-
-        /**
-         * Builds a multi-line detail string for log entries, including masked
-         * request headers, optionally redacted request body, response headers,
-         * and optionally redacted response body.
-         * <p>
-         * Used for both {@code TRACE}-level success entries and {@code WARNING}/{@code ERROR}
-         * failure entries.
-         *
-         * @param request  The JAX-RS container request context.
-         * @param response The JAX-RS container response context; {@code null} for
-         *                 exception failures where no response was produced.
-         * @param config   The server configuration carrying masking/redaction settings.
-         * @return A multi-line detail string (starts with {@code \n}); never {@code null}.
-         */
-        private static String buildDetail(ContainerRequestContext request,
-                                          ContainerResponseContext response,
-                                          ServerConfiguration config) {
-            StringBuilder sb = new StringBuilder();
-
-            Set<String> maskedHeaders = config.logging().redactedHeaders();
-            Set<String> redactedFields = config.logging().redactedBodyFields();
-            int maxBodySize = config.logging().maxBodySize();
-
-            // Request headers
-            sb.append("\n  Request Headers:").append(formatRequestHeaders(
-                    request.getHeaders(),
-                    maskedHeaders
-            ));
-
-            // Request body — only logged when maxBodySize > 0; mirroring the response body size guard.
-            // Multipart and binary bodies are not buffered; all text-based bodies are buffered
-            // by RequestBodyBufferingFilter up to maxBodySize bytes.
-            if (0 < maxBodySize) {
-                MediaType mediaType = request.getMediaType();
-                boolean isMultipart = null != mediaType && "multipart".equals(mediaType.getType());
-                boolean isBinaryBody = null != mediaType && !isMultipart && !isTextBody(mediaType);
-                boolean isFormEncoded = null != mediaType
-                        && MediaType.APPLICATION_FORM_URLENCODED_TYPE.isCompatible(mediaType);
-
-                if (isMultipart || isBinaryBody) {
-                    sb.append("\n  Request Body:\n    [")
-                            .append(mediaType.getType()).append("/").append(mediaType.getSubtype())
-                            .append(" — body not logged]");
-                } else {
-                    byte[] bufferedBody = (byte[]) request.getProperty(BUFFERED_BODY_KEY);
-
-                    if (null != bufferedBody) {
-                        String body = new String(bufferedBody, StandardCharsets.UTF_8);
-
-                        if (!redactedFields.isEmpty()) {
-                            body = isFormEncoded
-                                    ? LogDetail.redactFormValues(body, redactedFields)
-                                    : LogDetail.redactFieldValues(body, redactedFields);
-                        }
-
-                        sb.append("\n  Request Body:\n    ").append(body);
-
-                        if (bufferedBody.length >= maxBodySize) {
-                            sb.append(" [truncated at ").append(maxBodySize).append(" bytes]");
-                        }
-                    }
-                }
-            }
-
-            // Response headers + body
-            MultivaluedMap<String, Object> responseHeaders = response.getHeaders();
-
-            if (!responseHeaders.isEmpty()) {
-                sb.append("\n  Response Headers:").append(formatResponseHeaders(
-                        responseHeaders,
-                        maskedHeaders
-                ));
-            }
-
-            if (0 < maxBodySize) {
-                String responseBody = serializeEntityForLog(response.getEntity(), config.serializer());
-
-                if (null != responseBody && !responseBody.isBlank()) {
-                    if (!redactedFields.isEmpty()) {
-                        responseBody = LogDetail.redactFieldValues(responseBody, redactedFields);
-                    }
-
-                    if (responseBody.length() > maxBodySize) {
-                        responseBody = responseBody.substring(0, maxBodySize)
-                                + " [truncated at " + maxBodySize + " bytes]";
-                    }
-
-                    sb.append("\n  Response Body:\n    ").append(responseBody);
-                }
-            }
-
-            return sb.toString();
-        }
-
-        @Override
-        public void onEvent(RequestEvent event) {
-            // Capture the exception as early as possible.  Jersey clears getException()
-            // on the FINISHED event once an ExceptionMapper has produced a response, so
-            // we record it here before the mapping phase runs.
-            //
-            // Jersey wraps resource-method exceptions in an internal MappableException,
-            // unwrap it so that the original application exception appears in the log.
-            if (event.getType() == RequestEvent.Type.ON_EXCEPTION) {
-                requestException = unwrapJerseyException(event.getException());
-            }
-
-            if (event.getType() != RequestEvent.Type.FINISHED) {
-                return;
-            }
-
-            watch.stop();
-
-            Duration latency = watch.duration();
-            String method = event.getContainerRequest().getMethod();
-            String path = event.getContainerRequest().getUriInfo().getRequestUri().getPath();
-            long requestBytes = Math.max(0L, event.getContainerRequest().getLength());
-
-            boolean isHealthCheck = path.equals(healthCheckPath);
-
-            ContainerResponseContext containerResponse = Values.notNull(
-                    "containerResponse",
-                    event.getContainerResponse()
-            );
-
-            int statusCode = containerResponse.getStatus();
-            long responseBytes = Math.max(0L, containerResponse.getLength());
-
-            if (isHealthCheck) {
-                requestLogger.logHealthCheck(method, path, statusCode, latency.toMillis());
-            } else {
-                RequestCompletedEvent requestCompletedEvent = new RequestCompletedEvent(
-                        method,
-                        path,
-                        statusCode,
-                        latency,
-                        requestBytes,
-                        responseBytes
-                );
-
-                String detail = "";
-                if (statusCode < 400) {
-                    // 2xx / 3xx — full detail at TRACE; one-liner at INFO.
-
-                    if (requestLogger.isTraceLoggable()) {
-                        detail = buildDetail(
-                                event.getContainerRequest(),
-                                containerResponse,
-                                configuration
-                        );
-                    }
-
-                    requestLogger.logRequest(method, path, statusCode, latency.toMillis(), detail);
-                } else {
-                    // 4xx → WARNING; 5xx + WAE → WARNING; 5xx + uncaught exception → ERROR.
-                    // Include request context detail only when the corresponding log level
-                    // is actually enabled.
-                    if (requestLogger.isDetailLoggable(statusCode, requestException)) {
-                        detail = buildDetail(
-                                event.getContainerRequest(),
-                                containerResponse,
-                                configuration
-                        );
-                    }
-
-                    requestLogger.logFailureDetail(
-                            method,
-                            path,
-                            statusCode,
-                            latency.toMillis(),
-                            detail,
-                            requestException
-                    );
-                }
-
-                fireRequestCompleted(requestCompletedEvent);
-            }
-        }
-
-        private void fireRequestCompleted(RequestCompletedEvent event) {
-            try {
-                eventListener.onRequestCompleted(event);
-            } catch (Exception ex) {
-                if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "ServerEventListener.onRequestCompleted threw an exception.",
-                            ex
-                    );
-                }
-            }
-        }
-    }
 
     // -------------------------------------------------------------------------
     // Request body buffering filter — always registered; re-wraps entity stream
@@ -1169,7 +782,7 @@ final class DefaultServer implements Server {
 
     /**
      * Reads up to {@code maxLogBodySize} bytes from the incoming request entity stream
-     * and stores them as a {@code byte[]} under {@link #BUFFERED_BODY_KEY} in the request
+     * and stores them as a {@code byte[]} under {@link ServerRequestEventListener#BUFFERED_BODY_KEY} in the request
      * context.  The entity stream is re-wrapped with a {@link SequenceInputStream} so that
      * downstream filters and resource methods receive the complete, unmodified body.
      * <p>
@@ -1177,7 +790,7 @@ final class DefaultServer implements Server {
      * {@code application/*+json}, {@code application/xml}, {@code application/*+xml}, and
      * {@code application/x-www-form-urlencoded}.  Multipart and binary bodies
      * ({@code application/octet-stream}, {@code image/*}, {@code audio/*}, {@code video/*},
-     * etc.) are skipped; {@link DefaultServer#buildDetail} renders a placeholder for them.
+     * etc.) are skipped; {@code buildDetail} in {@link ServerRequestEventListener} renders a placeholder for them.
      * Requests with no {@code Content-Type} header are buffered optimistically since they
      * typically carry no body.
      * <p>
@@ -1210,7 +823,7 @@ final class DefaultServer implements Server {
             // Non-text binary bodies (octet-stream, image/*, audio/*, video/*, etc.) —
             // skip buffering; buildDetail renders a placeholder.  isTextBody treats null
             // as text-safe so that requests without a Content-Type are still buffered.
-            if (!isTextBody(mediaType)) {
+            if (!ServerRequestEventListener.isTextBody(mediaType)) {
                 return;
             }
 
@@ -1232,7 +845,7 @@ final class DefaultServer implements Server {
             if (0 < bytesRead) {
                 byte[] captured = Arrays.copyOf(buffer, bytesRead);
 
-                requestContext.setProperty(BUFFERED_BODY_KEY, captured);
+                requestContext.setProperty(ServerRequestEventListener.BUFFERED_BODY_KEY, captured);
 
                 requestContext.setEntityStream(
                         new SequenceInputStream(new ByteArrayInputStream(captured), entityStream)

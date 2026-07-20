@@ -91,6 +91,7 @@ final class JsonErrorHandler extends ErrorHandler {
         try {
             requestBytes = Math.max(0L, request.getHeaders().getLongField(HttpHeader.CONTENT_LENGTH));
         } catch (NumberFormatException ignored) {
+            // Malformed Content-Length header — not a real HTTP client concern; leave requestBytes at 0.
         }
 
         try {
@@ -144,6 +145,7 @@ final class JsonErrorHandler extends ErrorHandler {
         try {
             contentLength = request.getHeaders().getLongField(HttpHeader.CONTENT_LENGTH);
         } catch (NumberFormatException ignored) {
+            // Malformed Content-Length header — report -1 so the rejected-bytes note is omitted.
         }
 
         // SizeLimitHandler only calls JsonErrorHandler for requests with a known
