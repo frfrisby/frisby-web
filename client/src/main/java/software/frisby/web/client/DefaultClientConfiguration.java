@@ -34,7 +34,8 @@ final class DefaultClientConfiguration implements ClientConfiguration {
     private final Executor executor;
     private final ClientLoggingConfiguration logging;
 
-    @SuppressWarnings("java:S107") // all parameters are required — this class is the product of DefaultConfigurationBuilder
+    @SuppressWarnings("java:S107")
+        // all parameters are required — this class is the product of DefaultConfigurationBuilder
     DefaultClientConfiguration(URI uri,
                                Duration connectTimeout,
                                Duration readTimeout,
