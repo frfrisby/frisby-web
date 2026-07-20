@@ -87,12 +87,7 @@ final class JsonErrorHandler extends ErrorHandler {
 
         // Fire event so that metrics backends see Jetty-level rejections alongside all other
         // responses.  Content-Length may be absent for chunked transfers; report 0 in that case.
-        long requestBytes = 0L;
-        try {
-            requestBytes = Math.max(0L, request.getHeaders().getLongField(HttpHeader.CONTENT_LENGTH));
-        } catch (NumberFormatException ignored) {
-            // Malformed Content-Length header — not a real HTTP client concern; leave requestBytes at 0.
-        }
+        long requestBytes = HttpFieldParser.getLongOrDefault(request.getHeaders(), HttpHeader.CONTENT_LENGTH, 0L);
 
         try {
             eventListener.onRequestCompleted(new RequestCompletedEvent(
@@ -141,12 +136,9 @@ final class JsonErrorHandler extends ErrorHandler {
         // The request body was rejected by SizeLimitHandler before it could be read —
         // there is nothing to buffer or redact.  Reporting the Content-Length lets the
         // operator see how large the rejected payload was relative to the configured limit.
-        long contentLength = -1L;
-        try {
-            contentLength = request.getHeaders().getLongField(HttpHeader.CONTENT_LENGTH);
-        } catch (NumberFormatException ignored) {
-            // Malformed Content-Length header — report -1 so the rejected-bytes note is omitted.
-        }
+        // A value of -1 means the header was absent or malformed — the note is still
+        // rendered so the operator can see that no size information was available.
+        long contentLength = HttpFieldParser.getLongOrDefault(request.getHeaders(), HttpHeader.CONTENT_LENGTH, -1L);
 
         // SizeLimitHandler only calls JsonErrorHandler for requests with a known
         // Content-Length (it rejects before Jersey when the header is present).

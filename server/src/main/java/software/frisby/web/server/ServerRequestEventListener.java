@@ -356,7 +356,7 @@ final class ServerRequestEventListener implements RequestEventListener {
         // on the FINISHED event once an ExceptionMapper has produced a response, so
         // we record it here before the mapping phase runs.
         //
-        // Jersey wraps resource-method exceptions in an internal MappableException;
+        // Jersey wraps resource-method exceptions in an internal MappableException
         // unwrap it so that the original application exception appears in the log.
         if (event.getType() == RequestEvent.Type.ON_EXCEPTION) {
             requestException = unwrapJerseyException(event.getException());

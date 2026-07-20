@@ -31,7 +31,6 @@ import software.frisby.core.util.StopWatch;
 import software.frisby.core.validation.Sequences;
 import software.frisby.core.validation.Strings;
 import software.frisby.core.validation.Values;
-import software.frisby.web.server.event.RequestCompletedEvent;
 import software.frisby.web.server.event.ServerEventListener;
 
 import javax.net.ssl.SSLContext;
