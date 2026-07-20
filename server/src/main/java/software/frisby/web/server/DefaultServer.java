@@ -24,6 +24,7 @@ import org.glassfish.jersey.message.GZipEncoder;
 import org.glassfish.jersey.process.Inflector;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.ServerProperties;
+import org.glassfish.jersey.server.internal.process.MappableException;
 import org.glassfish.jersey.server.model.Resource;
 import org.glassfish.jersey.server.monitoring.ApplicationEvent;
 import org.glassfish.jersey.server.monitoring.ApplicationEventListener;
@@ -110,7 +111,7 @@ final class DefaultServer implements Server {
     private volatile int port;
 
     // Written inside syncRoot during start() and stop(); only ever accessed under the lock.
-    private volatile Semaphore concurrencyLimitSemaphore;
+    private Semaphore concurrencyLimitSemaphore;
 
     DefaultServer(ServerConfiguration configuration,
                   List<Object> resources,
@@ -132,153 +133,6 @@ final class DefaultServer implements Server {
         this.jettyServer = null;
         this.concurrencyLimitSemaphore = null;
         this.port = configuration.port();
-    }
-
-    /**
-     * Builds a multi-line detail string for log entries, including masked
-     * request headers, optionally redacted request body, response headers,
-     * and optionally redacted response body.
-     * <p>
-     * Used for both {@code TRACE}-level success entries and {@code WARNING}/{@code ERROR}
-     * failure entries.
-     *
-     * @param request  The JAX-RS container request context.
-     * @param response The JAX-RS container response context; {@code null} for
-     *                 exception failures where no response was produced.
-     * @param config   The server configuration carrying masking/redaction settings.
-     * @return A multi-line detail string (starts with {@code \n}); never {@code null}.
-     */
-    private static String buildDetail(ContainerRequestContext request,
-                                      ContainerResponseContext response,
-                                      ServerConfiguration config) {
-        StringBuilder sb = new StringBuilder();
-
-        Set<String> maskedHeaders = config.logging().redactedHeaders();
-        Set<String> redactedFields = config.logging().redactedBodyFields();
-        int maxBodySize = config.logging().maxBodySize();
-
-        // Request headers
-        sb.append("\n  Request Headers:").append(formatRequestHeaders(
-                request.getHeaders(),
-                maskedHeaders
-        ));
-
-        // Request body — only logged when maxBodySize > 0; mirroring the response body size guard.
-        // Multipart and binary bodies are not buffered; all text-based bodies are buffered
-        // by RequestBodyBufferingFilter up to maxBodySize bytes.
-        if (0 < maxBodySize) {
-            MediaType mediaType = request.getMediaType();
-            boolean isMultipart = null != mediaType && "multipart".equals(mediaType.getType());
-            boolean isBinaryBody = null != mediaType && !isMultipart && !isTextBody(mediaType);
-            boolean isFormEncoded = null != mediaType
-                    && MediaType.APPLICATION_FORM_URLENCODED_TYPE.isCompatible(mediaType);
-
-            if (isMultipart || isBinaryBody) {
-                sb.append("\n  Request Body:\n    [")
-                        .append(mediaType.getType()).append("/").append(mediaType.getSubtype())
-                        .append(" — body not logged]");
-            } else {
-                byte[] bufferedBody = (byte[]) request.getProperty(BUFFERED_BODY_KEY);
-
-                if (null != bufferedBody) {
-                    String body = new String(bufferedBody, StandardCharsets.UTF_8);
-
-                    if (!redactedFields.isEmpty()) {
-                        body = isFormEncoded
-                                ? LogDetail.redactFormValues(body, redactedFields)
-                                : LogDetail.redactFieldValues(body, redactedFields);
-                    }
-
-                    sb.append("\n  Request Body:\n    ").append(body);
-
-                    if (bufferedBody.length >= maxBodySize) {
-                        sb.append(" [truncated at ").append(maxBodySize).append(" bytes]");
-                    }
-                }
-            }
-        }
-
-        // Response headers + body
-        MultivaluedMap<String, Object> responseHeaders = response.getHeaders();
-
-        if (!responseHeaders.isEmpty()) {
-            sb.append("\n  Response Headers:").append(formatResponseHeaders(
-                    responseHeaders,
-                    maskedHeaders
-            ));
-        }
-
-        if (0 < maxBodySize) {
-            String responseBody = serializeEntityForLog(response.getEntity(), config.serializer());
-
-            if (null != responseBody && !responseBody.isBlank()) {
-                if (!redactedFields.isEmpty()) {
-                    responseBody = LogDetail.redactFieldValues(responseBody, redactedFields);
-                }
-
-                if (responseBody.length() > maxBodySize) {
-                    responseBody = responseBody.substring(0, maxBodySize)
-                            + " [truncated at " + maxBodySize + " bytes]";
-                }
-
-                sb.append("\n  Response Body:\n    ").append(responseBody);
-            }
-        }
-
-        return sb.toString();
-    }
-
-    private static String formatRequestHeaders(MultivaluedMap<String, String> headers,
-                                               Set<String> masked) {
-
-        StringBuilder sb = new StringBuilder();
-
-        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            String name = entry.getKey();
-            String lowerName = name.toLowerCase(Locale.ROOT);
-
-            if (masked.contains(lowerName) && "cookie".equals(lowerName)) {
-                // Each Cookie header value may contain multiple cookies separated by ';'.
-                // Iterate the value list and delegate to LogDetail for per-cookie handling.
-                for (String cookieValue : entry.getValue()) {
-                    LogDetail.appendRequestHeader(sb, name, cookieValue, masked);
-                }
-            } else {
-                LogDetail.appendRequestHeader(sb, name, String.join(", ", entry.getValue()), masked);
-            }
-        }
-
-        return sb.toString();
-    }
-
-    private static String formatResponseHeaders(MultivaluedMap<String, Object> headers,
-                                                Set<String> masked) {
-
-        StringBuilder sb = new StringBuilder();
-
-        for (Map.Entry<String, List<Object>> entry : headers.entrySet()) {
-            String name = entry.getKey();
-            String lowerName = name.toLowerCase(Locale.ROOT);
-
-            if (masked.contains(lowerName) && "set-cookie".equals(lowerName)) {
-                // Each Set-Cookie value is an independent cookie — render one line per
-                // value so attributes remain readable, with the value redacted.
-                for (Object cookieValue : entry.getValue()) {
-                    sb.append("\n    ").append(name).append(": ")
-                            .append(LogDetail.redactSetCookieHeader(cookieValue.toString()));
-                }
-            } else {
-                String value = masked.contains(lowerName)
-                        ? "[redacted]"
-                        : entry.getValue().stream()
-                        .map(Object::toString)
-                        .collect(Collectors.joining(", "));
-
-                sb.append("\n    ").append(name).append(": ").append(value);
-            }
-        }
-
-        return sb.toString();
     }
 
     /**
@@ -312,32 +166,6 @@ final class DefaultServer implements Server {
         } catch (Exception ex) {
             return "[" + entity.getClass().getSimpleName() + "]";
         }
-    }
-
-    /**
-     * Unwraps Jersey's internal {@code MappableException} to expose the original exception
-     * thrown by application code.
-     * <p>
-     * When a resource method throws any exception, Jersey wraps it in a
-     * {@code MappableException} before the exception-mapper lookup phase.  That wrapper
-     * is what appears on the {@code ON_EXCEPTION} event.  Unwrapping it here means the
-     * original application exception — with its real type and message — is what gets
-     * attached to the log record.
-     *
-     * @return The cause of {@code cause} if it is a {@code MappableException}; otherwise
-     * {@code cause} unchanged.
-     */
-    private static Throwable unwrapJerseyException(Throwable cause) {
-        if (null == cause) {
-            return null;
-        }
-
-        if ("org.glassfish.jersey.server.internal.process.MappableException"
-                .equals(cause.getClass().getName())) {
-            return cause.getCause();
-        }
-
-        return cause;
     }
 
     /**
@@ -465,6 +293,7 @@ final class DefaultServer implements Server {
     }
 
     @Override
+    @SuppressWarnings("java:S899") // best-effort drain — server stops regardless of whether all permits were returned
     public void stop() {
         synchronized (syncRoot) {
             if (null == jettyServer) {
@@ -619,9 +448,7 @@ final class DefaultServer implements Server {
         // CORS support — only registered when explicitly configured via ServerConfigurationBuilder.cors().
         // CorsFilter is @PreMatching so preflight OPTIONS requests are handled before URI matching
         // and before authentication filters, which is the correct per-spec order.
-        if (configuration.cors().isPresent()) {
-            rc.registerInstances(new CorsFilter(configuration.cors().get()));
-        }
+        configuration.cors().ifPresent(corsConfiguration -> rc.registerInstances(new CorsFilter(corsConfiguration)));
 
         // Buffers up to maxBodySize bytes of the request body so the failure-logging
         // code in ServerRequestEventListener can include body context for 4xx/5xx responses.
@@ -767,9 +594,7 @@ final class DefaultServer implements Server {
         // with the rest of the API and are properly logged and tracked.
         server.setErrorHandler(new JsonErrorHandler(configuration, requestLogger, eventListener));
 
-        if (configuration.ssl().isPresent()) {
-            configureSslConnector(server, configuration.ssl().get());
-        }
+        configuration.ssl().ifPresent(sslContext -> configureSslConnector(server, sslContext));
     }
 
     private void suppressInfoHeaders(org.eclipse.jetty.server.Server server) {
@@ -788,6 +613,8 @@ final class DefaultServer implements Server {
         }
     }
 
+    @SuppressWarnings("java:S2095")
+    // lifecycle is owned by the Jetty Server — closing ServerConnector would destroy it before start()
     private void configureSslConnector(org.eclipse.jetty.server.Server server, SSLContext sslContext) {
         SslContextFactory.Server sslFactory = new SslContextFactory.Server();
         sslFactory.setSslContext(sslContext);
@@ -1065,12 +892,185 @@ final class DefaultServer implements Server {
             this.requestException = null;
         }
 
+        /**
+         * Unwraps Jersey's internal {@link MappableException} to expose the original exception
+         * thrown by application code.
+         * <p>
+         * When a resource method throws any exception, Jersey wraps it in a
+         * {@link MappableException} before the exception-mapper lookup phase.  That wrapper
+         * is what appears on the {@code ON_EXCEPTION} event.  Unwrapping it here means the
+         * original application exception — with its real type and message — is what gets
+         * attached to the log record.
+         *
+         * @return The cause of {@code cause} if it is a {@link MappableException}; otherwise
+         * {@code cause} unchanged.
+         */
+        private static Throwable unwrapJerseyException(Throwable cause) {
+            if (null == cause) {
+                return null;
+            }
+
+            if (cause instanceof MappableException) {
+                return cause.getCause();
+            }
+
+            return cause;
+        }
+
+        private static String formatRequestHeaders(MultivaluedMap<String, String> headers,
+                                                   Set<String> masked) {
+
+            StringBuilder sb = new StringBuilder();
+
+            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+                String name = entry.getKey();
+                String lowerName = name.toLowerCase(Locale.ROOT);
+
+                if (masked.contains(lowerName) && "cookie".equals(lowerName)) {
+                    // Each Cookie header value may contain multiple cookies separated by ';'.
+                    // Iterate the value list and delegate to LogDetail for per-cookie handling.
+                    for (String cookieValue : entry.getValue()) {
+                        LogDetail.appendRequestHeader(sb, name, cookieValue, masked);
+                    }
+                } else {
+                    LogDetail.appendRequestHeader(sb, name, String.join(", ", entry.getValue()), masked);
+                }
+            }
+
+            return sb.toString();
+        }
+
+        private static String formatResponseHeaders(MultivaluedMap<String, Object> headers,
+                                                    Set<String> masked) {
+
+            StringBuilder sb = new StringBuilder();
+
+            for (Map.Entry<String, List<Object>> entry : headers.entrySet()) {
+                String name = entry.getKey();
+                String lowerName = name.toLowerCase(Locale.ROOT);
+
+                if (masked.contains(lowerName) && "set-cookie".equals(lowerName)) {
+                    // Each Set-Cookie value is an independent cookie — render one line per
+                    // value so attributes remain readable, with the value redacted.
+                    for (Object cookieValue : entry.getValue()) {
+                        sb.append("\n    ").append(name).append(": ")
+                                .append(LogDetail.redactSetCookieHeader(cookieValue.toString()));
+                    }
+                } else {
+                    String value = masked.contains(lowerName)
+                            ? "[redacted]"
+                            : entry.getValue().stream()
+                            .map(Object::toString)
+                            .collect(Collectors.joining(", "));
+
+                    sb.append("\n    ").append(name).append(": ").append(value);
+                }
+            }
+
+            return sb.toString();
+        }
+
+        /**
+         * Builds a multi-line detail string for log entries, including masked
+         * request headers, optionally redacted request body, response headers,
+         * and optionally redacted response body.
+         * <p>
+         * Used for both {@code TRACE}-level success entries and {@code WARNING}/{@code ERROR}
+         * failure entries.
+         *
+         * @param request  The JAX-RS container request context.
+         * @param response The JAX-RS container response context; {@code null} for
+         *                 exception failures where no response was produced.
+         * @param config   The server configuration carrying masking/redaction settings.
+         * @return A multi-line detail string (starts with {@code \n}); never {@code null}.
+         */
+        private static String buildDetail(ContainerRequestContext request,
+                                          ContainerResponseContext response,
+                                          ServerConfiguration config) {
+            StringBuilder sb = new StringBuilder();
+
+            Set<String> maskedHeaders = config.logging().redactedHeaders();
+            Set<String> redactedFields = config.logging().redactedBodyFields();
+            int maxBodySize = config.logging().maxBodySize();
+
+            // Request headers
+            sb.append("\n  Request Headers:").append(formatRequestHeaders(
+                    request.getHeaders(),
+                    maskedHeaders
+            ));
+
+            // Request body — only logged when maxBodySize > 0; mirroring the response body size guard.
+            // Multipart and binary bodies are not buffered; all text-based bodies are buffered
+            // by RequestBodyBufferingFilter up to maxBodySize bytes.
+            if (0 < maxBodySize) {
+                MediaType mediaType = request.getMediaType();
+                boolean isMultipart = null != mediaType && "multipart".equals(mediaType.getType());
+                boolean isBinaryBody = null != mediaType && !isMultipart && !isTextBody(mediaType);
+                boolean isFormEncoded = null != mediaType
+                        && MediaType.APPLICATION_FORM_URLENCODED_TYPE.isCompatible(mediaType);
+
+                if (isMultipart || isBinaryBody) {
+                    sb.append("\n  Request Body:\n    [")
+                            .append(mediaType.getType()).append("/").append(mediaType.getSubtype())
+                            .append(" — body not logged]");
+                } else {
+                    byte[] bufferedBody = (byte[]) request.getProperty(BUFFERED_BODY_KEY);
+
+                    if (null != bufferedBody) {
+                        String body = new String(bufferedBody, StandardCharsets.UTF_8);
+
+                        if (!redactedFields.isEmpty()) {
+                            body = isFormEncoded
+                                    ? LogDetail.redactFormValues(body, redactedFields)
+                                    : LogDetail.redactFieldValues(body, redactedFields);
+                        }
+
+                        sb.append("\n  Request Body:\n    ").append(body);
+
+                        if (bufferedBody.length >= maxBodySize) {
+                            sb.append(" [truncated at ").append(maxBodySize).append(" bytes]");
+                        }
+                    }
+                }
+            }
+
+            // Response headers + body
+            MultivaluedMap<String, Object> responseHeaders = response.getHeaders();
+
+            if (!responseHeaders.isEmpty()) {
+                sb.append("\n  Response Headers:").append(formatResponseHeaders(
+                        responseHeaders,
+                        maskedHeaders
+                ));
+            }
+
+            if (0 < maxBodySize) {
+                String responseBody = serializeEntityForLog(response.getEntity(), config.serializer());
+
+                if (null != responseBody && !responseBody.isBlank()) {
+                    if (!redactedFields.isEmpty()) {
+                        responseBody = LogDetail.redactFieldValues(responseBody, redactedFields);
+                    }
+
+                    if (responseBody.length() > maxBodySize) {
+                        responseBody = responseBody.substring(0, maxBodySize)
+                                + " [truncated at " + maxBodySize + " bytes]";
+                    }
+
+                    sb.append("\n  Response Body:\n    ").append(responseBody);
+                }
+            }
+
+            return sb.toString();
+        }
+
         @Override
         public void onEvent(RequestEvent event) {
             // Capture the exception as early as possible.  Jersey clears getException()
             // on the FINISHED event once an ExceptionMapper has produced a response, so
             // we record it here before the mapping phase runs.
-            // Jersey wraps resource-method exceptions in an internal MappableException;
+            //
+            // Jersey wraps resource-method exceptions in an internal MappableException,
             // unwrap it so that the original application exception appears in the log.
             if (event.getType() == RequestEvent.Type.ON_EXCEPTION) {
                 requestException = unwrapJerseyException(event.getException());

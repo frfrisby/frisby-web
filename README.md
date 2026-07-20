@@ -1,5 +1,12 @@
 # frisby-web
 
+[![CI](https://github.com/frfrisby/frisby-web/actions/workflows/ci.yml/badge.svg)](https://github.com/frfrisby/frisby-web/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/frfrisby/frisby-web/actions/workflows/codeql.yml/badge.svg)](https://github.com/frfrisby/frisby-web/actions/workflows/codeql.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=frfrisby_frisby-web&metric=alert_status)](https://sonarcloud.io/project/overview?id=frfrisby_frisby-web)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=frfrisby_frisby-web&metric=coverage)](https://sonarcloud.io/project/overview?id=frfrisby_frisby-web)
+[![Maven Central](https://img.shields.io/maven-central/v/software.frisby.web/bom)](https://central.sonatype.com/artifact/software.frisby.web/bom)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A lightweight, production-ready Java library for building HTTP clients and embedded HTTP
 servers.  No mandatory framework dependencies — bring your own serializer, wire it to your
 own metrics backend, and add only the modules you actually use.

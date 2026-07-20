@@ -18,14 +18,18 @@ final class DefaultServerBuilder implements ServerBuilder {
     private static final String HEALTH_CHECK_PATH = "healthCheck.path";
     private static final String DEFAULT_HEALTH_CHECK_PATH = "/health";
 
+    // Maximum character length enforced before the regex runs — prevents ReDoS on
+    // pathological inputs and is a reasonable upper bound for any real health check path.
+    private static final int MAX_PATH_LENGTH = 256;
+
     // Matches a valid health check path: must start with '/', consist of one or more
     // path segments containing only letters, digits, hyphens, underscores, and dots,
     // separated by single slashes. Rejects trailing slashes, consecutive slashes,
     // whitespace, and URI-special characters such as '#' and '?'.
-    // The consecutive-slash and whitespace constraints fall naturally from the character
-    // whitelist -- no lookahead is needed.
+    // Quantifiers are bounded ({1,128} per segment, {1,64} segment groups) to prevent
+    // catastrophic backtracking on adversarial inputs.
     private static final Pattern VALID_PATH_PATTERN =
-            Pattern.compile("^/[a-zA-Z0-9\\-._]+(/[a-zA-Z0-9\\-._]+)*$");
+            Pattern.compile("^/[a-zA-Z0-9\\-._]{1,128}(/[a-zA-Z0-9\\-._]{1,128}){0,64}$");
 
     private final List<Object> resources;
     private final List<Object> components;
@@ -96,7 +100,7 @@ final class DefaultServerBuilder implements ServerBuilder {
 
     @Override
     public ServerBuilder healthCheck(String path) {
-        this.healthCheckPath = Strings.notBlankWithMatches(HEALTH_CHECK_PATH, path, VALID_PATH_PATTERN);
+        this.healthCheckPath = Strings.notBlankWithMaxLengthAndMatches(HEALTH_CHECK_PATH, path, MAX_PATH_LENGTH, VALID_PATH_PATTERN);
         return this;
     }
 

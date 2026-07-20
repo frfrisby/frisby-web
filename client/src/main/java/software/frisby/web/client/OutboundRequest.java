@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
  * only when the relevant log level is active — avoiding a redundant String allocation
  * on every request in production.
  */
+@SuppressWarnings("java:S6218") // array equality is intentionally unused — this is an internal logging carrier, not a value type
 record OutboundRequest(HttpRequest request, byte[] bodySnapshot) {
     /**
      * Placeholder used as the body snapshot for {@code multipart/form-data} requests.
