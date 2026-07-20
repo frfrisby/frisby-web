@@ -13,16 +13,16 @@ import java.util.concurrent.Executor;
 import java.util.zip.GZIPInputStream;
 
 final class DefaultClientConfigurationBuilder implements ClientConfigurationBuilder {
-    private static final String URI_FIELD = "uri";
-    private static final String CONNECT_TIMEOUT = "connectTimeout";
-    private static final String READ_TIMEOUT = "readTimeout";
-    private static final String SERIALIZER = "serializer";
-    private static final String SSL_CONTEXT = "sslContext";
-    private static final String REDIRECT_POLICY = "redirectPolicy";
-    private static final String HTTP_VERSION = "httpVersion";
-    private static final String EXECUTOR = "executor";
-    private static final String LOGGING = "logging";
-    private static final String DECOMPRESSOR = "decompressor";
+    private static final String URI_ARGUMENT_NAME = "uri";
+    private static final String CONNECT_TIMEOUT_ARGUMENT_NAME = "connectTimeout";
+    private static final String READ_TIMEOUT_ARGUMENT_NAME = "readTimeout";
+    private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
+    private static final String SSL_CONTEXT_ARGUMENT_NAME = "sslContext";
+    private static final String REDIRECT_POLICY_ARGUMENT_NAME = "redirectPolicy";
+    private static final String HTTP_VERSION_ARGUMENT_NAME = "httpVersion";
+    private static final String EXECUTOR_ARGUMENT_NAME = "executor";
+    private static final String LOGGING_ARGUMENT_NAME = "logging";
+    private static final String DECOMPRESSOR_ARGUMENT_NAME = "decompressor";
 
     private static final ContentDecompressor GZIP_DECOMPRESSOR =
             ContentDecompressor.of("gzip", GZIPInputStream::new);
@@ -52,43 +52,43 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
 
     @Override
     public ClientConfigurationBuilder uri(URI uri) {
-        this.uri = Values.notNull(URI_FIELD, uri);
+        this.uri = Values.notNull(URI_ARGUMENT_NAME, uri);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder connectTimeout(Duration timeout) {
-        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT, timeout);
+        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder readTimeout(Duration timeout) {
-        this.readTimeout = Values.notNull(READ_TIMEOUT, timeout);
+        this.readTimeout = Values.notNull(READ_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder serializer(JsonSerializer serializer) {
-        this.serializer = Values.notNull(SERIALIZER, serializer);
+        this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder sslContext(SSLContext sslContext) {
-        this.sslContext = Values.notNull(SSL_CONTEXT, sslContext);
+        this.sslContext = Values.notNull(SSL_CONTEXT_ARGUMENT_NAME, sslContext);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder redirectPolicy(HttpClient.Redirect policy) {
-        this.redirectPolicy = Values.notNull(REDIRECT_POLICY, policy);
+        this.redirectPolicy = Values.notNull(REDIRECT_POLICY_ARGUMENT_NAME, policy);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder httpVersion(HttpClient.Version version) {
-        this.httpVersion = Values.notNull(HTTP_VERSION, version);
+        this.httpVersion = Values.notNull(HTTP_VERSION_ARGUMENT_NAME, version);
         return this;
     }
 
@@ -99,19 +99,19 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
 
     @Override
     public ClientConfigurationBuilder decompress(ContentDecompressor decompressor) {
-        decompressors.add(Values.notNull(DECOMPRESSOR, decompressor));
+        decompressors.add(Values.notNull(DECOMPRESSOR_ARGUMENT_NAME, decompressor));
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder executor(Executor executor) {
-        this.executor = Values.notNull(EXECUTOR, executor);
+        this.executor = Values.notNull(EXECUTOR_ARGUMENT_NAME, executor);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder logging(ClientLoggingConfiguration logging) {
-        this.logging = Values.notNull(LOGGING, logging);
+        this.logging = Values.notNull(LOGGING_ARGUMENT_NAME, logging);
         return this;
     }
 

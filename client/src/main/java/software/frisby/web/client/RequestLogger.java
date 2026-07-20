@@ -54,6 +54,8 @@ final class RequestLogger {
     private static final String ARROW_LEFT = "←";
     private static final String CROSS = "✕";
     private static final String HORIZONTAL_ELLIPSIS = "…";
+    private static final String INDENT_1 = "\n  ";
+    private static final String INDENT_2 = "\n    ";
 
     private final ClientLoggingConfiguration config;
 
@@ -239,7 +241,7 @@ final class RequestLogger {
         HttpRequest request = outbound.request();
 
         sb.append(ARROW_RIGHT).append(" ").append(request.method()).append(" ").append(request.uri());
-        sb.append("\n  ").append(REQUEST_HEADERS);
+        sb.append(INDENT_1).append(REQUEST_HEADERS);
 
         for (Map.Entry<String, List<String>> entry : request.headers().map().entrySet()) {
             String name = entry.getKey();
@@ -260,13 +262,13 @@ final class RequestLogger {
                                 ? trimmed.substring(0, eq + 1) + REDACTED
                                 : trimmed;
 
-                        sb.append("\n    ").append(name).append(": ").append(formatted);
+                        sb.append(INDENT_2).append(name).append(": ").append(formatted);
                     }
                 }
             } else if (config.redactedHeaders().contains(lowerName)) {
-                sb.append("\n    ").append(name).append(": ").append(REDACTED);
+                sb.append(INDENT_2).append(name).append(": ").append(REDACTED);
             } else {
-                sb.append("\n    ").append(name).append(": ")
+                sb.append(INDENT_2).append(name).append(": ")
                         .append(String.join(", ", entry.getValue()));
             }
         }
@@ -290,7 +292,7 @@ final class RequestLogger {
         String snapshot = new String(snapshotBytes, java.nio.charset.StandardCharsets.UTF_8);
 
         if (lowerContentType.startsWith("multipart/")) {
-            sb.append("\n  ").append(REQUEST_BODY).append("\n    ").append(snapshot);
+            sb.append(INDENT_1).append(REQUEST_BODY).append(INDENT_2).append(snapshot);
         } else {
             boolean formEncoded = lowerContentType.contains("application/x-www-form-urlencoded");
             appendTruncatedBody(sb, snapshot, formEncoded, REQUEST_BODY);
@@ -298,7 +300,7 @@ final class RequestLogger {
     }
 
     private void appendResponseHeaders(StringBuilder sb, HttpHeaders headers) {
-        sb.append("\n  ").append(RESPONSE_HEADERS);
+        sb.append(INDENT_1).append(RESPONSE_HEADERS);
 
         for (Map.Entry<String, List<String>> entry : headers.map().entrySet()) {
             String name = entry.getKey();
@@ -308,13 +310,13 @@ final class RequestLogger {
                 // Redact the cookie value, preserve the name and all attributes
                 // (Path, Domain, Secure, HttpOnly, SameSite, Max-Age).
                 for (String value : entry.getValue()) {
-                    sb.append("\n    ").append(name).append(": ")
+                    sb.append(INDENT_2).append(name).append(": ")
                             .append(redactSetCookieValue(value));
                 }
             } else if (config.redactedHeaders().contains(lowerName)) {
-                sb.append("\n    ").append(name).append(": ").append(REDACTED);
+                sb.append(INDENT_2).append(name).append(": ").append(REDACTED);
             } else {
-                sb.append("\n    ").append(name).append(": ")
+                sb.append(INDENT_2).append(name).append(": ")
                         .append(String.join(", ", entry.getValue()));
             }
         }
@@ -331,8 +333,8 @@ final class RequestLogger {
                 ? redactFormValues(body, config.redactedBodyFields())
                 : redactFieldValues(body, config.redactedBodyFields());
 
-        sb.append("\n  ").append(sectionLabel);
-        sb.append("\n    ");
+        sb.append(INDENT_1).append(sectionLabel);
+        sb.append(INDENT_2);
 
         if (redacted.length() > limit) {
             sb.append(redacted, 0, limit).append(HORIZONTAL_ELLIPSIS).append("(truncated)");

@@ -218,19 +218,22 @@ public interface ServerBuilder {
      * }</pre>
      *
      * @param path The context path for the health check endpoint; must not be blank, must
-     *             start with {@code /}, and each segment may contain only letters, digits,
+     *             start with {@code /}, must not exceed 256 characters, may contain up to
+     *             64 path segments, and each segment may contain only letters, digits,
      *             hyphens, underscores, and dots.  Trailing slashes, consecutive slashes,
      *             whitespace, and URI-special characters ({@code #}, {@code ?}, etc.) are
      *             rejected.
      * @return This builder.
-     * @throws software.frisby.core.validation.NullValueException       if {@code path} is {@code null}.
-     * @throws software.frisby.core.validation.BlankValueException      if {@code path} is blank.
-     * @throws software.frisby.core.validation.PatternMismatchException if {@code path} does not
-     *                                                                  start with {@code /},
-     *                                                                  ends with {@code /},
-     *                                                                  contains consecutive
-     *                                                                  slashes, whitespace, or
-     *                                                                  URI-special characters.
+     * @throws software.frisby.core.validation.NullValueException                if {@code path} is {@code null}.
+     * @throws software.frisby.core.validation.BlankValueException               if {@code path} is blank.
+     * @throws software.frisby.core.validation.StringLengthOutsideRangeException if {@code path} exceeds
+     *                                                                           256 characters.
+     * @throws software.frisby.core.validation.PatternMismatchException          if {@code path} does not
+     *                                                                           start with {@code /},
+     *                                                                           ends with {@code /},
+     *                                                                           contains consecutive
+     *                                                                           slashes, whitespace, or
+     *                                                                           URI-special characters.
      */
     ServerBuilder healthCheck(String path);
 

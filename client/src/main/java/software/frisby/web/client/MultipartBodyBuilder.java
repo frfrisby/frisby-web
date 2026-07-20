@@ -22,6 +22,7 @@ final class MultipartBodyBuilder {
     private static final String CRLF = "\r\n";
     private static final String DASHES = "--";
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
+    private static final String CONTENT_DISPOSITION_FORM_DATA_NAME = "Content-Disposition: form-data; name=\"";
 
     private MultipartBodyBuilder() {
     }
@@ -108,20 +109,20 @@ final class MultipartBodyBuilder {
                     .orElseGet(() -> guessContentType(filePart.fileName()));
 
             sb.append("Content-Type: ").append(contentType).append(CRLF);
-            sb.append("Content-Disposition: form-data; name=\"")
+            sb.append(CONTENT_DISPOSITION_FORM_DATA_NAME)
                     .append(filePart.name())
                     .append("\"; filename=\"")
                     .append(filePart.fileName())
                     .append("\"").append(CRLF);
         } else if (part instanceof FormPart.JsonPart jsonPart) {
             sb.append("Content-Type: application/json").append(CRLF);
-            sb.append("Content-Disposition: form-data; name=\"")
+            sb.append(CONTENT_DISPOSITION_FORM_DATA_NAME)
                     .append(jsonPart.name())
                     .append("\"").append(CRLF);
         } else {
             FormPart.ContentPart contentPart = (FormPart.ContentPart) part;
             sb.append("Content-Type: ").append(contentPart.mediaType().value()).append(CRLF);
-            sb.append("Content-Disposition: form-data; name=\"")
+            sb.append(CONTENT_DISPOSITION_FORM_DATA_NAME)
                     .append(contentPart.name())
                     .append("\"").append(CRLF);
         }

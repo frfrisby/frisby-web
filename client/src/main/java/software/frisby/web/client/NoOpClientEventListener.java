@@ -19,10 +19,12 @@ final class NoOpClientEventListener implements ClientEventListener {
 
     @Override
     public void onRequestCompleted(RequestCompletedEvent event) {
+        // No-op — events are intentionally discarded.
     }
 
     @Override
     public void onRequestFailed(RequestFailedEvent event) {
+        // No-op — events are intentionally discarded.
     }
 }
 

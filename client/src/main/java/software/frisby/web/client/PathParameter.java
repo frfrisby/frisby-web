@@ -25,15 +25,15 @@ import software.frisby.core.validation.Strings;
  * @see GetSpec#path(String, PathParameter...)
  */
 public final class PathParameter {
-    private static final String ID = "id";
-    private static final String VALUE = "value";
+    private static final String ID_ARGUMENT_NAME = "id";
+    private static final String VALUE_ARGUMENT_NAME = "value";
 
     private final String id;
     private final String value;
 
     private PathParameter(String id, String value) {
-        this.id = Strings.notBlank(ID, id);
-        this.value = Strings.notBlank(VALUE, value);
+        this.id = Strings.notBlank(ID_ARGUMENT_NAME, id);
+        this.value = Strings.notBlank(VALUE_ARGUMENT_NAME, value);
     }
 
     /**

@@ -14,14 +14,14 @@ import java.util.StringJoiner;
 import java.util.concurrent.Executor;
 
 final class DefaultClientConfiguration implements ClientConfiguration {
-    private static final String URI_FIELD = "uri";
-    private static final String CONNECT_TIMEOUT = "connectTimeout";
-    private static final String READ_TIMEOUT = "readTimeout";
-    private static final String SERIALIZER = "serializer";
-    private static final String REDIRECT_POLICY = "redirectPolicy";
-    private static final String HTTP_VERSION = "httpVersion";
-    private static final String LOGGING = "logging";
-    private static final String DECOMPRESSORS = "decompressors";
+    private static final String URI_ARGUMENT_NAME = "uri";
+    private static final String CONNECT_TIMEOUT_ARGUMENT_NAME = "connectTimeout";
+    private static final String READ_TIMEOUT_ARGUMENT_NAME = "readTimeout";
+    private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
+    private static final String REDIRECT_POLICY_ARGUMENT_NAME = "redirectPolicy";
+    private static final String HTTP_VERSION_ARGUMENT_NAME = "httpVersion";
+    private static final String LOGGING_ARGUMENT_NAME = "logging";
+    private static final String DECOMPRESSORS_ARGUMENT_NAME = "decompressors";
 
     private final URI uri;
     private final Duration connectTimeout;
@@ -34,31 +34,32 @@ final class DefaultClientConfiguration implements ClientConfiguration {
     private final Executor executor;
     private final ClientLoggingConfiguration logging;
 
+    @SuppressWarnings("java:S107") // all parameters are required — this class is the product of DefaultConfigurationBuilder
     DefaultClientConfiguration(URI uri,
-                         Duration connectTimeout,
-                         Duration readTimeout,
-                         JsonSerializer serializer,
-                         SSLContext sslContext,
-                         HttpClient.Redirect redirectPolicy,
-                         HttpClient.Version httpVersion,
-                         List<ContentDecompressor> decompressors,
-                         Executor executor,
-                         ClientLoggingConfiguration logging) {
-        this.uri = Values.notNull(URI_FIELD, uri);
-        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT, connectTimeout);
-        this.readTimeout = Values.notNull(READ_TIMEOUT, readTimeout);
-        this.serializer = Values.notNull(SERIALIZER, serializer);
+                               Duration connectTimeout,
+                               Duration readTimeout,
+                               JsonSerializer serializer,
+                               SSLContext sslContext,
+                               HttpClient.Redirect redirectPolicy,
+                               HttpClient.Version httpVersion,
+                               List<ContentDecompressor> decompressors,
+                               Executor executor,
+                               ClientLoggingConfiguration logging) {
+        this.uri = Values.notNull(URI_ARGUMENT_NAME, uri);
+        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT_ARGUMENT_NAME, connectTimeout);
+        this.readTimeout = Values.notNull(READ_TIMEOUT_ARGUMENT_NAME, readTimeout);
+        this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         this.sslContext = sslContext;
-        this.redirectPolicy = Values.notNull(REDIRECT_POLICY, redirectPolicy);
-        this.httpVersion = Values.notNull(HTTP_VERSION, httpVersion);
-        this.decompressors = Sequences.notNull(DECOMPRESSORS, decompressors);
+        this.redirectPolicy = Values.notNull(REDIRECT_POLICY_ARGUMENT_NAME, redirectPolicy);
+        this.httpVersion = Values.notNull(HTTP_VERSION_ARGUMENT_NAME, httpVersion);
+        this.decompressors = Sequences.notNull(DECOMPRESSORS_ARGUMENT_NAME, decompressors);
 
         if (!this.decompressors.isEmpty()) {
-            Sequences.noDuplicates(DECOMPRESSORS, this.decompressors, ContentDecompressor::encoding);
+            Sequences.noDuplicates(DECOMPRESSORS_ARGUMENT_NAME, this.decompressors, ContentDecompressor::encoding);
         }
 
         this.executor = executor;
-        this.logging = Values.notNull(LOGGING, logging);
+        this.logging = Values.notNull(LOGGING_ARGUMENT_NAME, logging);
     }
 
     /**

@@ -23,9 +23,9 @@ import java.util.concurrent.CompletableFuture;
  */
 final class PostRequest implements PostSpec {
     private static final String POST = "POST";
-    private static final String RESPONSE_TYPE = "responseType";
-    private static final String BODY = "body";
-    private static final String COMPRESSOR = "compressor";
+    private static final String RESPONSE_TYPE_ARGUMENT_NAME = "responseType";
+    private static final String BODY_ARGUMENT_NAME = "body";
+    private static final String COMPRESSOR_ARGUMENT_NAME = "compressor";
     private static final String COMPRESS_WITH_FORM_ERROR =
             "The 'compress' value is invalid.  Compression is only supported for JSON entity bodies.";
 
@@ -123,13 +123,13 @@ final class PostRequest implements PostSpec {
 
     @Override
     public PostSpec compress(ContentCompressor compressor) {
-        this.compressor = Values.notNull(COMPRESSOR, compressor);
+        this.compressor = Values.notNull(COMPRESSOR_ARGUMENT_NAME, compressor);
         return this;
     }
 
     @Override
     public PostSpec body(Object body) {
-        this.jsonBody = Values.notNull(BODY, body);
+        this.jsonBody = Values.notNull(BODY_ARGUMENT_NAME, body);
         this.formData = null;
         this.formUrlEncoded = null;
         return this;
@@ -137,7 +137,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public PostSpec body(FormData formData) {
-        this.formData = Values.notNull(BODY, formData);
+        this.formData = Values.notNull(BODY_ARGUMENT_NAME, formData);
         this.jsonBody = null;
         this.formUrlEncoded = null;
         return this;
@@ -145,7 +145,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public PostSpec body(FormUrlEncoded formUrlEncoded) {
-        this.formUrlEncoded = Values.notNull(BODY, formUrlEncoded);
+        this.formUrlEncoded = Values.notNull(BODY_ARGUMENT_NAME, formUrlEncoded);
         this.jsonBody = null;
         this.formData = null;
         return this;
@@ -153,7 +153,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public <T> HttpResponse<T> send(Class<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = buildRequest(uri, true);
@@ -167,7 +167,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public <T> HttpResponse<T> send(GenericType<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = buildRequest(uri, true);
@@ -189,7 +189,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(Class<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = buildRequest(uri, true);
@@ -203,7 +203,7 @@ final class PostRequest implements PostSpec {
 
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(GenericType<T> responseType) {
-        Values.notNull(RESPONSE_TYPE, responseType);
+        Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
         OutboundRequest outbound = buildRequest(uri, true);

@@ -18,5 +18,6 @@ final class NoOpServerEventListener implements ServerEventListener {
 
     @Override
     public void onRequestCompleted(RequestCompletedEvent event) {
+        // No-op — events are intentionally discarded.
     }
 }
