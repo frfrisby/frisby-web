@@ -14,10 +14,11 @@ final class NoOpTokenEventListener implements TokenEventListener {
 
     @Override
     public void onTokenFetched(Duration latency) {
+        // No-op — caller registered no listener.
     }
 
     @Override
     public void onTokenFetchFailed(Duration latency, Throwable cause) {
+        // No-op — caller registered no listener.
     }
 }
-

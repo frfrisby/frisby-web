@@ -17,8 +17,8 @@ import software.frisby.core.validation.Strings;
  * @param password The password or secret associated with the username.
  */
 public record Credentials(String username, String password) {
-    private static final String USERNAME = "username";
-    private static final String PASSWORD = "password";
+    private static final String USERNAME_ARGUMENT_NAME = "username";
+    private static final String PASSWORD_ARGUMENT_NAME = "password";
 
     /**
      * Compact constructor — validates that neither field is blank.
@@ -29,8 +29,8 @@ public record Credentials(String username, String password) {
      *                                                             {@code password} is blank.
      */
     public Credentials {
-        Strings.notBlank(USERNAME, username);
-        Strings.notBlank(PASSWORD, password);
+        Strings.notBlank(USERNAME_ARGUMENT_NAME, username);
+        Strings.notBlank(PASSWORD_ARGUMENT_NAME, password);
     }
 
     /**

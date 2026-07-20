@@ -65,6 +65,7 @@ final class DefaultClientCredentialsSecurityProvider implements ClientCredential
 
     private AccessToken token;
 
+    @SuppressWarnings("java:S107") // all parameters are required; the builder pattern on the public API keeps call sites clean
     DefaultClientCredentialsSecurityProvider(URI tokenEndpoint,
                                              ClientCredentials credentials,
                                              JsonSerializer serializer,
@@ -141,6 +142,7 @@ final class DefaultClientCredentialsSecurityProvider implements ClientCredential
         return token;
     }
 
+    @SuppressWarnings("java:S1141") // inner try is intentional: fires event listener before rethrowing parseAccessToken failures
     private AccessToken fetchToken(Instant now) {
         HttpRequest request = buildHttpRequest();
         StopWatch watch = StopWatch.start();
