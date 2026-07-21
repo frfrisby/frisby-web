@@ -195,6 +195,20 @@ threads, graceful shutdown, structured logging, and more.
 | [HTTP Server](docs/server.md)        | `Server`, `ServerConfiguration`, concurrency, TLS, HTTP/2, CORS, auth, logging, observability  |
 | [Architecture](docs/architecture.md) | Design decisions, module structure, extension points                                           |
 
+### AI agent reference docs
+
+Concise API references designed to give AI coding agents the exact information needed to
+use this library correctly — covering method signatures, required vs. optional options,
+defaults, and complete usage examples.
+
+| Document                                         | Contents                                                                                    |
+|--------------------------------------------------|---------------------------------------------------------------------------------------------|
+| [serialization.md](docs/ai/serialization.md)     | `JsonSerializer`, `GenericType`, `JacksonSerializer`                                        |
+| [client.md](docs/ai/client.md)                   | `Client`, all verb specs, body types, compression, decompression, events, exceptions        |
+| [client-security.md](docs/ai/client-security.md) | `BasicSecurityProvider`, `BearerTokenSecurityProvider`, `ClientCredentialsSecurityProvider` |
+| [server.md](docs/ai/server.md)                   | `Server`, `ServerConfiguration`, CORS, health check, logging, events                        |
+| [server-security.md](docs/ai/server-security.md) | `BasicAuthAuthenticationProvider`, `BearerTokenAuthenticationProvider`, RBAC, mixed auth    |
+
 ---
 
 ## Building
