@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -17,6 +18,19 @@
         <sonar.java.source>${java.version}</sonar.java.source>
         <sonar.exclusions>**/*Test*/**</sonar.exclusions>
         <sonar.test.inclusions>**/*Test*/**</sonar.test.inclusions>
+
+        <!--
+        S110 — Inheritance tree of classes should not be too deep.
+        Exception hierarchies are a canonical case where depth is intentional.
+
+        Our hierarchy (Throwable → Exception → RuntimeException → HttpResponseException →
+        ClientException/ServerException → specific exception) is exactly the right
+        depth for a typed HTTP exception hierarchy.  It enables catch (ClientException),
+        catch (HttpResponseException), etc.  Flattening it would remove that capability.
+        -->
+        <sonar.issue.ignore.multicriteria>e1</sonar.issue.ignore.multicriteria>
+        <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S110</sonar.issue.ignore.multicriteria.e1.ruleKey>
+        <sonar.issue.ignore.multicriteria.e1.resourceKey>**/exception/**</sonar.issue.ignore.multicriteria.e1.resourceKey>
     </properties>
 
     <dependencies>
