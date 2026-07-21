@@ -198,6 +198,18 @@ class DefaultBasicAuthAuthenticationProviderTest {
                     () -> provider.authenticate(ctx)
             );
         }
+
+        @Test
+        void emptyPassword_throws401() {
+            // "alice:" — colon is the last character, so colonIndex == credentials.length() - 1.
+            var provider = new DefaultBasicAuthAuthenticationProvider(ACCEPTING_VALIDATOR);
+            var ctx = MockRequestContext.withHeader("Authorization", "Basic " + encode("alice", ""));
+
+            assertThrows(
+                    NotAuthorizedException.class,
+                    () -> provider.authenticate(ctx)
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
