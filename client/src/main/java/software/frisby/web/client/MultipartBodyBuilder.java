@@ -137,7 +137,7 @@ final class MultipartBodyBuilder {
         }
 
         if (part instanceof FormPart.JsonPart jsonPart) {
-            return new ByteArrayInputStream(serializeBody(serializer, jsonPart.body()));
+            return new ByteArrayInputStream(RequestBodyEncoder.serializeBody(jsonPart.body(), serializer));
         }
 
         FormPart.ContentPart contentPart = (FormPart.ContentPart) part;
@@ -147,13 +147,6 @@ final class MultipartBodyBuilder {
     }
 
 
-    private static byte[] serializeBody(JsonSerializer serializer, Object body) {
-        if (body instanceof String s) {
-            return s.getBytes(StandardCharsets.UTF_8);
-        }
-
-        return serializer.serialize(body);
-    }
 
     private static String guessContentType(String fileName) {
         String contentType = URLConnection.guessContentTypeFromName(fileName);

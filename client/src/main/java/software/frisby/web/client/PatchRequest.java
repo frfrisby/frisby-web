@@ -6,12 +6,9 @@ import software.frisby.web.serial.GenericType;
 
 import java.net.HttpCookie;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
-import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 
 import static software.frisby.web.client.RequestConstants.*;
@@ -42,19 +39,6 @@ final class PatchRequest implements PatchSpec {
         this.jsonBody = null;
         this.formUrlEncoded = null;
         this.compressor = null;
-    }
-
-    private static String encodeFormFields(Map<String, String> fields) {
-        StringJoiner joiner = new StringJoiner("&");
-
-        for (Map.Entry<String, String> entry : fields.entrySet()) {
-            String encodedName = URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8);
-            String encodedValue = URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8);
-
-            joiner.add(encodedName + "=" + encodedValue);
-        }
-
-        return joiner.toString();
     }
 
     @Override
@@ -225,7 +209,7 @@ final class PatchRequest implements PatchSpec {
             bodyPublisher = HttpRequest.BodyPublishers.noBody();
             compressed = false;
         } else {
-            byte[] bodyBytes = serializeBody(jsonBody);
+            byte[] bodyBytes = RequestBodyEncoder.serializeBody(jsonBody, engine.configuration().serializer());
             bodySnap = bodyBytes;
 
             if (compressed) {
@@ -275,7 +259,7 @@ final class PatchRequest implements PatchSpec {
             throw new IllegalStateException(COMPRESS_WITH_FORM_ERROR);
         }
 
-        byte[] encodedBytes = encodeFormFields(formUrlEncoded.fields()).getBytes(StandardCharsets.UTF_8);
+        byte[] encodedBytes = RequestBodyEncoder.encodeFormFields(formUrlEncoded.fields()).getBytes(StandardCharsets.UTF_8);
         HttpRequest.BodyPublisher bodyPublisher = HttpRequest.BodyPublishers.ofByteArray(encodedBytes);
 
         String acceptEncoding = acceptJson ? DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()) : null;
@@ -294,11 +278,4 @@ final class PatchRequest implements PatchSpec {
         return OutboundRequest.of(builder.build(), encodedBytes);
     }
 
-    private byte[] serializeBody(Object body) {
-        if (body instanceof String s) {
-            return s.getBytes(StandardCharsets.UTF_8);
-        }
-
-        return engine.configuration().serializer().serialize(body);
-    }
 }
