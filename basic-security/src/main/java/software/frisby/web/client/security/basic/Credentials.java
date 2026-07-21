@@ -23,6 +23,8 @@ public record Credentials(String username, String password) {
     /**
      * Compact constructor — validates that neither field is blank.
      *
+     * @param username the username; must not be blank
+     * @param password the password; must not be blank
      * @throws software.frisby.core.validation.NullValueException  if {@code username} or
      *                                                             {@code password} is {@code null}.
      * @throws software.frisby.core.validation.BlankValueException if {@code username} or

@@ -32,6 +32,8 @@ public record ClientCredentials(String clientId, String clientSecret) {
     /**
      * Compact constructor — validates that neither field is blank.
      *
+     * @param clientId     the client identifier; must not be blank
+     * @param clientSecret the client secret; must not be blank
      * @throws software.frisby.core.validation.NullValueException  if either value is {@code null}.
      * @throws software.frisby.core.validation.BlankValueException if either value is blank.
      */

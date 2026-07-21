@@ -41,6 +41,8 @@ public record AuthenticatedIdentity(Principal principal, Set<String> roles) {
      * Compact constructor — validates that neither {@code principal} nor {@code roles}
      * is {@code null}, and defensively copies {@code roles} to an unmodifiable set.
      *
+     * @param principal the authenticated principal; must not be {@code null}
+     * @param roles     the role names; must not be {@code null}
      * @throws software.frisby.core.validation.NullValueException if {@code principal}
      *                                                            or {@code roles} is
      *                                                            {@code null}.
