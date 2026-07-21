@@ -103,7 +103,7 @@ Obtain via `ServerConfiguration.builder()`.
 | `host(String)` | `"0.0.0.0"` | Bind address.  Use `"localhost"` to restrict to loopback. |
 | `maxRequestSize(long)` | 4 MB | Request bodies larger than this return HTTP 413. |
 | `gzip()` | disabled | Transparently decompresses `Content-Encoding: gzip` requests and compresses `application/json` responses when `Accept-Encoding: gzip` is present. |
-| `http2()` | disabled | Enables HTTP/2 over TLS (h2) via ALPN.  Requires `ssl()`.  `build()` throws if called without a TLS context. |
+| `http2()` | disabled | Enables HTTP/2. Transport variant is auto-selected: **with `ssl()` configured** → h2 over TLS via ALPN (HTTP/1.1 clients fall back automatically); **without `ssl()`** → h2c (HTTP/2 cleartext upgrade, RFC 7540 §3.2). Use h2c behind a TLS-terminating ALB (e.g. AWS ALB with Protocol Version HTTP2) for internal service-to-service HTTP/2 without adding TLS to each backend service. |
 | `ssl()` | plain HTTP | Enables HTTPS using the JDK default `SSLContext`. |
 | `ssl(SSLContext)` | plain HTTP | Enables HTTPS using a custom `SSLContext`. |
 | `cors(CorsConfiguration)` | disabled | CORS filter; see below. |
@@ -260,6 +260,7 @@ Server server = Server.builder()
                         .port(8080)
                         .serializer(serializer)
                         .gzip()
+                        .http2()                              // h2c — no ssl() = cleartext HTTP/2
                         .maxRequestSize(10 * 1024 * 1024)   // 10 MB
                         .maxConcurrentRequests(500)
                         .executor(executor)

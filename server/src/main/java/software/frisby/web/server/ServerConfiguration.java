@@ -79,15 +79,15 @@ public interface ServerConfiguration {
     boolean gzip();
 
     /**
-     * Returns {@code true} if HTTP/2 over TLS (h2) is enabled for this server.
+     * Returns {@code true} if HTTP/2 support is enabled for this server.
      * <p>
-     * When {@code true}, the TLS connector uses ALPN negotiation so clients that
-     * advertise {@code h2} receive HTTP/2 connections while HTTP/1.1 clients fall
-     * back automatically.  Requires {@link #ssl()} to be present.
+     * When {@code true} and an SSL context is configured, the server uses ALPN negotiation
+     * (h2 over TLS).  When {@code true} and no SSL context is configured, the server
+     * accepts HTTP/2 cleartext upgrades (h2c).
      * <p>
      * Controlled by {@link ServerConfigurationBuilder#http2()}.
      *
-     * @return {@code true} if HTTP/2 over TLS is enabled; {@code false} otherwise.
+     * @return {@code true} if HTTP/2 support is enabled; {@code false} otherwise.
      */
     boolean http2();
 

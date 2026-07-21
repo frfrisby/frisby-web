@@ -25,9 +25,6 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
     private static final String EXECUTOR_ARGUMENT_NAME = "executor";
     private static final String STOP_TIMEOUT_ARGUMENT_NAME = "timeout";
 
-    private static final String HTTP2_WITHOUT_SSL_MESSAGE =
-            "http2() requires ssl() to also be configured — HTTP/2 is only supported over TLS (h2).  "
-                    + "Call ssl(SSLContext) or ssl() before build().";
 
     private Integer port;
     private String host;
@@ -132,9 +129,6 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
 
     @Override
     public ServerConfiguration build() {
-        if (http2 && null == sslContext) {
-            throw new IllegalStateException(HTTP2_WITHOUT_SSL_MESSAGE);
-        }
 
         int effectiveMaxConcurrent = null != maxConcurrentRequests
                 ? maxConcurrentRequests
