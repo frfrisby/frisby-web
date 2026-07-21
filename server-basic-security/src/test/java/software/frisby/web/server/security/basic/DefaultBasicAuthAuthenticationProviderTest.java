@@ -164,6 +164,18 @@ class DefaultBasicAuthAuthenticationProviderTest {
         }
 
         @Test
+        void emptyCredentialsAfterPrefix_throws401() {
+            // Header is "Basic " with nothing after the prefix — encoded.isEmpty() path.
+            var provider = new DefaultBasicAuthAuthenticationProvider(ACCEPTING_VALIDATOR);
+            var ctx = MockRequestContext.withHeader("Authorization", "Basic ");
+
+            assertThrows(
+                    NotAuthorizedException.class,
+                    () -> provider.authenticate(ctx)
+            );
+        }
+
+        @Test
         void invalidBase64_throws401() {
             var provider = new DefaultBasicAuthAuthenticationProvider(ACCEPTING_VALIDATOR);
             var ctx = MockRequestContext.withHeader("Authorization", "Basic not-valid-base64!!!");
