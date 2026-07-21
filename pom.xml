@@ -88,6 +88,20 @@
             test-support/**
         </sonar.exclusions>
 
+        <!--
+        DefaultClientLoggingConfiguration and DefaultServerLoggingConfiguration are
+        structurally identical by design — both implement the same logging configuration
+        contract (redacted headers, redacted body fields, max body size).  They live in
+        separate modules (client, server) with no shared non-serial dependency, so
+        extracting a common base is not possible without introducing an undesirable
+        cross-module dependency.  Exclude both from CPD to suppress the false-positive
+        duplication warning.
+        -->
+        <sonar.cpd.exclusions>
+            **/DefaultClientLoggingConfiguration.java,
+            **/DefaultServerLoggingConfiguration.java
+        </sonar.cpd.exclusions>
+
         <!-- S110 — Inheritance tree of classes should not be too deep.
              Exception hierarchies are a canonical case where depth is intentional.
              Our hierarchy (Throwable → Exception → RuntimeException → HttpResponseException
