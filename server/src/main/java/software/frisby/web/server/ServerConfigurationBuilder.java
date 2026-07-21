@@ -97,32 +97,42 @@ public interface ServerConfigurationBuilder {
     ServerConfigurationBuilder gzip();
 
     /**
-     * Enables HTTP/2 over TLS (h2) on the HTTPS connector.
+     * Enables HTTP/2 support.  The transport variant selected depends on whether
+     * {@link #ssl(SSLContext)} is also configured:
+     * <ul>
+     *   <li><strong>With SSL ({@code ssl()} or {@code ssl(SSLContext)} also called)</strong> —
+     *       h2 over TLS via ALPN negotiation.  Clients advertising {@code h2} during the TLS
+     *       handshake receive HTTP/2; HTTP/1.1 clients fall back automatically.  The protocol
+     *       list presented to clients is {@code ["h2", "http/1.1"]} with {@code http/1.1} as
+     *       the fallback default.</li>
+     *   <li><strong>Without SSL (plain HTTP)</strong> — h2c (HTTP/2 cleartext, RFC 7540 §3.2).
+     *       The server accepts the standard {@code Upgrade: h2c} handshake on the same port and
+     *       connector as HTTP/1.1; no additional configuration is required.  Use this variant
+     *       behind a TLS-terminating load balancer (e.g. AWS ALB with Protocol Version HTTP2)
+     *       to gain HTTP/2 multiplexing and HPACK header compression on internal service-to-service
+     *       traffic without adding certificate management to each backend service.</li>
+     * </ul>
      * <p>
-     * When set, the server uses ALPN negotiation during the TLS handshake so that
-     * clients advertising {@code h2} receive an HTTP/2 connection while HTTP/1.1
-     * clients continue to work without any changes.  The protocol list presented
-     * to clients is {@code ["h2", "http/1.1"]} with {@code http/1.1} as the
-     * fallback default.
-     * <p>
-     * Requires {@link #ssl(SSLContext)} or {@link #ssl()} to also be configured —
-     * HTTP/2 in this library is scoped to h2 (over TLS) only; h2c (cleartext) is
-     * not supported.  {@link #build()} throws an {@link IllegalStateException} if
-     * {@code http2()} is called without a TLS context.
-     * <p>
-     * Optional.  Defaults to {@code false}.
+     * Optional.  Defaults to {@code false} (HTTP/1.1 only).
      *
      * <pre>{@code
-     * ServerConfiguration config = ServerConfiguration.builder()
+     * // h2c — plain HTTP with HTTP/2 upgrade (ALB or direct internal traffic)
+     * ServerConfiguration.builder()
+     *         .port(8080)
+     *         .serializer(serializer)
+     *         .http2()
+     *         .build();
+     *
+     * // h2 over TLS — direct HTTPS with ALPN negotiation
+     * ServerConfiguration.builder()
      *         .port(8443)
-     *         .serializer(new JacksonSerializer())
+     *         .serializer(serializer)
      *         .ssl(sslContext)
      *         .http2()
      *         .build();
      * }</pre>
      *
      * @return This builder.
-     * @throws IllegalStateException at {@link #build()} time if no SSL context has been configured.
      */
     ServerConfigurationBuilder http2();
 

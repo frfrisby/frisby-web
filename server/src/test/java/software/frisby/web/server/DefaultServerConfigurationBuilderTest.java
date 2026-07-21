@@ -410,7 +410,7 @@ class DefaultServerConfigurationBuilderTest {
         }
 
         @Test
-        void http2_canBeEnabled() throws Exception {
+        void http2_canBeEnabledWithSsl() throws Exception {
             ServerConfiguration config = ServerConfiguration.builder()
                     .port(8443)
                     .serializer(new TestJsonSerializer())
@@ -422,15 +422,15 @@ class DefaultServerConfigurationBuilderTest {
         }
 
         @Test
-        void http2WithoutSsl_throwsIllegalStateException() {
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> ServerConfiguration.builder()
-                            .port(8443)
-                            .serializer(new TestJsonSerializer())
-                            .http2()
-                            .build()
-            );
+        void http2_canBeEnabledWithoutSsl() {
+            ServerConfiguration config = ServerConfiguration.builder()
+                    .port(8080)
+                    .serializer(new TestJsonSerializer())
+                    .http2()
+                    .build();
+
+            assertTrue(config.http2());
+            assertTrue(config.ssl().isEmpty());
         }
     }
 
