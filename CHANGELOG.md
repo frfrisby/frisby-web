@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/frfrisby/frisby-web/compare/v1.1.2...v1.1.3) (2026-07-21)
+
+
+### Bug Fixes
+
+* Unit test for empty-password branch in Basic Auth decoder ([#25](https://github.com/frfrisby/frisby-web/issues/25)) ([4654a5f](https://github.com/frfrisby/frisby-web/commit/4654a5fffa8b2178c1408ab0bf25a306a0b499d2))
+
 ## [1.1.2](https://github.com/frfrisby/frisby-web/compare/v1.1.1...v1.1.2) (2026-07-21)
 
 
