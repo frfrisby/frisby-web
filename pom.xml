@@ -81,6 +81,12 @@
             test-log/**,
             test-support/**
         </sonar.coverage.exclusions>
+        <!-- Exclude the same modules from Sonar analysis entirely — issues in
+             never-deployed test scaffolding do not reflect production code quality. -->
+        <sonar.exclusions>
+            test-log/**,
+            test-support/**
+        </sonar.exclusions>
 
         <!-- S110 — Inheritance tree of classes should not be too deep.
              Exception hierarchies are a canonical case where depth is intentional.
