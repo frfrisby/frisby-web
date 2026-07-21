@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>software.frisby.web</groupId>
@@ -65,12 +66,14 @@
         <sonar.projectKey>frfrisby_frisby-web</sonar.projectKey>
         <sonar.organization>frfrisby</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+
         <!-- Ensure each Maven module gets a unique Sonar module key.
              sonar.projectKey is inherited by all child modules, which causes a
              "2 modules with the same key" error without this override.
              Using project expressions here ensures each module is evaluated
              with its own coordinates rather than inheriting the root value. -->
         <sonar.moduleKey>${project.groupId}:${project.artifactId}</sonar.moduleKey>
+
         <!-- Exclude internal test-infrastructure modules from coverage reporting.
              These modules exist only to support tests in other modules and are
              never deployed; their coverage numbers are not meaningful. -->
@@ -78,6 +81,16 @@
             test-log/**,
             test-support/**
         </sonar.coverage.exclusions>
+
+        <!-- S110 — Inheritance tree of classes should not be too deep.
+             Exception hierarchies are a canonical case where depth is intentional.
+             Our hierarchy (Throwable → Exception → RuntimeException → HttpResponseException
+             → ClientException/ServerException → specific exception) is exactly the right
+             depth for a typed HTTP exception hierarchy — it enables catch (ClientException),
+             catch (HttpResponseException), etc.  Flattening it would remove that capability. -->
+        <sonar.issue.ignore.multicriteria>e1</sonar.issue.ignore.multicriteria>
+        <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S110</sonar.issue.ignore.multicriteria.e1.ruleKey>
+        <sonar.issue.ignore.multicriteria.e1.resourceKey>**/exception/**</sonar.issue.ignore.multicriteria.e1.resourceKey>
     </properties>
 
     <modules>
