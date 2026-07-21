@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.server.handler.SizeLimitHandler;
@@ -280,6 +281,14 @@ final class DefaultServer implements Server {
         sb.append("\n  executor=").append(executorType);
 
         sb.append("\n  ssl=").append(configuration.ssl().isPresent());
+
+        if (configuration.http2()) {
+            String h2Mode = configuration.ssl().isPresent() ? "h2 (TLS/ALPN)" : "h2c (cleartext)";
+            sb.append("\n  http2=").append(h2Mode);
+        } else {
+            sb.append("\n  http2=false");
+        }
+
         sb.append("\n  gzip=").append(configuration.gzip());
 
         return sb.toString();
@@ -330,7 +339,20 @@ final class DefaultServer implements Server {
 
         HttpConfiguration httpConfig = new HttpConfiguration();
 
-        ServerConnector connector = new ServerConnector(server, new HttpConnectionFactory(httpConfig));
+        ServerConnector connector;
+
+        if (configuration.http2() && configuration.ssl().isEmpty()) {
+            // h2c — HTTP/2 cleartext upgrade (RFC 7540 §3.2).
+            // Both factories share the same HttpConfiguration: HttpConnectionFactory
+            // handles HTTP/1.1 clients; HTTP2CServerConnectionFactory handles the
+            // Upgrade: h2c handshake for HTTP/2 clients, all on one connector.
+
+            HTTP2CServerConnectionFactory h2c = new HTTP2CServerConnectionFactory(httpConfig);
+            connector = new ServerConnector(server, new HttpConnectionFactory(httpConfig), h2c);
+        } else {
+            connector = new ServerConnector(server, new HttpConnectionFactory(httpConfig));
+        }
+
         connector.setHost(uri.getHost());
         connector.setPort(uri.getPort());
 

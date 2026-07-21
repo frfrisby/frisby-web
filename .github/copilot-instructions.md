@@ -12,24 +12,46 @@ They are not fetched automatically — they must be explicitly attached to the c
 Without these files in context, the AI will not have the complete validation method
 signatures, utility class behavior, or style rules needed to generate correct code.
 
+When working on a specific area, also attach the relevant AI reference doc from `docs/ai/`:
+
+- `docs/ai/serialization.md` — `JsonSerializer`, `GenericType`, `JacksonSerializer`
+- `docs/ai/client.md` — HTTP client: `Client`, verb specs, body types, compression, events, exceptions
+- `docs/ai/client-security.md` — Client auth providers: Basic, Bearer Token, OAuth2 client-credentials
+- `docs/ai/server.md` — HTTP server: `Server`, `ServerConfiguration`, CORS, health check, logging, events
+- `docs/ai/server-security.md` — Server auth: Basic, Bearer Token, RBAC, mixed authentication
+
 ---
 
 ## Project Overview
 
-Maven multi-module library (`software.frisby.web`, v1.0.0, Java 17). Two publishable artifacts:
+Maven multi-module library (`software.frisby.web`, Java 17). Publishable artifacts:
 - **`bom`** — Bill of Materials for downstream consumers to import
-- **`client`** — the main JAR (currently being scaffolded)
+- **`serial`** — `JsonSerializer` and `GenericType` interfaces (shared by client and server)
+- **`client`** — HTTP client (JDK `java.net.http.HttpClient`)
+- **`basic-security`** — Client-side HTTP Basic Auth and Bearer Token providers
+- **`oauth2-security`** — Client-side OAuth 2.0 client-credentials provider
+- **`server`** — Embedded HTTP server (Jersey 3.x + Jetty 12)
+- **`server-basic-security`** — Server-side Basic Auth authentication
+- **`server-oauth2-security`** — Server-side Bearer Token authentication
+- **`jackson-serializer`** — Jackson-backed `JsonSerializer`
 
 Depends on the sibling library `software.frisby.core:bom` v1.1.0, which provides the `software.frisby.core:validation` module used throughout.
 
 ## Module Structure
 
 ```
-pom.xml               ← aggregator + plugin/dependency version management
-bom/pom.xml           ← BOM artifact (flattenMode=bom, strips properties block on publish)
-client/pom.xml        ← JAR artifact; Automatic-Module-Name must be kept up-to-date
-basic-security/pom.xml   ← Basic Auth provider; depends on client
-oauth2-security/pom.xml  ← OAuth2 client-credentials provider; depends on client
+pom.xml                         ← aggregator + plugin/dependency version management
+bom/pom.xml                     ← BOM artifact (flattenMode=bom, strips properties block on publish)
+serial/pom.xml                  ← JsonSerializer + GenericType interfaces
+client/pom.xml                  ← HTTP client; Automatic-Module-Name must be kept up-to-date
+basic-security/pom.xml          ← Client Basic Auth + Bearer Token providers; depends on client
+oauth2-security/pom.xml         ← Client OAuth2 client-credentials provider; depends on client
+server/pom.xml                  ← Embedded server; depends on serial
+server-basic-security/pom.xml   ← Server Basic Auth; depends on server
+server-oauth2-security/pom.xml  ← Server Bearer Token; depends on server
+jackson-serializer/pom.xml      ← Jackson-backed JsonSerializer; depends on serial
+test-support/pom.xml            ← Test utilities; excluded from Sonar analysis
+test-log/pom.xml                ← Test logging helpers; excluded from Sonar analysis
 ```
 
 The root POM enforces convergence (`dependencyConvergence`, `requireUpperBoundDeps`, `banDuplicatePomDependencyVersions`). Any dependency version change must satisfy all three rules.
