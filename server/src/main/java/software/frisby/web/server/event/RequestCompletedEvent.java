@@ -39,17 +39,23 @@ public record RequestCompletedEvent(String method,
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
+     * @param method        the HTTP method; must not be blank
+     * @param path          the request path; must not be blank
+     * @param statusCode    the HTTP status code; must not be negative
+     * @param latency       the request latency; must not be negative
+     * @param requestBytes  the request body byte count; must not be negative
+     * @param responseBytes the response body byte count; must not be negative
      * @throws software.frisby.core.validation.BlankValueException               if {@code method}
-     *                                                                           or {@code path} is
-     *                                                                           blank.
+     *                                                                            or {@code path} is
+     *                                                                            blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if
-     *                                                                           {@code statusCode},
-     *                                                                           {@code requestBytes},
-     *                                                                           or
-     *                                                                           {@code responseBytes}
-     *                                                                           is negative.
+     *                                                                            {@code statusCode},
+     *                                                                            {@code requestBytes},
+     *                                                                            or
+     *                                                                            {@code responseBytes}
+     *                                                                            is negative.
      * @throws software.frisby.core.validation.DurationOutsideRangeException     if {@code latency}
-     *                                                                           is negative.
+     *                                                                            is negative.
      */
     public RequestCompletedEvent {
         Strings.notBlank("method", method);
