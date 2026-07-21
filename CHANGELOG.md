@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/frfrisby/frisby-web/compare/v1.1.1...v1.1.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* Fix Javadoc [@param](https://github.com/param) warnings for record compact constructors ([#21](https://github.com/frfrisby/frisby-web/issues/21)) ([eea11ca](https://github.com/frfrisby/frisby-web/commit/eea11ca6fb4f3ed909d95694662fd2864c8e4d43))
+
 ## [1.1.1](https://github.com/frfrisby/frisby-web/compare/v1.1.0...v1.1.1) (2026-07-21)
 
 
