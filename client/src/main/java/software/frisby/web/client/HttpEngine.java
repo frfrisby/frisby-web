@@ -35,10 +35,12 @@ final class HttpEngine {
     private final ClientConfiguration configuration;
     private final ClientEventListener eventListener;
     private final RequestLogger requestLogger;
+    private final RetryPolicy retryPolicy;
 
-    HttpEngine(ClientConfiguration configuration, ClientEventListener eventListener) {
+    HttpEngine(ClientConfiguration configuration, ClientEventListener eventListener, RetryPolicy retryPolicy) {
         this.configuration = Values.notNull("configuration", configuration);
         this.eventListener = Values.notNull("eventListener", eventListener);
+        this.retryPolicy = Values.notNull("retryPolicy", retryPolicy);
         this.requestLogger = new RequestLogger(configuration.logging());
 
         this.httpClient = buildHttpClient(configuration);

@@ -109,6 +109,23 @@ public interface ClientBuilder {
     ClientBuilder eventListener(ClientEventListener listener);
 
     /**
+     * Sets the retry policy applied to failed requests sent by this client.
+     * <p>
+     * By default ({@link RetryPolicy#none()}), no retries are attempted and every
+     * failure propagates immediately to the caller.
+     * <p>
+     * Retries are only attempted for idempotent HTTP methods ({@code GET},
+     * {@code HEAD}, {@code DELETE}) unless {@link RetryPolicyBuilder#allowNonIdempotent()}
+     * is explicitly set.  Requests with streaming bodies are never retried regardless
+     * of this setting.
+     *
+     * @param policy The retry policy; must not be {@code null}.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code policy} is {@code null}.
+     */
+    ClientBuilder retryPolicy(RetryPolicy policy);
+
+    /**
      * Returns a new {@link Client} instance based on the provided options.
      *
      * @return A new {@link Client} instance.
