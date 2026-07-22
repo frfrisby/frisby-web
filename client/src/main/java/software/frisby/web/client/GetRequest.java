@@ -92,13 +92,12 @@ final class GetRequest implements GetSpec {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
-        ));
 
         return engine.send(
-                outbound,
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
+                )),
                 JsonBodyHandler.of(engine.configuration().serializer(), responseType, GET, uri,
                         engine.configuration().decompressors())
         );
@@ -109,13 +108,12 @@ final class GetRequest implements GetSpec {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
-        ));
 
         return engine.send(
-                outbound,
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
+                )),
                 JsonBodyHandler.of(engine.configuration().serializer(), responseType, GET, uri,
                         engine.configuration().decompressors())
         );
@@ -124,12 +122,14 @@ final class GetRequest implements GetSpec {
     @Override
     public HttpResponse<InputStream> download() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.send(outbound, downloadBodyHandler(uri));
+        return engine.send(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                downloadBodyHandler(uri)
+        );
     }
 
     @Override
@@ -137,13 +137,12 @@ final class GetRequest implements GetSpec {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
-        ));
 
         return engine.sendAsync(
-                outbound,
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
+                )),
                 JsonBodyHandler.of(engine.configuration().serializer(), responseType, GET, uri,
                         engine.configuration().decompressors())
         );
@@ -154,13 +153,12 @@ final class GetRequest implements GetSpec {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
-        ));
 
         return engine.sendAsync(
-                outbound,
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        true, DefaultClientConfiguration.acceptEncoding(engine.configuration().decompressors()), engine.configuration().readTimeout()
+                )),
                 JsonBodyHandler.of(engine.configuration().serializer(), responseType, GET, uri,
                         engine.configuration().decompressors())
         );
@@ -169,12 +167,14 @@ final class GetRequest implements GetSpec {
     @Override
     public CompletableFuture<HttpResponse<InputStream>> downloadAsync() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.sendAsync(outbound, downloadBodyHandler(uri));
+        return engine.sendAsync(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, GET, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                downloadBodyHandler(uri)
+        );
     }
 
     private HttpResponse.BodyHandler<InputStream> downloadBodyHandler(URI uri) {

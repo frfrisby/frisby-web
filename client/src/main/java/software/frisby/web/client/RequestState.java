@@ -230,7 +230,6 @@ final class RequestState {
         List<HttpCookie> allCookies = new ArrayList<>(cookies);
 
         SecurityProvider effectiveSecurity = null != security ? security : defaultSecurity;
-
         if (null != effectiveSecurity) {
             effectiveSecurity.secure(new DefaultRequestContext(builder, allCookies));
         }

@@ -7,6 +7,7 @@ import org.glassfish.jersey.media.multipart.MultiPartFeature;
 import org.junit.jupiter.api.*;
 import software.frisby.web.client.exception.AbortedException;
 import software.frisby.web.client.exception.ConnectException;
+import software.frisby.web.client.exception.ConnectTimeoutException;
 import software.frisby.web.client.exception.ServiceUnavailableException;
 import software.frisby.web.serial.jackson.JacksonSerializer;
 import software.frisby.web.server.Server;
@@ -15,6 +16,7 @@ import software.frisby.web.test.TestLogging;
 import software.frisby.web.test.domain.Person;
 import software.frisby.web.test.log.LogExpectation;
 import software.frisby.web.test.log.SystemLogVerifier;
+import software.frisby.web.client.security.SecurityProvider;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -22,6 +24,7 @@ import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -670,5 +673,221 @@ class ClientRetryTest {
             assertEquals(1, failableMultipart.callCount());
         }
     }
-}
 
+    // -------------------------------------------------------------------------
+    // Auth-phase retry — security provider failure is retried
+    // -------------------------------------------------------------------------
+
+    /**
+     * Verifies that an exception thrown by a {@link SecurityProvider} during the auth
+     * phase (before the {@link OutboundRequest} is built) is subject to the retry policy.
+     * <p>
+     * Because the request never reached the server, the idempotency guard is bypassed:
+     * the retry policy applies regardless of the HTTP method.
+     */
+    @Nested
+    class AuthPhaseRetry {
+
+        @Test
+        void connectTimeoutFromAuthProvider_retriedUntilSuccess() {
+            failableGet.failCount = 0;   // server always returns 200 immediately
+
+            AtomicInteger authCalls = new AtomicInteger();
+
+            SecurityProvider flakyAuth = ctx -> {
+                if (authCalls.incrementAndGet() <= 2) {
+                    throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
+                }
+                // Third call: succeed without adding any header
+            };
+
+            RetryPolicy policy = RetryPolicy.builder()
+                    .maxAttempts(4)
+                    .on(RetryOn.CONNECT_TIMEOUT)
+                    .delay(RetryDelay.fixed(Duration.ofMillis(10)))
+                    .build();
+            Client client = buildClient(policy);
+
+            HttpResponse<Person> response = client.get()
+                    .path("/retry/get")
+                    .security(flakyAuth)
+                    .send(Person.class);
+
+            assertEquals(200, response.statusCode());
+            assertEquals(3, authCalls.get());
+            assertEquals(1, failableGet.callCount());   // only one HTTP request reached the server
+        }
+
+        /**
+         * An auth-phase failure on a non-idempotent method (POST) is retried without
+         * requiring {@code allowNonIdempotent()} — the request never reached the server
+         * so the "only replay idempotent methods" guard does not apply.
+         */
+        @Test
+        void authFailureOnPost_retriedWithoutAllowNonIdempotent() {
+            failablePost.failCount = 0;   // server always returns 200 immediately
+
+            AtomicInteger authCalls = new AtomicInteger();
+
+            SecurityProvider flakyAuth = ctx -> {
+                if (authCalls.incrementAndGet() <= 2) {
+                    throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
+                }
+            };
+
+            RetryPolicy policy = RetryPolicy.builder()
+                    .maxAttempts(4)
+                    .on(RetryOn.CONNECT_TIMEOUT)
+                    .delay(RetryDelay.fixed(Duration.ofMillis(10)))
+                    // no allowNonIdempotent() — auth failures bypass the idempotency guard
+                    .build();
+            Client client = buildClient(policy);
+
+            HttpResponse<Person> response = client.post()
+                    .path("/retry/post")
+                    .body("{\"name\":\"Alice\"}")
+                    .security(flakyAuth)
+                    .send(Person.class);
+
+            assertEquals(200, response.statusCode());
+            assertEquals(3, authCalls.get());
+            assertEquals(1, failablePost.callCount());   // only one HTTP request reached the server
+        }
+
+        /**
+         * Verifies that interrupting the calling thread while sleeping between retries,
+         * when the auth phase threw (so {@code outbound} is {@code null}), produces an
+         * {@link AbortedException} whose URI comes from the client configuration and
+         * whose method is {@code "UNKNOWN"}.
+         */
+        @Test
+        void threadInterruptedDuringRetryDelay_afterAuthFailure_throwsAbortedException()
+                throws InterruptedException {
+            // Auth always fails — the request never reaches the server.
+            SecurityProvider alwaysFailing = ctx -> {
+                throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
+            };
+
+            // Long delay so the thread is reliably asleep when we interrupt it.
+            RetryPolicy policy = RetryPolicy.builder()
+                    .maxAttempts(4)
+                    .on(RetryOn.CONNECT_TIMEOUT)
+                    .delay(RetryDelay.fixed(Duration.ofSeconds(10)))
+                    .build();
+            Client client = buildClient(policy);
+
+            AtomicReference<Throwable> thrown = new AtomicReference<>();
+
+            Thread requestThread = new Thread(() -> {
+                try {
+                    client.get()
+                            .path("/retry/get")
+                            .security(alwaysFailing)
+                            .send(Person.class);
+                } catch (AbortedException e) {
+                    thrown.set(e);
+                }
+            });
+
+            requestThread.start();
+
+            // Allow time for the first auth failure and the retry sleep to begin.
+            Thread.sleep(500);
+
+            requestThread.interrupt();
+            requestThread.join(5_000);
+
+            AbortedException ex = assertInstanceOf(AbortedException.class, thrown.get(),
+                    "Expected AbortedException when thread is interrupted during auth-failure retry sleep.");
+
+            // When outbound is null the engine falls back to configuration.uri() and "UNKNOWN".
+            assertEquals(Optional.of(server.uri()), ex.uri());
+            assertEquals(Optional.of("UNKNOWN"), ex.method());
+        }
+
+        /**
+         * Verifies that when auth throws inside {@code retryAsync} and the retry policy
+         * does <em>not</em> match the exception, the future completes exceptionally with
+         * the original auth failure rather than being retried.
+         * <p>
+         * Setup: the probe (call 1) succeeds so {@code retryAsync} is entered; the first
+         * {@code retryAsync} auth call (call 2) throws; the policy does not cover
+         * {@link RetryOn#CONNECT_TIMEOUT} so the future is completed exceptionally.
+         */
+        @Test
+        void asyncAuthFailureInRetryAsync_policyDoesNotMatch_completesExceptionally() {
+            failableGet.failCount = 0;   // server would return 200 if reached
+
+            AtomicInteger authCalls = new AtomicInteger();
+
+            // Probe (call 1): succeeds.  First retryAsync attempt (call 2+): fails.
+            SecurityProvider flakyAuth = ctx -> {
+                if (authCalls.incrementAndGet() > 1) {
+                    throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
+                }
+            };
+
+            // Policy matches SERVICE_UNAVAILABLE only — ConnectTimeoutException is not retried.
+            RetryPolicy policy = RetryPolicy.builder()
+                    .maxAttempts(4)
+                    .on(RetryOn.SERVICE_UNAVAILABLE)
+                    .delay(RetryDelay.fixed(Duration.ofMillis(10)))
+                    .build();
+            Client client = buildClient(policy);
+
+            CompletionException ex = assertThrows(
+                    CompletionException.class,
+                    () -> client.get()
+                            .path("/retry/get")
+                            .security(flakyAuth)
+                            .sendAsync(Person.class)
+                            .join()
+            );
+
+            assertInstanceOf(ConnectTimeoutException.class, ex.getCause());
+            assertEquals(0, failableGet.callCount());   // auth failed before any HTTP request
+        }
+
+        /**
+         * Verifies that when auth throws inside {@code retryAsync} and the retry policy
+         * <em>does</em> match the exception, the scheduler reschedules the attempt and the
+         * request ultimately succeeds once auth recovers.
+         * <p>
+         * Setup: the probe (call 1) succeeds; the first {@code retryAsync} auth call
+         * (call 2) throws; the policy matches so {@code DEFAULT_RETRY_SCHEDULER.schedule()}
+         * is invoked; auth call 3 succeeds and the HTTP request completes.
+         */
+        @Test
+        void asyncAuthFailureInRetryAsync_policyMatches_retriedAndSucceeds() {
+            failableGet.failCount = 0;   // server always returns 200
+
+            AtomicInteger authCalls = new AtomicInteger();
+
+            // Probe (call 1): succeeds.  Retry attempt 1 (call 2): fails.  Attempt 2 (call 3): succeeds.
+            SecurityProvider flakyAuth = ctx -> {
+                int call = authCalls.incrementAndGet();
+
+                if (call == 2) {
+                    throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
+                }
+            };
+
+            RetryPolicy policy = RetryPolicy.builder()
+                    .maxAttempts(4)
+                    .on(RetryOn.CONNECT_TIMEOUT)
+                    .delay(RetryDelay.fixed(Duration.ofMillis(10)))
+                    .build();
+            Client client = buildClient(policy);
+
+            HttpResponse<Person> response = client.get()
+                    .path("/retry/get")
+                    .security(flakyAuth)
+                    .sendAsync(Person.class)
+                    .join();
+
+            assertEquals(200, response.statusCode());
+            assertEquals(3, authCalls.get());
+            assertEquals(1, failableGet.callCount());   // only one HTTP request reached the server
+        }
+    }
+}

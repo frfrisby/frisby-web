@@ -83,22 +83,26 @@ final class DeleteRequest implements DeleteSpec {
     @Override
     public HttpResponse<Void> send() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, DELETE, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.send(outbound, RequestState.voidBodyHandler(DELETE, uri));
+        return engine.send(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, DELETE, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                RequestState.voidBodyHandler(DELETE, uri)
+        );
     }
 
     @Override
     public CompletableFuture<HttpResponse<Void>> sendAsync() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, DELETE, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.sendAsync(outbound, RequestState.voidBodyHandler(DELETE, uri));
+        return engine.sendAsync(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, DELETE, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                RequestState.voidBodyHandler(DELETE, uri)
+        );
     }
 }

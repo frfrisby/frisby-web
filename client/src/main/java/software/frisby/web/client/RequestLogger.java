@@ -211,6 +211,33 @@ final class RequestLogger {
     }
 
     /**
+     * Logs a transport-level failure that occurred during the auth phase, before any
+     * {@link OutboundRequest} was built.  No request section is emitted — the request
+     * headers and body are unknown at this point.
+     * <p>
+     * Emits at both {@code TRACE} and {@code ERROR}.
+     */
+    void logTransportError(Throwable cause, int retryAttempt) {
+        System.Logger.Level level = effectiveLevel(System.Logger.Level.TRACE, System.Logger.Level.ERROR);
+
+        if (null == level) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(CROSS).append(" ");
+
+        if (retryAttempt > 1) {
+            sb.append("[attempt ").append(retryAttempt).append("] ");
+        }
+
+        sb.append(cause.getClass().getSimpleName()).append(": ").append(cause.getMessage());
+
+        LOGGER.log(level, sb.toString());
+    }
+
+    /**
      * Logs a transport-level failure (connect timeout, read timeout, etc.).
      * Emits the full request block (headers and body) at both {@code TRACE}
      * and {@code ERROR}.

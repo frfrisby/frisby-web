@@ -83,22 +83,26 @@ final class HeadRequest implements HeadSpec {
     @Override
     public HttpResponse<Void> send() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, HEAD, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.send(outbound, RequestState.voidBodyHandler(HEAD, uri));
+        return engine.send(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, HEAD, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                RequestState.voidBodyHandler(HEAD, uri)
+        );
     }
 
     @Override
     public CompletableFuture<HttpResponse<Void>> sendAsync() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = OutboundRequest.of(state.buildRequest(
-                uri, HEAD, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
-        ));
 
-        return engine.sendAsync(outbound, RequestState.voidBodyHandler(HEAD, uri));
+        return engine.sendAsync(
+                () -> OutboundRequest.of(state.buildRequest(
+                        uri, HEAD, HttpRequest.BodyPublishers.noBody(),
+                        false, null, engine.configuration().readTimeout()
+                )),
+                RequestState.voidBodyHandler(HEAD, uri)
+        );
     }
 }

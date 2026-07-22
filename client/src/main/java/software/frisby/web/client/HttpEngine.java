@@ -13,6 +13,7 @@ import java.net.http.*;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 /**
  * The execution engine for the HTTP client.
@@ -126,17 +127,61 @@ final class HttpEngine {
         return configuration;
     }
 
-    <T> HttpResponse<T> send(OutboundRequest outbound, HttpResponse.BodyHandler<T> bodyHandler) {
-        boolean retryEligible = isRetryEligible(outbound);
+    /**
+     * Executes {@code httpClient.send()} and maps all JDK-specific checked exceptions to
+     * the client exception hierarchy.  Returns the response on success; always throws a
+     * {@link RuntimeException} subtype on failure.
+     */
+    private <T> HttpResponse<T> executeRequest(HttpRequest request,
+                                               HttpResponse.BodyHandler<T> bodyHandler) {
+        try {
+            return httpClient.send(request, bodyHandler);
+        } catch (HttpConnectTimeoutException ex) {
+            throw new ConnectTimeoutException(ex, request.method(), request.uri());
+        } catch (HttpTimeoutException ex) {
+            throw new ReadTimeoutException(ex, request.method(), request.uri());
+        } catch (java.net.ConnectException ex) {
+            throw new software.frisby.web.client.exception.ConnectException(
+                    ex, request.method(), request.uri()
+            );
+        } catch (IOException ex) {
+            // The JDK HttpClient wraps RuntimeExceptions thrown from body handler mapping
+            // functions in a plain IOException.  Unwrap HttpResponseException so callers
+            // receive the correctly-typed HTTP error exception.
+            if (ex.getCause() instanceof HttpResponseException hre) {
+                throw hre;
+            }
+
+            throw new TransportException(ex, request.method(), request.uri());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AbortedException(ex, request.method(), request.uri());
+        }
+    }
+
+    /**
+     * Sends an HTTP request produced by {@code supplier} on every attempt.
+     * <p>
+     * The supplier is called at the start of each retry iteration so that the
+     * security provider is always invoked with the latest state (e.g. to refresh
+     * an expired OAuth2 token).  If the supplier itself throws (auth-phase failure),
+     * the exception is subject to the retry policy just like an HTTP-phase failure.
+     */
+    <T> HttpResponse<T> send(Supplier<OutboundRequest> supplier,
+                             HttpResponse.BodyHandler<T> bodyHandler) {
         int attempt = 1;
 
         while (true) {
             StopWatch watch = StopWatch.start();
-            HttpRequest request = outbound.request();
+            OutboundRequest outbound = null;
             RuntimeException failure;
 
             try {
-                HttpResponse<T> response = httpClient.send(request, bodyHandler);
+                // auth phase
+                outbound = supplier.get();
+
+                // HTTP phase
+                HttpResponse<T> response = executeRequest(outbound.request(), bodyHandler);
 
                 watch.stop();
                 Duration latency = watch.duration();
@@ -148,110 +193,55 @@ final class HttpEngine {
                 requestLogger.logSuccess(outbound, response, latency, responseSnapshot, attempt);
 
                 fireRequestCompleted(new RequestCompletedEvent(
-                        request.method(),
-                        request.uri(),
+                        outbound.request().method(),
+                        outbound.request().uri(),
                         response.statusCode(),
                         latency
                 ));
 
                 return response;
-            } catch (HttpConnectTimeoutException ex) {
+            } catch (HttpResponseException hre) {
+                // outbound is always non-null here: HttpResponseException is only thrown
+                // by the HTTP phase (inside executeRequest), never by the auth phase.
                 watch.stop();
                 Duration latency = watch.duration();
-                ConnectTimeoutException wrapped = new ConnectTimeoutException(
-                        ex,
-                        request.method(),
-                        request.uri()
-                );
 
-                requestLogger.logTransportError(outbound, wrapped, attempt);
+                requestLogger.logError(outbound, hre, latency, attempt);
 
                 fireRequestFailed(buildFailedEvent(
-                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                        RequestFailedEvent.httpFailure(
+                                outbound.request().method(), outbound.request().uri(),
+                                hre.statusCode(), latency, hre),
                         attempt
                 ));
 
-                failure = wrapped;
-            } catch (HttpTimeoutException ex) {
-                watch.stop();
-                Duration latency = watch.duration();
-                ReadTimeoutException wrapped = new ReadTimeoutException(
-                        ex,
-                        request.method(),
-                        request.uri()
-                );
-
-                requestLogger.logTransportError(outbound, wrapped, attempt);
-
-                fireRequestFailed(buildFailedEvent(
-                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
-                        attempt
-                ));
-
-                failure = wrapped;
-            } catch (java.net.ConnectException ex) {
-                watch.stop();
-                Duration latency = watch.duration();
-                software.frisby.web.client.exception.ConnectException wrapped =
-                        new software.frisby.web.client.exception.ConnectException(
-                                ex,
-                                request.method(),
-                                request.uri()
-                        );
-
-                requestLogger.logTransportError(outbound, wrapped, attempt);
-
-                fireRequestFailed(buildFailedEvent(
-                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
-                        attempt
-                ));
-
-                failure = wrapped;
-            } catch (IOException ex) {
+                failure = hre;
+            } catch (RuntimeException ex) {
                 watch.stop();
                 Duration latency = watch.duration();
 
-                // The JDK HttpClient wraps RuntimeExceptions thrown from body handler mapping
-                // functions in a plain IOException (see HttpClientImpl.send() catch for
-                // ExecutionException).  Unwrap HttpResponseException so callers always receive
-                // the correctly-typed HTTP error exception instead of AbortedException.
-                if (ex.getCause() instanceof HttpResponseException hre) {
-                    requestLogger.logError(outbound, hre, latency, attempt);
-
-                    fireRequestFailed(buildFailedEvent(
-                            RequestFailedEvent.httpFailure(request.method(), request.uri(), hre.statusCode(), latency, hre),
-                            attempt
-                    ));
-
-                    failure = hre;
+                // outbound is null when the auth phase threw before the request was built.
+                // Only log and fire an event when we have a fully-formed request to report on.
+                if (null == outbound) {
+                    requestLogger.logTransportError(ex, attempt);
                 } else {
-                    TransportException wrapped = new TransportException(ex, request.method(), request.uri());
-
-                    requestLogger.logTransportError(outbound, wrapped, attempt);
+                    requestLogger.logTransportError(outbound, ex, attempt);
 
                     fireRequestFailed(buildFailedEvent(
-                            RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                            RequestFailedEvent.transportFailure(
+                                    outbound.request().method(), outbound.request().uri(),
+                                    latency, ex),
                             attempt
                     ));
-
-                    failure = wrapped;
                 }
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
 
-                watch.stop();
-                Duration latency = watch.duration();
-                AbortedException wrapped = new AbortedException(ex, request.method(), request.uri());
-
-                requestLogger.logTransportError(outbound, wrapped, attempt);
-
-                fireRequestFailed(buildFailedEvent(
-                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
-                        attempt
-                ));
-
-                failure = wrapped;
+                failure = ex;
             }
+
+            // null == outbound: auth phase threw — the request never reached the server,
+            // so it is always safe to retry regardless of method or body type.
+            // null != outbound: HTTP phase threw — respect isRetryEligible().
+            boolean retryEligible = (null == outbound) || isRetryEligible(outbound);
 
             if (retryEligible) {
                 Optional<Duration> delay = retryPolicy.retryDelay(attempt, failure);
@@ -263,7 +253,15 @@ final class HttpEngine {
                         TimeUnit.MILLISECONDS.sleep(delay.get().toMillis());
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        throw new AbortedException(ie, request.method(), request.uri());
+
+                        URI uri = null != outbound
+                                ? outbound.request().uri()
+                                : configuration.uri();
+                        String method = null != outbound
+                                ? outbound.request().method()
+                                : "UNKNOWN";
+
+                        throw new AbortedException(ie, method, uri);
                     }
 
                     continue;
@@ -274,24 +272,58 @@ final class HttpEngine {
         }
     }
 
-    <T> CompletableFuture<HttpResponse<T>> sendAsync(OutboundRequest outbound,
+    /**
+     * Sends an HTTP request asynchronously, rebuilding it via {@code supplier} on each
+     * retry attempt so that the security provider is always called with the latest state.
+     */
+    <T> CompletableFuture<HttpResponse<T>> sendAsync(Supplier<OutboundRequest> supplier,
                                                      HttpResponse.BodyHandler<T> bodyHandler) {
-        if (!isRetryEligible(outbound)) {
-            return singleSendAsync(outbound, bodyHandler);
+        // Build a probe request to determine retry eligibility.  For the non-retry path
+        // the probe is used directly, avoiding any additional supplier invocation.
+        OutboundRequest probe = supplier.get();
+
+        if (!isRetryEligible(probe)) {
+            return singleSendAsync(probe, bodyHandler);
         }
 
         CompletableFuture<HttpResponse<T>> resultFuture = new CompletableFuture<>();
 
-        retryAsync(outbound, bodyHandler, 1, resultFuture);
+        retryAsync(supplier, bodyHandler, 1, resultFuture);
 
         return resultFuture;
     }
 
-    private <T> void retryAsync(OutboundRequest outbound,
+    private <T> void retryAsync(Supplier<OutboundRequest> supplier,
                                 HttpResponse.BodyHandler<T> bodyHandler,
                                 int attempt,
                                 CompletableFuture<HttpResponse<T>> resultFuture) {
-        singleSendAsync(outbound, bodyHandler, attempt).whenComplete((response, throwable) -> {
+        OutboundRequest outbound;
+
+        try {
+            outbound = supplier.get();    // synchronous auth — called on the current thread
+        } catch (RuntimeException ex) {
+            // Auth-phase failure: run through the retry policy.
+            Optional<Duration> retryDelay = retryPolicy.retryDelay(attempt, ex);
+
+            if (retryDelay.isEmpty()) {
+                resultFuture.completeExceptionally(ex);
+                return;
+            }
+
+            int nextAttempt = attempt + 1;
+
+            DEFAULT_RETRY_SCHEDULER.schedule(
+                    () -> retryAsync(supplier, bodyHandler, nextAttempt, resultFuture),
+                    retryDelay.get().toMillis(),
+                    TimeUnit.MILLISECONDS
+            );
+
+            return;
+        }
+
+        final OutboundRequest finalOutbound = outbound;
+
+        singleSendAsync(finalOutbound, bodyHandler, attempt).whenComplete((response, throwable) -> {
             if (null == throwable) {
                 resultFuture.complete(response);
                 return;
@@ -309,7 +341,7 @@ final class HttpEngine {
             int nextAttempt = attempt + 1;
 
             DEFAULT_RETRY_SCHEDULER.schedule(
-                    () -> retryAsync(outbound, bodyHandler, nextAttempt, resultFuture),
+                    () -> retryAsync(supplier, bodyHandler, nextAttempt, resultFuture),
                     retryDelay.get().toMillis(),
                     TimeUnit.MILLISECONDS
             );
