@@ -11,6 +11,7 @@
     <artifactId>bom</artifactId>
     <packaging>pom</packaging>
     <name>${project.artifactId}</name>
+    <url>https://github.com/frfrisby/frisby-web</url>
 
     <dependencyManagement>
         <dependencies>
