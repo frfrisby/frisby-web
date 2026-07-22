@@ -737,24 +737,31 @@ Configuration.builder()
 
 ## 18. Exception hierarchy
 
-All exceptions are subclasses of `WebServiceException`.
+All exceptions are subclasses of `HttpResponseException`.
 
 ### HTTP error responses
 
-| Exception                      | Status                  |
-|--------------------------------|-------------------------|
-| `BadRequestException`          | 400                     |
-| `UnauthorizedException`        | 401                     |
-| `ForbiddenException`           | 403                     |
-| `NotFoundException`            | 404                     |
-| `MethodNotAllowedException`    | 405                     |
-| `ConflictException`            | 409                     |
-| `GoneException`                | 410                     |
-| `UnprocessableEntityException` | 422                     |
-| `TooManyRequestsException`     | 429                     |
-| `InternalServerErrorException` | 500                     |
-| `ServiceUnavailableException`  | 503                     |
-| `HttpResponseException`        | any other `4xx` / `5xx` |
+| Exception                       | Status                  |
+|---------------------------------|-------------------------|
+| `BadRequestException`           | 400                     |
+| `UnauthorizedException`         | 401                     |
+| `ForbiddenException`            | 403                     |
+| `NotFoundException`             | 404                     |
+| `MethodNotAllowedException`     | 405                     |
+| `NotAcceptableException`        | 406                     |
+| `RequestTimeoutException`       | 408                     |
+| `ConflictException`             | 409                     |
+| `GoneException`                 | 410                     |
+| `PayloadTooLargeException`      | 413                     |
+| `UnsupportedMediaTypeException` | 415                     |
+| `UnprocessableEntityException`  | 422                     |
+| `TooManyRequestsException`      | 429                     |
+| `InternalServerErrorException`  | 500                     |
+| `NotImplementedException`       | 501                     |
+| `BadGatewayException`           | 502                     |
+| `ServiceUnavailableException`   | 503                     |
+| `GatewayTimeoutException`       | 504                     |
+| `HttpResponseException`         | any other `4xx` / `5xx` |
 
 All HTTP error exceptions extend `HttpResponseException` which provides:
 - `statusCode()` — the HTTP status code

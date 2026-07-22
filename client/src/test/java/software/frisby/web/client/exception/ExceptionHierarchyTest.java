@@ -227,6 +227,45 @@ class ExceptionHierarchyTest {
         }
 
         @Test
+        void notAcceptableException_is406AndClientException() {
+            var ex = new NotAcceptableException("not acceptable");
+
+            assertEquals(406, ex.statusCode());
+            assertInstanceOf(ClientException.class, ex);
+        }
+
+        @Test
+        void requestTimeoutException_is408() {
+            assertEquals(408, new RequestTimeoutException("timeout").statusCode());
+        }
+
+        @Test
+        void goneException_is410() {
+            assertEquals(410, new GoneException("gone").statusCode());
+        }
+
+        @Test
+        void unsupportedMediaTypeException_is415() {
+            assertEquals(415, new UnsupportedMediaTypeException("unsupported").statusCode());
+        }
+
+        @Test
+        void badGatewayException_is502AndServerException() {
+            var ex = new BadGatewayException("bad gateway");
+
+            assertEquals(502, ex.statusCode());
+            assertInstanceOf(ServerException.class, ex);
+        }
+
+        @Test
+        void gatewayTimeoutException_is504AndServerException() {
+            var ex = new GatewayTimeoutException("gateway timeout");
+
+            assertEquals(504, ex.statusCode());
+            assertInstanceOf(ServerException.class, ex);
+        }
+
+        @Test
         void serviceUnavailableException_is503() {
             assertEquals(503, new ServiceUnavailableException(null).statusCode());
         }
@@ -291,6 +330,36 @@ class ExceptionHierarchyTest {
         @Test
         void serviceUnavailableException_noArg_is503() {
             assertEquals(503, new ServiceUnavailableException().statusCode());
+        }
+
+        @Test
+        void notAcceptableException_noArg_is406() {
+            assertEquals(406, new NotAcceptableException().statusCode());
+        }
+
+        @Test
+        void requestTimeoutException_noArg_is408() {
+            assertEquals(408, new RequestTimeoutException().statusCode());
+        }
+
+        @Test
+        void goneException_noArg_is410() {
+            assertEquals(410, new GoneException().statusCode());
+        }
+
+        @Test
+        void unsupportedMediaTypeException_noArg_is415() {
+            assertEquals(415, new UnsupportedMediaTypeException().statusCode());
+        }
+
+        @Test
+        void badGatewayException_noArg_is502() {
+            assertEquals(502, new BadGatewayException().statusCode());
+        }
+
+        @Test
+        void gatewayTimeoutException_noArg_is504() {
+            assertEquals(504, new GatewayTimeoutException().statusCode());
         }
     }
 

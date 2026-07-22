@@ -379,8 +379,8 @@ Unknown codes return `ResponseStatus.UNKNOWN`.
 
 ## Exception hierarchy
 
-All exceptions extend `ClientException`.  The client throws on `4xx` / `5xx` responses
-and on transport failures.
+All HTTP error exceptions extend `HttpResponseException`.  The client throws on `4xx` / `5xx`
+responses and on transport failures.
 
 | Exception | Trigger |
 |---|---|
@@ -389,14 +389,20 @@ and on transport failures.
 | `ForbiddenException` | 403 |
 | `NotFoundException` | 404 |
 | `MethodNotAllowedException` | 405 |
+| `NotAcceptableException` | 406 |
+| `RequestTimeoutException` | 408 |
 | `ConflictException` | 409 |
+| `GoneException` | 410 |
 | `PayloadTooLargeException` | 413 |
+| `UnsupportedMediaTypeException` | 415 |
 | `UnprocessableEntityException` | 422 |
 | `TooManyRequestsException` | 429 |
 | `InternalServerErrorException` | 500 |
 | `NotImplementedException` | 501 |
+| `BadGatewayException` | 502 |
 | `ServiceUnavailableException` | 503 |
-| `HttpRequestException` | Other 4xx/5xx |
+| `GatewayTimeoutException` | 504 |
+| `HttpResponseException` | Any other `4xx` / `5xx` |
 | `ConnectException` | TCP connection refused or reset |
 | `ConnectTimeoutException` | `connectTimeout` exceeded |
 | `ReadTimeoutException` | `readTimeout` exceeded |
