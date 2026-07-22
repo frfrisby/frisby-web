@@ -334,6 +334,10 @@ void onRequestCompleted(RequestCompletedEvent event)  // 2xx response; no except
 void onRequestFailed(RequestFailedEvent event)         // any exception thrown (4xx/5xx or transport)
 ```
 
+**Important — retry context:** when a `RetryPolicy` is configured and the request is
+eligible for retry, `onRequestFailed` fires **once per failed attempt**.  Use
+`event.retryAttempt()` to distinguish intermediate failures from terminal ones.
+
 ### `RequestCompletedEvent` (record)
 ```
 method()      String    — "GET", "POST", etc.
@@ -345,17 +349,22 @@ successful()  boolean   — true for 2xx
 
 ### `RequestFailedEvent` (record)
 ```
-method()     String             — "GET", "POST", etc.
-uri()        URI                — full resolved URI
-statusCode() Optional<Integer>  — present for 4xx/5xx; empty for transport failures
-latency()    Duration           — time from send to failure
-cause()      Throwable          — the exception
+method()        String             — "GET", "POST", etc.
+uri()           URI                — full resolved URI
+statusCode()    Optional<Integer>  — present for 4xx/5xx; empty for transport failures
+latency()       Duration           — time from send to failure
+cause()         Throwable          — the exception
+retryAttempt()  Optional<Integer>  — 1-based attempt number when in a retry context;
+                                     empty when no retry policy applies or request was
+                                     ineligible (multipart body, non-idempotent method
+                                     without allowNonIdempotent())
 ```
 
 Factory methods:
 ```java
-RequestFailedEvent.transportFailure(method, uri, latency, cause)  // connect/read timeout, SSL
-RequestFailedEvent.httpFailure(method, uri, statusCode, latency, cause)  // 4xx/5xx
+RequestFailedEvent.transportFailure(method, uri, latency, cause)           // retryAttempt empty
+RequestFailedEvent.httpFailure(method, uri, statusCode, latency, cause)    // retryAttempt empty
+event.withRetryAttempt(int attempt)                                         // returns copy with attempt set
 ```
 
 ---
@@ -412,6 +421,104 @@ responses and on transport failures.
 | `UriSyntaxException` | Malformed URI or unresolved path parameter |
 | `UnsupportedContentEncodingException` | Server returned a `Content-Encoding` with no registered decompressor |
 | `ResponseDeserializationException` | Deserialization of a response body failed |
+
+---
+
+## Retry policy — `RetryPolicy` / `RetryPolicyBuilder`
+
+Attach to `ClientBuilder.retryPolicy(RetryPolicy)` to enable automatic retries.
+When not configured the default is `RetryPolicy.none()` — no retries.
+
+### Quick example
+
+```java
+RetryPolicy policy = RetryPolicy.builder()
+        .maxAttempts(3)                                           // 1 initial + 2 retries
+        .on(RetryPolicy.GATEWAY_ERRORS)                          // 502, 503, 504
+        .on(RetryOn.TOO_MANY_REQUESTS)                           // 429
+        .delay(RetryDelay.exponential(Duration.ofSeconds(1)))    // ~1 s, ~2 s, …  (capped at 30 s)
+        .honorRetryAfterHeader(Duration.ofSeconds(60))           // honour Retry-After ≤ 60 s
+        .build();
+
+Client client = Client.builder()
+        .configuration(config)
+        .retryPolicy(policy)
+        .build();
+```
+
+### `RetryPolicyBuilder` methods
+
+| Method | Default | Description |
+|---|---|---|
+| `maxAttempts(int)` | `3` | Maximum total executions (initial attempt + retries). |
+| `on(RetryOn...)` | — | Additive; registers conditions that trigger a retry. |
+| `on(Collection<RetryOn>)` | — | Convenience overload for `Set` constants. |
+| `delay(RetryDelay)` | `linear(1 s)` | Back-off strategy between retries. |
+| `honorRetryAfterHeader()` | — | Use `Retry-After` header value if ≤ 5 minutes; else fall back to `delay`. |
+| `honorRetryAfterHeader(Duration cap)` | — | Same, with an explicit cap. |
+| `allowNonIdempotent()` | — | Also retry `POST`, `PUT`, `PATCH`. |
+| `build()` | — | Returns a `RetryPolicy`. |
+
+### `RetryOn` enum values
+
+| Value | Triggers on |
+|---|---|
+| `REQUEST_TIMEOUT` | HTTP `408` |
+| `TOO_MANY_REQUESTS` | HTTP `429` |
+| `BAD_GATEWAY` | HTTP `502` |
+| `SERVICE_UNAVAILABLE` | HTTP `503` |
+| `GATEWAY_TIMEOUT` | HTTP `504` |
+| `CONNECT_FAILURE` | TCP connection refused / unreachable |
+| `CONNECT_TIMEOUT` | `connectTimeout` exceeded |
+| `READ_TIMEOUT` | `readTimeout` exceeded |
+| `TRANSPORT_FAILURE` | SSL/TLS errors and other I/O failures |
+
+### Convenience constants on `RetryPolicy`
+
+```java
+RetryPolicy.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+RetryPolicy.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
+```
+
+### `RetryDelay` strategies
+
+```java
+RetryDelay.fixed(Duration.ofSeconds(2))                             // always 2 s
+RetryDelay.linear(Duration.ofSeconds(1))                            // 1 s, 2 s, 3 s, …
+RetryDelay.exponential(Duration.ofSeconds(1))                       // ~1 s, ~2 s, ~4 s, … capped at 30 s
+RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60))  // custom cap
+```
+
+`RetryDelay` is a `@FunctionalInterface` — supply a lambda for custom logic.
+
+### Pre-flight checks (never retried)
+
+- **Multipart bodies** — the stream cannot be replayed; retry is silently skipped regardless of policy.
+- **Non-idempotent methods** (`POST`, `PUT`, `PATCH`) — blocked unless `allowNonIdempotent()` is set.
+
+### Sync vs. async retry behaviour
+
+| Path | Retry mechanism |
+|---|---|
+| `send()` | `Thread.sleep(delay)` on the calling thread. |
+| `sendAsync()` | `ScheduledExecutorService.schedule(...)` — never blocks. |
+
+Thread interruption during a sync retry sleep restores the interrupt flag and throws `AbortedException`.
+
+### Custom implementation
+
+```java
+public class MyRetryPolicy implements RetryPolicy {
+    @Override
+    public Optional<Duration> retryDelay(int attempt, RuntimeException failure) {
+        if (attempt >= 3) return Optional.empty();
+        if (failure instanceof ServiceUnavailableException) {
+            return Optional.of(Duration.ofSeconds(attempt * 5L));
+        }
+        return Optional.empty();
+    }
+}
+```
 
 ---
 

@@ -8,6 +8,7 @@ import software.frisby.core.validation.Values;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -21,9 +22,8 @@ final class DefaultRetryPolicyBuilder implements RetryPolicyBuilder {
 
     private static final int DEFAULT_MAX_ATTEMPTS = 3;
     private static final Duration DEFAULT_RETRY_AFTER_CAP = Duration.ofMinutes(5);
-
-    private int maxAttempts;
     private final Set<RetryOn> retryOn;
+    private int maxAttempts;
     private RetryDelay delay;
     private boolean honorRetryAfterHeader;
     private Duration retryAfterCap;
@@ -49,10 +49,7 @@ final class DefaultRetryPolicyBuilder implements RetryPolicyBuilder {
     public RetryPolicyBuilder on(RetryOn... conditions) {
         Sequences.notEmpty(CONDITIONS_ARGUMENT_NAME, conditions);
 
-        for (RetryOn condition : conditions) {
-            this.retryOn.add(condition);
-        }
-
+        this.retryOn.addAll(List.of(conditions));
         return this;
     }
 
@@ -60,10 +57,7 @@ final class DefaultRetryPolicyBuilder implements RetryPolicyBuilder {
     public RetryPolicyBuilder on(Collection<RetryOn> conditions) {
         Sequences.notEmpty(CONDITIONS_ARGUMENT_NAME, conditions);
 
-        for (RetryOn condition : conditions) {
-            this.retryOn.add(condition);
-        }
-
+        this.retryOn.addAll(conditions);
         return this;
     }
 

@@ -7,6 +7,7 @@ import software.frisby.core.validation.Values;
 import software.frisby.web.client.exception.AbortedException;
 import software.frisby.web.client.exception.ConnectTimeoutException;
 import software.frisby.web.client.exception.ReadTimeoutException;
+import software.frisby.web.client.exception.TransportException;
 import software.frisby.web.client.security.RequestContext;
 import software.frisby.web.serial.GenericType;
 import software.frisby.web.serial.JsonSerializer;
@@ -218,7 +219,7 @@ final class DefaultClientCredentialsSecurityProvider implements ClientCredential
             watch.stop();
 
             Duration latency = watch.duration();
-            AbortedException wrapped = new AbortedException(ex, POST, tokenEndpoint);
+            TransportException wrapped = new TransportException(ex, POST, tokenEndpoint);
 
             TokenRequestLogger.logTransportError(request, wrapped);
             fireTokenFetchFailed(latency, wrapped);

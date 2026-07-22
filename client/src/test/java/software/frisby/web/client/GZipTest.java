@@ -17,6 +17,12 @@ class GZipTest {
 
     @Nested
     class Compress {
+        private static byte[] decompress(byte[] compressed) throws IOException {
+            try (GZIPInputStream gz = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
+                return gz.readAllBytes();
+            }
+        }
+
         @Test
         void validData_compressesAndDecompressesCorrectly() throws IOException {
             byte[] original = "Hello, GZIP world!".getBytes(StandardCharsets.UTF_8);
@@ -31,12 +37,6 @@ class GZipTest {
             byte[] compressed = GZip.compress(original);
 
             assertArrayEquals(original, decompress(compressed));
-        }
-
-        private static byte[] decompress(byte[] compressed) throws IOException {
-            try (GZIPInputStream gz = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
-                return gz.readAllBytes();
-            }
         }
     }
 }

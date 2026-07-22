@@ -33,22 +33,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public interface RetryDelay {
 
     /**
-     * Returns the duration to wait before the next attempt.
-     * <p>
-     * {@code attempt} is the 1-based number of the attempt that just failed — so
-     * after the first failure {@code attempt} is {@code 1}, after the second
-     * failure it is {@code 2}, and so on.
-     *
-     * @param attempt The 1-based attempt number that just failed; always {@code >= 1}.
-     * @return The duration to wait; never {@code null} or negative.
-     */
-    Duration delayFor(int attempt);
-
-    // -------------------------------------------------------------------------
-    // Built-in strategies
-    // -------------------------------------------------------------------------
-
-    /**
      * Returns a delay strategy that always waits the same fixed duration.
      *
      * <pre>{@code
@@ -66,6 +50,10 @@ public interface RetryDelay {
 
         return attempt -> delay;
     }
+
+    // -------------------------------------------------------------------------
+    // Built-in strategies
+    // -------------------------------------------------------------------------
 
     /**
      * Returns a delay strategy that scales linearly with the attempt number.
@@ -143,4 +131,16 @@ public interface RetryDelay {
             return Duration.ofMillis(cappedMs + jitterMs);
         };
     }
+
+    /**
+     * Returns the duration to wait before the next attempt.
+     * <p>
+     * {@code attempt} is the 1-based number of the attempt that just failed — so
+     * after the first failure {@code attempt} is {@code 1}, after the second
+     * failure it is {@code 2}, and so on.
+     *
+     * @param attempt The 1-based attempt number that just failed; always {@code >= 1}.
+     * @return The duration to wait; never {@code null} or negative.
+     */
+    Duration delayFor(int attempt);
 }

@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.*;
 
 /**
@@ -30,6 +31,26 @@ import java.util.concurrent.*;
 final class HttpEngine {
     private static final System.Logger LOGGER = System.getLogger(HttpEngine.class.getName());
     private static final ExecutorService DEFAULT_EXECUTOR = Executors.newCachedThreadPool();
+
+    // A dedicated scheduler is used for async retry delays rather than the caller-supplied
+    // executor for two reasons:
+    //
+    //   1. The caller's executor may be a fixed-size platform thread pool — sleeping inside
+    //      it for the retry delay would hold a thread from the pool for the full wait, which
+    //      could starve concurrent requests.
+    //   2. Using Thread.sleep() on a virtual-thread executor (Java 21+) would be safe there,
+    //      but we cannot detect at runtime whether the supplied executor creates virtual or
+    //      platform threads while targeting Java 17.
+    //
+    // A ScheduledExecutorService avoids both problems: the timer is OS-backed, no thread is
+    // held during the delay, and the scheduler's platform thread is occupied only for the
+    // few microseconds it takes to invoke the next retryAsync() call.
+    private static final ScheduledExecutorService DEFAULT_RETRY_SCHEDULER =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "frisby-retry-scheduler");
+                t.setDaemon(true);
+                return t;
+            });
 
     private final HttpClient httpClient;
     private final ClientConfiguration configuration;
@@ -86,6 +107,17 @@ final class HttpEngine {
     }
 
     /**
+     * Annotates the event with the retry attempt if {@code retryAttempt > 0}; returns the base event otherwise.
+     */
+    private static RequestFailedEvent buildFailedEvent(RequestFailedEvent base, int retryAttempt) {
+        return retryAttempt > 0 ? base.withRetryAttempt(retryAttempt) : base;
+    }
+
+    private static boolean isNonIdempotent(String method) {
+        return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
+    }
+
+    /**
      * Returns the {@link ClientConfiguration} used to create this engine.
      *
      * @return The client configuration.
@@ -95,123 +127,215 @@ final class HttpEngine {
     }
 
     <T> HttpResponse<T> send(OutboundRequest outbound, HttpResponse.BodyHandler<T> bodyHandler) {
-        StopWatch watch = StopWatch.start();
-        HttpRequest request = outbound.request();
+        boolean retryEligible = isRetryEligible(outbound);
+        int attempt = 1;
 
-        try {
-            HttpResponse<T> response = httpClient.send(request, bodyHandler);
+        while (true) {
+            StopWatch watch = StopWatch.start();
+            HttpRequest request = outbound.request();
+            RuntimeException failure;
 
-            watch.stop();
-            Duration latency = watch.duration();
+            try {
+                HttpResponse<T> response = httpClient.send(request, bodyHandler);
 
-            byte[] responseSnapshot = bodyHandler instanceof JsonBodyHandler<?> jbh
-                    ? jbh.snapshot()
-                    : null;
+                watch.stop();
+                Duration latency = watch.duration();
 
-            requestLogger.logSuccess(outbound, response, latency, responseSnapshot);
+                byte[] responseSnapshot = bodyHandler instanceof JsonBodyHandler<?> jbh
+                        ? jbh.snapshot()
+                        : null;
 
-            fireRequestCompleted(new RequestCompletedEvent(
-                    request.method(),
-                    request.uri(),
-                    response.statusCode(),
-                    latency
-            ));
+                requestLogger.logSuccess(outbound, response, latency, responseSnapshot, attempt);
 
-            return response;
-        } catch (HttpConnectTimeoutException ex) {
-            watch.stop();
-            Duration latency = watch.duration();
-            ConnectTimeoutException wrapped = new ConnectTimeoutException(
-                    ex,
-                    request.method(),
-                    request.uri()
-            );
-
-            requestLogger.logTransportError(outbound, wrapped);
-            fireRequestFailed(RequestFailedEvent.transportFailure(
-                    request.method(), request.uri(), latency, wrapped
-            ));
-
-            throw wrapped;
-        } catch (HttpTimeoutException ex) {
-            watch.stop();
-            Duration latency = watch.duration();
-            ReadTimeoutException wrapped = new ReadTimeoutException(
-                    ex,
-                    request.method(),
-                    request.uri()
-            );
-
-            requestLogger.logTransportError(outbound, wrapped);
-            fireRequestFailed(RequestFailedEvent.transportFailure(
-                    request.method(), request.uri(), latency, wrapped
-            ));
-
-            throw wrapped;
-        } catch (java.net.ConnectException ex) {
-            watch.stop();
-            Duration latency = watch.duration();
-            software.frisby.web.client.exception.ConnectException wrapped =
-                    new software.frisby.web.client.exception.ConnectException(
-                            ex,
-                            request.method(),
-                            request.uri()
-                    );
-
-            requestLogger.logTransportError(outbound, wrapped);
-            fireRequestFailed(RequestFailedEvent.transportFailure(
-                    request.method(), request.uri(), latency, wrapped
-            ));
-
-            throw wrapped;
-        } catch (IOException ex) {
-            watch.stop();
-            Duration latency = watch.duration();
-
-            // The JDK HttpClient wraps RuntimeExceptions thrown from body handler mapping
-            // functions in a plain IOException (see HttpClientImpl.send() catch for
-            // ExecutionException).  Unwrap HttpResponseException so callers always receive
-            // the correctly-typed HTTP error exception instead of AbortedException.
-            if (ex.getCause() instanceof HttpResponseException hre) {
-                requestLogger.logError(outbound, hre, latency);
-
-                fireRequestFailed(RequestFailedEvent.httpFailure(
+                fireRequestCompleted(new RequestCompletedEvent(
                         request.method(),
                         request.uri(),
-                        hre.statusCode(),
-                        latency,
-                        hre
+                        response.statusCode(),
+                        latency
                 ));
 
-                throw hre;
+                return response;
+            } catch (HttpConnectTimeoutException ex) {
+                watch.stop();
+                Duration latency = watch.duration();
+                ConnectTimeoutException wrapped = new ConnectTimeoutException(
+                        ex,
+                        request.method(),
+                        request.uri()
+                );
+
+                requestLogger.logTransportError(outbound, wrapped, attempt);
+
+                fireRequestFailed(buildFailedEvent(
+                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                        attempt
+                ));
+
+                failure = wrapped;
+            } catch (HttpTimeoutException ex) {
+                watch.stop();
+                Duration latency = watch.duration();
+                ReadTimeoutException wrapped = new ReadTimeoutException(
+                        ex,
+                        request.method(),
+                        request.uri()
+                );
+
+                requestLogger.logTransportError(outbound, wrapped, attempt);
+
+                fireRequestFailed(buildFailedEvent(
+                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                        attempt
+                ));
+
+                failure = wrapped;
+            } catch (java.net.ConnectException ex) {
+                watch.stop();
+                Duration latency = watch.duration();
+                software.frisby.web.client.exception.ConnectException wrapped =
+                        new software.frisby.web.client.exception.ConnectException(
+                                ex,
+                                request.method(),
+                                request.uri()
+                        );
+
+                requestLogger.logTransportError(outbound, wrapped, attempt);
+
+                fireRequestFailed(buildFailedEvent(
+                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                        attempt
+                ));
+
+                failure = wrapped;
+            } catch (IOException ex) {
+                watch.stop();
+                Duration latency = watch.duration();
+
+                // The JDK HttpClient wraps RuntimeExceptions thrown from body handler mapping
+                // functions in a plain IOException (see HttpClientImpl.send() catch for
+                // ExecutionException).  Unwrap HttpResponseException so callers always receive
+                // the correctly-typed HTTP error exception instead of AbortedException.
+                if (ex.getCause() instanceof HttpResponseException hre) {
+                    requestLogger.logError(outbound, hre, latency, attempt);
+
+                    fireRequestFailed(buildFailedEvent(
+                            RequestFailedEvent.httpFailure(request.method(), request.uri(), hre.statusCode(), latency, hre),
+                            attempt
+                    ));
+
+                    failure = hre;
+                } else {
+                    TransportException wrapped = new TransportException(ex, request.method(), request.uri());
+
+                    requestLogger.logTransportError(outbound, wrapped, attempt);
+
+                    fireRequestFailed(buildFailedEvent(
+                            RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                            attempt
+                    ));
+
+                    failure = wrapped;
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+
+                watch.stop();
+                Duration latency = watch.duration();
+                AbortedException wrapped = new AbortedException(ex, request.method(), request.uri());
+
+                requestLogger.logTransportError(outbound, wrapped, attempt);
+
+                fireRequestFailed(buildFailedEvent(
+                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, wrapped),
+                        attempt
+                ));
+
+                failure = wrapped;
             }
 
-            TransportException wrapped = new TransportException(ex, request.method(), request.uri());
+            if (retryEligible) {
+                Optional<Duration> delay = retryPolicy.retryDelay(attempt, failure);
 
-            requestLogger.logTransportError(outbound, wrapped);
-            fireRequestFailed(RequestFailedEvent.transportFailure(
-                    request.method(), request.uri(), latency, wrapped
-            ));
+                if (delay.isPresent()) {
+                    attempt++;
 
-            throw wrapped;
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(delay.get().toMillis());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new AbortedException(ie, request.method(), request.uri());
+                    }
 
-            watch.stop();
-            Duration latency = watch.duration();
-            AbortedException wrapped = new AbortedException(ex, request.method(), request.uri());
+                    continue;
+                }
+            }
 
-            requestLogger.logTransportError(outbound, wrapped);
-            fireRequestFailed(RequestFailedEvent.transportFailure(
-                    request.method(), request.uri(), latency, wrapped
-            ));
-
-            throw wrapped;
+            throw failure;
         }
     }
 
     <T> CompletableFuture<HttpResponse<T>> sendAsync(OutboundRequest outbound,
                                                      HttpResponse.BodyHandler<T> bodyHandler) {
+        if (!isRetryEligible(outbound)) {
+            return singleSendAsync(outbound, bodyHandler);
+        }
+
+        CompletableFuture<HttpResponse<T>> resultFuture = new CompletableFuture<>();
+
+        retryAsync(outbound, bodyHandler, 1, resultFuture);
+
+        return resultFuture;
+    }
+
+    private <T> void retryAsync(OutboundRequest outbound,
+                                HttpResponse.BodyHandler<T> bodyHandler,
+                                int attempt,
+                                CompletableFuture<HttpResponse<T>> resultFuture) {
+        singleSendAsync(outbound, bodyHandler, attempt).whenComplete((response, throwable) -> {
+            if (null == throwable) {
+                resultFuture.complete(response);
+                return;
+            }
+
+            Throwable unwrapped = unwrapCompletionException(throwable);
+
+            Optional<Duration> retryDelay = retryPolicy.retryDelay(attempt, unwrapped);
+
+            if (retryDelay.isEmpty()) {
+                resultFuture.completeExceptionally(throwable);
+                return;
+            }
+
+            int nextAttempt = attempt + 1;
+
+            DEFAULT_RETRY_SCHEDULER.schedule(
+                    () -> retryAsync(outbound, bodyHandler, nextAttempt, resultFuture),
+                    retryDelay.get().toMillis(),
+                    TimeUnit.MILLISECONDS
+            );
+        });
+    }
+
+    /**
+     * Single async attempt — no retry context (request is ineligible for retry).
+     */
+    private <T> CompletableFuture<HttpResponse<T>> singleSendAsync(OutboundRequest outbound,
+                                                                   HttpResponse.BodyHandler<T> bodyHandler) {
+        return doSingleSendAsync(outbound, bodyHandler, 0);
+    }
+
+    /**
+     * Single async attempt within a retry sequence — {@code attempt} is 1-based.
+     */
+    private <T> CompletableFuture<HttpResponse<T>> singleSendAsync(OutboundRequest outbound,
+                                                                   HttpResponse.BodyHandler<T> bodyHandler,
+                                                                   int attempt) {
+        return doSingleSendAsync(outbound, bodyHandler, attempt);
+    }
+
+    private <T> CompletableFuture<HttpResponse<T>> doSingleSendAsync(OutboundRequest outbound,
+                                                                     HttpResponse.BodyHandler<T> bodyHandler,
+                                                                     int retryAttempt) {
         StopWatch watch = StopWatch.start();
         HttpRequest request = outbound.request();
 
@@ -225,7 +349,7 @@ final class HttpEngine {
                                 ? jbh.snapshot()
                                 : null;
 
-                        requestLogger.logSuccess(outbound, response, latency, responseSnapshot);
+                        requestLogger.logSuccess(outbound, response, latency, responseSnapshot, retryAttempt);
 
                         fireRequestCompleted(new RequestCompletedEvent(
                                 request.method(),
@@ -243,32 +367,35 @@ final class HttpEngine {
                     cause = unwrapHttpResponseException(cause);
 
                     if (cause instanceof HttpResponseException hre) {
-                        requestLogger.logError(outbound, hre, latency);
+                        requestLogger.logError(outbound, hre, latency, retryAttempt);
 
-                        fireRequestFailed(RequestFailedEvent.httpFailure(
-                                request.method(),
-                                request.uri(),
-                                hre.statusCode(),
-                                latency,
-                                hre
+                        fireRequestFailed(buildFailedEvent(
+                                RequestFailedEvent.httpFailure(request.method(), request.uri(), hre.statusCode(), latency, hre),
+                                retryAttempt
                         ));
 
                         throw hre;
                     } else {
                         cause = wrapIfIOException(cause, request.method(), request.uri());
 
-                        requestLogger.logTransportError(outbound, cause);
+                        requestLogger.logTransportError(outbound, cause, retryAttempt);
 
-                        fireRequestFailed(RequestFailedEvent.transportFailure(
-                                request.method(),
-                                request.uri(),
-                                latency,
-                                cause
+                        fireRequestFailed(buildFailedEvent(
+                                RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, cause),
+                                retryAttempt
                         ));
 
                         throw new CompletionException(cause);
                     }
                 });
+    }
+
+    private boolean isRetryEligible(OutboundRequest outbound) {
+        if (outbound.bodySnapshot() == OutboundRequest.MULTIPART_SNAPSHOT) {
+            return false;
+        }
+
+        return !isNonIdempotent(outbound.request().method()) || retryPolicy.allowNonIdempotent();
     }
 
     private void fireRequestCompleted(RequestCompletedEvent event) {

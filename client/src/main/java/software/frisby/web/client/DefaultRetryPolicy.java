@@ -3,8 +3,8 @@ package software.frisby.web.client;
 import software.frisby.web.client.exception.*;
 
 import java.time.Duration;
-import java.util.OptionalLong;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -32,8 +32,22 @@ final class DefaultRetryPolicy implements RetryPolicy {
         this.allowNonIdempotent = allowNonIdempotent;
     }
 
+    private static boolean matches(RetryOn condition, Throwable failure) {
+        return switch (condition) {
+            case REQUEST_TIMEOUT -> failure instanceof RequestTimeoutException;
+            case TOO_MANY_REQUESTS -> failure instanceof TooManyRequestsException;
+            case BAD_GATEWAY -> failure instanceof BadGatewayException;
+            case SERVICE_UNAVAILABLE -> failure instanceof ServiceUnavailableException;
+            case GATEWAY_TIMEOUT -> failure instanceof GatewayTimeoutException;
+            case CONNECT_FAILURE -> failure instanceof ConnectException;
+            case CONNECT_TIMEOUT -> failure instanceof ConnectTimeoutException;
+            case READ_TIMEOUT -> failure instanceof ReadTimeoutException;
+            case TRANSPORT_FAILURE -> failure instanceof TransportException;
+        };
+    }
+
     @Override
-    public Optional<Duration> retryDelay(int attempt, RuntimeException failure) {
+    public Optional<Duration> retryDelay(int attempt, Throwable failure) {
         if (attempt >= maxAttempts) {
             return Optional.empty();
         }
@@ -62,7 +76,7 @@ final class DefaultRetryPolicy implements RetryPolicy {
         return allowNonIdempotent;
     }
 
-    private boolean isRetryable(RuntimeException failure) {
+    private boolean isRetryable(Throwable failure) {
         for (RetryOn condition : retryOn) {
             if (matches(condition, failure)) {
                 return true;
@@ -70,20 +84,6 @@ final class DefaultRetryPolicy implements RetryPolicy {
         }
 
         return false;
-    }
-
-    private static boolean matches(RetryOn condition, RuntimeException failure) {
-        return switch (condition) {
-            case REQUEST_TIMEOUT -> failure instanceof RequestTimeoutException;
-            case TOO_MANY_REQUESTS -> failure instanceof TooManyRequestsException;
-            case BAD_GATEWAY -> failure instanceof BadGatewayException;
-            case SERVICE_UNAVAILABLE -> failure instanceof ServiceUnavailableException;
-            case GATEWAY_TIMEOUT -> failure instanceof GatewayTimeoutException;
-            case CONNECT_FAILURE -> failure instanceof ConnectException;
-            case CONNECT_TIMEOUT -> failure instanceof ConnectTimeoutException;
-            case READ_TIMEOUT -> failure instanceof ReadTimeoutException;
-            case TRANSPORT_FAILURE -> failure instanceof TransportException;
-        };
     }
 }
 

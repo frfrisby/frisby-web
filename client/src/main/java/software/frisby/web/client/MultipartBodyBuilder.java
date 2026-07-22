@@ -147,7 +147,6 @@ final class MultipartBodyBuilder {
     }
 
 
-
     private static String guessContentType(String fileName) {
         String contentType = URLConnection.guessContentTypeFromName(fileName);
 

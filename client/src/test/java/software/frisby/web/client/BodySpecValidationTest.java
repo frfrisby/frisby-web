@@ -31,7 +31,9 @@ class BodySpecValidationTest {
     private static final String NULL_RESPONSE_TYPE_MSG = "The 'responseType' value is invalid. The value must not be null.";
 
     private static final ContentCompressor THROWING_COMPRESSOR =
-            ContentCompressor.of("test", body -> { throw new IOException("simulated compression failure"); });
+            ContentCompressor.of("test", body -> {
+                throw new IOException("simulated compression failure");
+            });
 
     private static final ContentCompressor NULL_RETURNING_COMPRESSOR =
             ContentCompressor.of("test", body -> null);

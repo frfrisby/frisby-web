@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.time.Duration;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -294,6 +295,67 @@ class ClientTransportExceptionTest {
     }
 
     // -------------------------------------------------------------------------
+    // Async transport error — non-retry-eligible request
+    // -------------------------------------------------------------------------
+
+    /**
+     * A non-idempotent {@code POST} without {@code allowNonIdempotent()} is not retry-eligible,
+     * so {@code sendAsync()} bypasses the retry loop and calls {@code doSingleSendAsync} with
+     * {@code retryAttempt == 0}.  Pointing the request at a port with nothing listening triggers
+     * a transport error through that path, covering
+     * {@code requestLogger.logTransportError(outbound, cause)} (no attempt number).
+     */
+    @Nested
+    class AsyncNonRetryEligible {
+        @Test
+        void nonRetryEligibleAsyncPost_transportError_completesExceptionally() throws IOException {
+            int port;
+
+            try (ServerSocket socket = new ServerSocket(0)) {
+                port = socket.getLocalPort();
+            }
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .build();
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.ERROR)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.ERROR)
+                                    .predicate(e -> e.message().contains("POST") && e.message().contains("✕"))
+                                    .failureMessage("Expected ERROR log entry for async transport failure on non-retry-eligible POST.")
+                                    .build()
+                    )
+                    .build()) {
+                // POST without allowNonIdempotent() → isRetryEligible() == false →
+                // doSingleSendAsync(outbound, bodyHandler, 0) → retryAttempt == 0
+                CompletionException ex = assertThrows(
+                        CompletionException.class,
+                        () -> client.post()
+                                .path("/anything")
+                                .body("payload")
+                                .sendAsync(String.class)
+                                .join()
+                );
+
+                assertInstanceOf(TransportException.class, ex.getCause());
+
+                verifier.assertExpectations();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // AbortedException
     // -------------------------------------------------------------------------
 
@@ -344,4 +406,3 @@ class ClientTransportExceptionTest {
         }
     }
 }
-

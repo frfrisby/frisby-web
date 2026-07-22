@@ -77,9 +77,31 @@ public interface ClientEventListener {
      * failures (connect timeout, read timeout, TLS error, etc.).
      * {@link RequestFailedEvent#statusCode()} is present for HTTP-status failures and
      * empty for transport failures.
+     * <p>
+     * <strong>Retry context:</strong> when a {@link software.frisby.web.client.RetryPolicy}
+     * is configured and the request is eligible for retry, this callback fires
+     * <em>once per failed attempt</em> — not just for the final failure.
+     * {@link RequestFailedEvent#retryAttempt()} identifies the attempt number so that
+     * listeners can distinguish intermediate failures from terminal ones, or suppress
+     * per-attempt noise in metrics:
+     * <pre>{@code
+     * void onRequestFailed(RequestFailedEvent event) {
+     *     // Count every attempt for raw error-rate monitoring
+     *     errorCounter.increment();
+     *
+     *     // Only alert on the final failure (no retry will follow this one)
+     *     if (event.retryAttempt().isEmpty()) {
+     *         // No retry context — this is the only and final attempt
+     *         alert(event);
+     *     }
+     *     // Note: retryAttempt present does NOT mean the request will be retried;
+     *     // a retry only follows if the policy returns a delay.  A successful
+     *     // outcome after retries produces onRequestCompleted, not onRequestFailed.
+     * }
+     * }</pre>
      *
      * @param event The event containing the method, URI, optional status code, latency,
-     *              and the causing exception.
+     *              causing exception, and optional retry attempt number.
      */
     void onRequestFailed(RequestFailedEvent event);
 }

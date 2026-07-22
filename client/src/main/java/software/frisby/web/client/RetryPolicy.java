@@ -31,7 +31,7 @@ import java.util.Set;
  * <pre>{@code
  * public class MyRetryPolicy implements RetryPolicy {
  *     @Override
- *     public Optional<Duration> retryDelay(int attempt, RuntimeException failure) {
+ *     public Optional<Duration> retryDelay(int attempt, Throwable failure) {
  *         if (attempt >= 3) return Optional.empty();
  *         if (failure instanceof ServiceUnavailableException) {
  *             return Optional.of(Duration.ofSeconds(attempt * 5L));
@@ -46,9 +46,9 @@ import java.util.Set;
  * By default, retries are only attempted for idempotent HTTP methods ({@code GET},
  * {@code HEAD}, {@code DELETE}).  Call {@link RetryPolicyBuilder#allowNonIdempotent()}
  * to also retry {@code POST}, {@code PUT}, and {@code PATCH} — only do this when you
-     * are certain those operations are safe to execute more than once.  Requests with a
-     * multipart form body are never retried regardless of this setting, because the body
-     * is streamed and cannot be replayed after the first attempt.
+ * are certain those operations are safe to execute more than once.  Requests with a
+ * multipart form body are never retried regardless of this setting, because the body
+ * is streamed and cannot be replayed after the first attempt.
  *
  * @see RetryPolicyBuilder
  * @see RetryDelay
@@ -91,43 +91,6 @@ public interface RetryPolicy {
     // -------------------------------------------------------------------------
 
     /**
-     * Called by the client after each failed request execution to determine whether
-     * to retry and how long to wait.
-     * <p>
-     * Return {@link Optional#of(Object)} with the delay to wait before the next attempt,
-     * or {@link Optional#empty()} to stop retrying and propagate the exception to the
-     * caller.
-     * <p>
-     * {@code attempt} is 1-based — it is the number of the execution that just failed.
-     * After the first failure {@code attempt} is {@code 1}; after the second it is
-     * {@code 2}, and so on.  To allow at most {@code N} total executions, return
-     * {@code Optional.empty()} when {@code attempt >= N}.
-     *
-     * @param attempt The 1-based number of the execution that just failed.
-     * @param failure The exception thrown by the failed execution.
-     * @return The wait duration before the next attempt, or empty to stop retrying.
-     */
-    Optional<Duration> retryDelay(int attempt, RuntimeException failure);
-
-    /**
-     * Returns {@code true} if this policy permits retrying non-idempotent HTTP methods
-     * ({@code POST}, {@code PUT}, {@code PATCH}).
-     * <p>
-     * Defaults to {@code false} — only idempotent methods ({@code GET}, {@code HEAD},
-     * {@code DELETE}) are retried.  Custom implementations that want to allow
-     * non-idempotent retries should override this method.
-     *
-     * @return {@code true} if non-idempotent methods may be retried.
-     */
-    default boolean allowNonIdempotent() {
-        return false;
-    }
-
-    // -------------------------------------------------------------------------
-    // Factories
-    // -------------------------------------------------------------------------
-
-    /**
      * Returns a policy that never retries.  This is the default when no retry policy
      * is configured on {@link ClientBuilder}.
      *
@@ -144,6 +107,43 @@ public interface RetryPolicy {
      */
     static RetryPolicyBuilder builder() {
         return new DefaultRetryPolicyBuilder();
+    }
+
+    // -------------------------------------------------------------------------
+    // Factories
+    // -------------------------------------------------------------------------
+
+    /**
+     * Called by the client after each failed request execution to determine whether
+     * to retry and how long to wait.
+     * <p>
+     * Return {@link Optional#of(Object)} with the delay to wait before the next attempt,
+     * or {@link Optional#empty()} to stop retrying and propagate the exception to the
+     * caller.
+     * <p>
+     * {@code attempt} is 1-based — it is the number of the execution that just failed.
+     * After the first failure {@code attempt} is {@code 1}; after the second it is
+     * {@code 2}, and so on.  To allow at most {@code N} total executions, return
+     * {@code Optional.empty()} when {@code attempt >= N}.
+     *
+     * @param attempt The 1-based number of the execution that just failed.
+     * @param failure The exception thrown by the failed execution.
+     * @return The wait duration before the next attempt, or empty to stop retrying.
+     */
+    Optional<Duration> retryDelay(int attempt, Throwable failure);
+
+    /**
+     * Returns {@code true} if this policy permits retrying non-idempotent HTTP methods
+     * ({@code POST}, {@code PUT}, {@code PATCH}).
+     * <p>
+     * Defaults to {@code false} — only idempotent methods ({@code GET}, {@code HEAD},
+     * {@code DELETE}) are retried.  Custom implementations that want to allow
+     * non-idempotent retries should override this method.
+     *
+     * @return {@code true} if non-idempotent methods may be retried.
+     */
+    default boolean allowNonIdempotent() {
+        return false;
     }
 }
 

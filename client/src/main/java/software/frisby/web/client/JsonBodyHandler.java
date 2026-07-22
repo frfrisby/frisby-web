@@ -96,7 +96,8 @@ final class JsonBodyHandler<T> implements HttpResponse.BodyHandler<T> {
     }
 
     @Override
-    @SuppressWarnings("java:S3776") // cognitive complexity is inherent to the BodySubscribers.mapping() lambda nesting — the logic itself is linear and easy to follow
+    @SuppressWarnings("java:S3776")
+    // cognitive complexity is inherent to the BodySubscribers.mapping() lambda nesting — the logic itself is linear and easy to follow
     public HttpResponse.BodySubscriber<T> apply(HttpResponse.ResponseInfo responseInfo) {
         if (ExceptionFactory.isError(responseInfo.statusCode())) {
             return HttpResponse.BodySubscribers.mapping(

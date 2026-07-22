@@ -7,7 +7,6 @@ import software.frisby.core.validation.MissingElementsException;
 import software.frisby.core.validation.NullValueException;
 import software.frisby.core.validation.NumericValueOutsideRangeException;
 
-import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;

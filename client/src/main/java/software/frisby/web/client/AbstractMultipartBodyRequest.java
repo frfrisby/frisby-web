@@ -6,7 +6,7 @@ import software.frisby.web.client.security.SecurityProvider;
 import java.net.URI;
 import java.net.http.HttpRequest;
 
-import static software.frisby.web.client.RequestConstants.*;
+import static software.frisby.web.client.RequestConstants.BODY_ARGUMENT_NAME;
 
 /**
  * Intermediate abstract base for request implementations that support multipart

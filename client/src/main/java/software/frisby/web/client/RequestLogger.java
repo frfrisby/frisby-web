@@ -124,27 +124,27 @@ final class RequestLogger {
     }
 
     /**
-     * Logs a successful exchange as a combined request + response entry.
-     * Emits full headers and optional body at {@code TRACE};
-     * emits method, URI, status, and latency at {@code INFO}.
-     *
-     * @param outbound             The outbound request (with optional body snapshot).
-     * @param response             The response that was received.
-     * @param latency              The elapsed time from sending the request to receiving the response.
-     * @param responseBodySnapshot The raw decompressed response body bytes, or {@code null}
-     *                             if the response had no body or the body type is not loggable.
+     * Logs a successful exchange that completed on the given 1-based retry attempt.
+     * When {@code retryAttempt > 1} the attempt number is included in the log line.
      */
     <T> void logSuccess(OutboundRequest outbound,
                         HttpResponse<T> response,
                         Duration latency,
-                        byte[] responseBodySnapshot) {
+                        byte[] responseBodySnapshot,
+                        int retryAttempt) {
         if (LOGGER.isLoggable(System.Logger.Level.TRACE)) {
             StringBuilder sb = new StringBuilder();
 
             appendRequestSection(sb, outbound);
             sb.append("\n").append(ARROW_LEFT).append(" ")
                     .append(response.statusCode())
-                    .append(" (").append(latency.toMillis()).append("ms)");
+                    .append(" (").append(latency.toMillis()).append("ms");
+
+            if (retryAttempt > 1) {
+                sb.append(", attempt ").append(retryAttempt);
+            }
+
+            sb.append(")");
             appendResponseHeaders(sb, response.headers());
 
             if (null != responseBodySnapshot) {
@@ -154,14 +154,26 @@ final class RequestLogger {
 
             LOGGER.log(System.Logger.Level.TRACE, sb.toString());
         } else if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
-            LOGGER.log(
-                    System.Logger.Level.INFO,
-                    "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms)",
-                    outbound.request().method(),
-                    outbound.request().uri(),
-                    response.statusCode(),
-                    latency.toMillis()
-            );
+            if (retryAttempt > 1) {
+                LOGGER.log(
+                        System.Logger.Level.INFO,
+                        "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms, attempt {4})",
+                        outbound.request().method(),
+                        outbound.request().uri(),
+                        response.statusCode(),
+                        latency.toMillis(),
+                        retryAttempt
+                );
+            } else {
+                LOGGER.log(
+                        System.Logger.Level.INFO,
+                        "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms)",
+                        outbound.request().method(),
+                        outbound.request().uri(),
+                        response.statusCode(),
+                        latency.toMillis()
+                );
+            }
         }
     }
 
@@ -169,14 +181,11 @@ final class RequestLogger {
      * Logs an HTTP error response ({@code 4xx} / {@code 5xx}) as a combined exchange entry.
      * Emits the full request + response block (headers and body) at both {@code TRACE}
      * and {@code WARNING}.
-     *
-     * @param outbound  The outbound request (with optional body snapshot).
-     * @param exception The exception representing the error response.
-     * @param latency   The elapsed time from sending the request to receiving the response.
      */
     void logError(OutboundRequest outbound,
                   HttpResponseException exception,
-                  Duration latency) {
+                  Duration latency,
+                  int retryAttempt) {
         System.Logger.Level level = effectiveLevel(System.Logger.Level.TRACE, System.Logger.Level.WARNING);
 
         if (null == level) {
@@ -188,7 +197,13 @@ final class RequestLogger {
         appendRequestSection(sb, outbound);
         sb.append("\n").append(ARROW_LEFT).append(" ")
                 .append(exception.statusCode())
-                .append(" (").append(latency.toMillis()).append("ms)");
+                .append(" (").append(latency.toMillis()).append("ms");
+
+        if (retryAttempt > 1) {
+            sb.append(", attempt ").append(retryAttempt);
+        }
+
+        sb.append(")");
         appendResponseHeaders(sb, exception.headers());
         exception.body().ifPresent(body -> appendTruncatedBody(sb, body, false, RESPONSE_BODY));
 
@@ -199,11 +214,8 @@ final class RequestLogger {
      * Logs a transport-level failure (connect timeout, read timeout, etc.).
      * Emits the full request block (headers and body) at both {@code TRACE}
      * and {@code ERROR}.
-     *
-     * @param outbound The outbound request that failed (with optional body snapshot).
-     * @param cause    The exception that caused the failure.
      */
-    void logTransportError(OutboundRequest outbound, Throwable cause) {
+    void logTransportError(OutboundRequest outbound, Throwable cause, int retryAttempt) {
         System.Logger.Level level = effectiveLevel(System.Logger.Level.TRACE, System.Logger.Level.ERROR);
 
         if (null == level) {
@@ -213,9 +225,13 @@ final class RequestLogger {
         StringBuilder sb = new StringBuilder();
 
         appendRequestSection(sb, outbound);
-        sb.append("\n").append(CROSS).append(" ")
-                .append(cause.getClass().getSimpleName()).append(": ")
-                .append(cause.getMessage());
+        sb.append("\n").append(CROSS).append(" ");
+
+        if (retryAttempt > 1) {
+            sb.append("[attempt ").append(retryAttempt).append("] ");
+        }
+
+        sb.append(cause.getClass().getSimpleName()).append(": ").append(cause.getMessage());
 
         LOGGER.log(level, sb.toString());
     }
