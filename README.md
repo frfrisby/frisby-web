@@ -8,8 +8,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A lightweight, production-ready Java library for building HTTP clients and embedded HTTP
-servers.  No mandatory framework dependencies — bring your own serializer, wire it to your
-own metrics backend, and add only the modules you actually use.
+servers.  The HTTP client depends only on the JDK — no external libraries required.  The
+embedded server is built on JAX-RS (Jersey + Jetty), giving you a mature, spec-compliant
+foundation without Spring Boot's weight.  Both modules let you bring your own serializer,
+plug in your own metrics backend, and take only the modules you actually use.
 
 ---
 
