@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/frfrisby/frisby-web/compare/v1.1.3...v1.2.0) (2026-07-23)
+
+
+### Features
+
+* **client:** Add first-class exceptions and public API for client retry policy. ([#30](https://github.com/frfrisby/frisby-web/issues/30)) ([24dceca](https://github.com/frfrisby/frisby-web/commit/24dceca8525c0ed2e3610095d1be844812ae122a))
+
+
+### Bug Fixes
+
+* **client:** Address Sonar issues — S2140, S3776, coverage gaps. ([#31](https://github.com/frfrisby/frisby-web/issues/31)) ([92aade9](https://github.com/frfrisby/frisby-web/commit/92aade9547f6871b8b64ed23de072abf063d12a7))
+* Correct published Project URL and clarify README introduction. ([#28](https://github.com/frfrisby/frisby-web/issues/28)) ([f4f06c1](https://github.com/frfrisby/frisby-web/commit/f4f06c1fa9e0a66431a23215a88fae93b91e2b72))
+
 ## [1.1.3](https://github.com/frfrisby/frisby-web/compare/v1.1.2...v1.1.3) (2026-07-21)
 
 
