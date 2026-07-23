@@ -123,7 +123,7 @@ class JsonBodyHandlerTest {
                     String.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<String> subscriber = handler.apply(responseInfo(200));
 
@@ -139,7 +139,7 @@ class JsonBodyHandlerTest {
                     Void.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<Void> subscriber = handler.apply(responseInfo(200));
 
@@ -158,7 +158,7 @@ class JsonBodyHandlerTest {
                     (Class<Void>) void.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<Void> subscriber = handler.apply(responseInfo(200));
 
@@ -176,7 +176,7 @@ class JsonBodyHandlerTest {
                     String.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<String> subscriber = handler.apply(responseInfo(200));
 
@@ -192,7 +192,7 @@ class JsonBodyHandlerTest {
                     String.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<String> subscriber = handler.apply(responseInfo(200));
 
@@ -225,7 +225,7 @@ class JsonBodyHandlerTest {
                     },
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<List<String>> subscriber = handler.apply(responseInfo(200));
 
@@ -244,7 +244,7 @@ class JsonBodyHandlerTest {
                     genericType,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<List<String>> subscriber = handler.apply(responseInfo(200));
 
@@ -268,14 +268,15 @@ class JsonBodyHandlerTest {
     // -------------------------------------------------------------------------
 
     @Nested
-    class ErrorHandlerLambda {        @Test
+    class ErrorHandlerLambda {
+        @Test
         void blankErrorBody_exceptionBodyIsEmpty() {
             JsonBodyHandler<String> handler = JsonBodyHandler.of(
                     new TestJsonSerializer(),
                     String.class,
                     GET,
                     TEST_URI
-            , java.util.List.of()
+                    , java.util.List.of()
             );
             HttpResponse.BodySubscriber<String> subscriber = handler.apply(responseInfo(400));
 
@@ -307,7 +308,9 @@ class JsonBodyHandlerTest {
                 "The 'ContentDecompressor' value is invalid.  decompress() must not return null.";
 
         private static final ContentDecompressor THROWING_DECOMPRESSOR =
-                ContentDecompressor.of("gzip", stream -> { throw new IOException("simulated decompression failure"); });
+                ContentDecompressor.of("gzip", stream -> {
+                    throw new IOException("simulated decompression failure");
+                });
 
         private static final ContentDecompressor NULL_RETURNING_DECOMPRESSOR =
                 ContentDecompressor.of("gzip", stream -> null);

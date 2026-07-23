@@ -35,13 +35,19 @@ final class ExceptionFactory {
             case 403 -> new ForbiddenException(method, uri, headers, body);
             case 404 -> new NotFoundException(method, uri, headers, body);
             case 405 -> new MethodNotAllowedException(method, uri, headers, body);
+            case 406 -> new NotAcceptableException(method, uri, headers, body);
+            case 408 -> new RequestTimeoutException(method, uri, headers, body);
             case 409 -> new ConflictException(method, uri, headers, body);
+            case 410 -> new GoneException(method, uri, headers, body);
             case 413 -> new PayloadTooLargeException(method, uri, headers, body);
+            case 415 -> new UnsupportedMediaTypeException(method, uri, headers, body);
             case 422 -> new UnprocessableEntityException(method, uri, headers, body);
             case 429 -> new TooManyRequestsException(method, uri, headers, body);
             case 500 -> new InternalServerErrorException(method, uri, headers, body);
             case 501 -> new NotImplementedException(method, uri, headers, body);
+            case 502 -> new BadGatewayException(method, uri, headers, body);
             case 503 -> new ServiceUnavailableException(method, uri, headers, body);
+            case 504 -> new GatewayTimeoutException(method, uri, headers, body);
             default -> {
                 if (statusCode >= 400 && statusCode < 500) {
                     yield new ClientException(method, uri, statusCode, headers, body);

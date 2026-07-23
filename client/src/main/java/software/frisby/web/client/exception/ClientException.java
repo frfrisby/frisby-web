@@ -26,9 +26,13 @@ import java.net.http.HttpHeaders;
  * @see UnauthorizedException
  * @see ForbiddenException
  * @see NotFoundException
- * @see ConflictException
- * @see PayloadTooLargeException
  * @see MethodNotAllowedException
+ * @see NotAcceptableException
+ * @see RequestTimeoutException
+ * @see ConflictException
+ * @see GoneException
+ * @see PayloadTooLargeException
+ * @see UnsupportedMediaTypeException
  * @see UnprocessableEntityException
  * @see TooManyRequestsException
  */

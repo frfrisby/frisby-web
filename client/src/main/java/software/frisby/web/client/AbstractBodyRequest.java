@@ -155,10 +155,9 @@ abstract class AbstractBodyRequest<S> {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, true);
 
         return engine.send(
-                outbound,
+                () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
                         responseType,
@@ -173,10 +172,9 @@ abstract class AbstractBodyRequest<S> {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, true);
 
         return engine.send(
-                outbound,
+                () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
                         responseType,
@@ -189,19 +187,20 @@ abstract class AbstractBodyRequest<S> {
 
     public HttpResponse<Void> send() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, false);
 
-        return engine.send(outbound, RequestState.voidBodyHandler(method(), uri));
+        return engine.send(
+                () -> buildRequest(uri, false),
+                RequestState.voidBodyHandler(method(), uri)
+        );
     }
 
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(Class<T> responseType) {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, true);
 
         return engine.sendAsync(
-                outbound,
+                () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
                         responseType,
@@ -216,10 +215,9 @@ abstract class AbstractBodyRequest<S> {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, true);
 
         return engine.sendAsync(
-                outbound,
+                () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
                         responseType,
@@ -232,9 +230,11 @@ abstract class AbstractBodyRequest<S> {
 
     public CompletableFuture<HttpResponse<Void>> sendAsync() {
         URI uri = state.resolveUri(engine.configuration().uri());
-        OutboundRequest outbound = buildRequest(uri, false);
 
-        return engine.sendAsync(outbound, RequestState.voidBodyHandler(method(), uri));
+        return engine.sendAsync(
+                () -> buildRequest(uri, false),
+                RequestState.voidBodyHandler(method(), uri)
+        );
     }
 
     OutboundRequest buildRequest(URI uri, boolean acceptJson) {

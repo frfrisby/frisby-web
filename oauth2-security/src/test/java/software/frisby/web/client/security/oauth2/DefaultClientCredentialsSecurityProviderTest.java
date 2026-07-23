@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import software.frisby.web.client.exception.AbortedException;
 import software.frisby.web.client.exception.ConnectTimeoutException;
 import software.frisby.web.client.exception.ReadTimeoutException;
+import software.frisby.web.client.exception.TransportException;
 import software.frisby.web.client.security.RequestContext;
 
 import java.io.IOException;
@@ -513,7 +514,7 @@ class DefaultClientCredentialsSecurityProviderTest {
         }
 
         @Test
-        void connectionResetByPeer_throwsAbortedException() {
+        void connectionResetByPeer_throwsTransportException() {
             wireMock.stubFor(
                     post(urlEqualTo(TOKEN_PATH))
                             .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER))
@@ -526,7 +527,7 @@ class DefaultClientCredentialsSecurityProviderTest {
                     .build();
 
             assertThrows(
-                    AbortedException.class,
+                    TransportException.class,
                     () -> secure(provider)
             );
         }

@@ -26,9 +26,10 @@ mandatory external dependencies beyond the JDK.
 14. [Authentication — oauth2-security](#14-authentication--oauth2-security)
 15. [Logging and redaction](#15-logging-and-redaction)
 16. [Observability — ClientEventListener](#16-observability--clienteventlistener)
-17. [TLS / custom SSLContext](#17-tls--custom-sslcontext)
-18. [Exception hierarchy](#18-exception-hierarchy)
-19. [Complete examples](#19-complete-examples)
+17. [Retry policy](#17-retry-policy)
+18. [TLS / custom SSLContext](#18-tls--custom-sslcontext)
+19. [Exception hierarchy](#19-exception-hierarchy)
+20. [Complete examples](#20-complete-examples)
 
 ---
 
@@ -42,6 +43,7 @@ mandatory external dependencies beyond the JDK.
 | **Pluggable authentication**             | `SecurityProvider` interface covers Basic, Bearer, OAuth 2.0, or any custom scheme                                                                                    |
 | **Pluggable compression**                | `ContentCompressor` / `ContentDecompressor` interfaces allow gzip out of the box and brotli/zstd via caller-supplied implementations — no JNI transitive dependencies |
 | **First-class observability**            | Structured per-request logging and a `ClientEventListener` callback interface — wire to any metrics backend                                                           |
+| **Built-in retry policy**                | Declarative `RetryOn` conditions, exponential back-off with jitter, `Retry-After` header support, and proper non-blocking async retry — no extra dependency required  |
 | **Per-request security override**        | Every verb spec has a `.security()` method to override the client default for one request                                                                             |
 
 ---
@@ -163,6 +165,7 @@ Obtain a builder via `Client.builder()`.
 | `configuration(Configuration)`                       | ✓        | Sets the client runtime configuration.                                       |
 | `configuration(UnaryOperator<ConfigurationBuilder>)` | ✓        | Inline lambda convenience overload.                                          |
 | `security(SecurityProvider)`                         |          | Default security provider applied to every request. Overridable per request. |
+| `retryPolicy(RetryPolicy)`                           |          | Automatic retry behaviour. Defaults to no retries.  See [Retry policy](#17-retry-policy). |
 | `eventListener(ClientEventListener)`                 |          | Receives a callback after every completed or failed request.                 |
 | `build()`                                            |          | Returns a configured `Client` instance.                                      |
 
@@ -342,7 +345,7 @@ client.post()
 
 Every `send()` call returns `HttpResponse<T>`.  For `2xx` responses the body is
 deserialized; for `4xx` / `5xx` responses an exception is thrown automatically (see
-[Exception hierarchy](#18-exception-hierarchy)).
+[Exception hierarchy](#19-exception-hierarchy)).
 
 ```java
 HttpResponse<User> response = client.get()
@@ -676,9 +679,9 @@ HTTP body is never modified.
 
 ## 16. Observability — ClientEventListener
 
-Implement `ClientEventListener` to receive a `RequestCompletedEvent` after every request
-(successful or failed) — useful for recording latency histograms, request counts, and
-error rates without coupling the client to a specific metrics library.
+Implement `ClientEventListener` to receive callbacks after every request outcome —
+useful for recording latency histograms, request counts, and error rates without
+coupling the client to a specific metrics library.
 
 ```java
 public class MyMetrics implements ClientEventListener {
@@ -694,6 +697,11 @@ public class MyMetrics implements ClientEventListener {
         event.exception().ifPresent(ex ->
                 errors.increment(ex.getClass().getSimpleName())
         );
+    }
+
+    @Override
+    public void onRequestFailed(RequestFailedEvent event) {
+        errors.increment(event.cause().getClass().getSimpleName());
     }
 }
 
@@ -713,9 +721,193 @@ Client client = Client.builder()
 | `latency()`    | `Duration`            | Wall-clock time from send to response (or failure)                       |
 | `exception()`  | `Optional<Throwable>` | The exception for transport or HTTP error responses; empty for successes |
 
+`RequestFailedEvent` fields:
+
+| Field            | Type                | Description                                                                  |
+|------------------|---------------------|------------------------------------------------------------------------------|
+| `method()`       | `String`            | HTTP method (`"GET"`, `"POST"`, etc.)                                        |
+| `uri()`          | `URI`               | The full request URI                                                         |
+| `statusCode()`   | `Optional<Integer>` | HTTP status code; empty for transport failures                               |
+| `latency()`      | `Duration`          | Wall-clock time from send to failure                                         |
+| `cause()`        | `Throwable`         | The exception                                                                |
+| `retryAttempt()` | `Optional<Integer>` | 1-based attempt number when in a retry context; empty when no policy applies |
+
+### `onRequestFailed` fires once per attempt when retries are configured
+
+When a `RetryPolicy` is configured and the request is eligible for retry, `onRequestFailed`
+fires **for every failed attempt** — not just the terminal one.  The `retryAttempt()` field
+identifies which attempt failed:
+
+| `retryAttempt()` value | Meaning                                                                                                                 |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| empty                  | No retry context — no policy, or the request was ineligible (multipart / non-idempotent without `allowNonIdempotent()`) |
+| `1`                    | First attempt failed; the policy may or may not schedule another                                                        |
+| `2` or higher          | A retry attempt failed                                                                                                  |
+
+A successful outcome after retries produces a single `onRequestCompleted` callback with
+no indication of how many attempts preceded it.  Use `retryAttempt()` on the failure
+events leading up to it to reconstruct the full picture.
+
+```java
+void onRequestFailed(RequestFailedEvent event) {
+    // Count every HTTP exchange for raw error-rate and dependency health monitoring
+    errorsByType.increment(event.cause().getClass().getSimpleName());
+
+    // Only page on the first attempt — retries are expected, intermediate
+    // failures are informational
+    if (event.retryAttempt().isEmpty() || event.retryAttempt().get() == 1) {
+        maybePage(event);
+    }
+}
+```
+
 ---
 
-## 17. TLS / custom SSLContext
+## 17. Retry policy
+
+Attach a `RetryPolicy` to `ClientBuilder` to enable automatic retries on transient
+failures.  Without one the default is `RetryPolicy.none()` — no retries.
+
+```java
+RetryPolicy policy = RetryPolicy.builder()
+        .maxAttempts(3)                                           // 1 initial attempt + 2 retries
+        .on(RetryPolicy.GATEWAY_ERRORS)                          // 502, 503, 504
+        .on(RetryOn.TOO_MANY_REQUESTS)                           // 429
+        .delay(RetryDelay.exponential(Duration.ofSeconds(1)))    // ~1 s, ~2 s, … capped at 30 s
+        .honorRetryAfterHeader(Duration.ofSeconds(60))           // honor Retry-After ≤ 60 s
+        .build();
+
+Client client = Client.builder()
+        .configuration(config)
+        .retryPolicy(policy)
+        .build();
+```
+
+### `RetryPolicyBuilder` methods
+
+| Method                              | Default       | Description                                                                                      |
+|-------------------------------------|---------------|--------------------------------------------------------------------------------------------------|
+| `maxAttempts(int)`                  | `3`           | Maximum total executions (initial attempt + retries).                                            |
+| `on(RetryOn...)`                    | —             | Additive.  Registers conditions that trigger a retry.                                            |
+| `on(Collection<RetryOn>)`           | —             | Convenience overload for use with the `Set` constants below.                                     |
+| `delay(RetryDelay)`                 | `linear(1 s)` | Back-off strategy between retries.                                                               |
+| `honorRetryAfterHeader()`           | —             | Use `Retry-After` header value if ≤ 5 minutes; otherwise fall back to `delay`.                  |
+| `honorRetryAfterHeader(Duration)`   | —             | Same, with an explicit cap.                                                                      |
+| `allowNonIdempotent()`              | —             | Also retry `POST`, `PUT`, and `PATCH` requests.  Off by default — see [Idempotency](#idempotency-and-multipart). |
+| `build()`                           | —             | Returns the `RetryPolicy`.                                                                       |
+
+### Retryable conditions — `RetryOn`
+
+| Value                 | Triggers on                                                  |
+|-----------------------|--------------------------------------------------------------|
+| `REQUEST_TIMEOUT`     | HTTP `408`                                                   |
+| `TOO_MANY_REQUESTS`   | HTTP `429`                                                   |
+| `BAD_GATEWAY`         | HTTP `502`                                                   |
+| `SERVICE_UNAVAILABLE` | HTTP `503`                                                   |
+| `GATEWAY_TIMEOUT`     | HTTP `504`                                                   |
+| `CONNECT_FAILURE`     | TCP connection refused / host unreachable                    |
+| `CONNECT_TIMEOUT`     | `connectTimeout` exceeded                                    |
+| `READ_TIMEOUT`        | `readTimeout` exceeded                                       |
+| `TRANSPORT_FAILURE`   | SSL/TLS errors and other low-level I/O failures              |
+
+#### Convenience constants
+
+```java
+RetryPolicy.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+RetryPolicy.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
+```
+
+Pass either constant directly to `on(Collection<RetryOn>)`:
+
+```java
+RetryPolicy.builder()
+        .on(RetryPolicy.GATEWAY_ERRORS)
+        .on(RetryPolicy.TRANSPORT_ERRORS)
+        // ...
+        .build();
+```
+
+### Back-off strategies — `RetryDelay`
+
+```java
+RetryDelay.fixed(Duration.ofSeconds(2))                              // always 2 s
+RetryDelay.linear(Duration.ofSeconds(1))                             // 1 s, 2 s, 3 s, …
+RetryDelay.exponential(Duration.ofSeconds(1))                        // ~1 s, ~2 s, ~4 s, … capped at 30 s
+RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60)) // exponential with custom cap
+```
+
+`RetryDelay` is a `@FunctionalInterface` — supply a lambda for custom delay logic:
+
+```java
+RetryDelay myDelay = attempt -> Duration.ofSeconds(attempt * 5L);
+```
+
+### `Retry-After` header
+
+When `honorRetryAfterHeader()` is configured and the server includes a
+`Retry-After: <seconds>` header on a `429` or `503` response, the client uses the
+server-requested wait time instead of the configured `delay` — provided it does not
+exceed the configured cap.  Values over the cap fall back to the configured delay.
+
+Only the integer-seconds form is supported; HTTP-date values are ignored and fall back
+to the configured delay.
+
+```java
+// Trust the server's Retry-After up to 2 minutes; longer values use exponential back-off
+RetryPolicy.builder()
+        .on(RetryOn.TOO_MANY_REQUESTS)
+        .on(RetryOn.SERVICE_UNAVAILABLE)
+        .delay(RetryDelay.exponential(Duration.ofSeconds(1)))
+        .honorRetryAfterHeader(Duration.ofMinutes(2))
+        .build();
+```
+
+### Idempotency and multipart
+
+By default only idempotent methods (`GET`, `HEAD`, `DELETE`) are retried.  Call
+`allowNonIdempotent()` to also retry `POST`, `PUT`, and `PATCH` — only do this when
+you are certain the server operation is safe to execute more than once.
+
+**Multipart form-data requests are never retried**, regardless of any policy setting.
+The body is streamed and cannot be replayed after the first attempt.
+
+### Sync vs. async behaviour
+
+| Path        | Retry mechanism                                                    |
+|-------------|--------------------------------------------------------------------|
+| `send()`    | `Thread.sleep(delay)` on the calling thread between attempts.      |
+| `sendAsync()` | Delay scheduled via `ScheduledExecutorService`; calling thread never blocks. |
+
+A thread interrupt during a sync retry sleep restores the interrupt flag and throws
+`AbortedException`.
+
+### Custom `RetryPolicy`
+
+If the builder does not cover your requirements, implement the interface directly:
+
+```java
+public class MyRetryPolicy implements RetryPolicy {
+    @Override
+    public Optional<Duration> retryDelay(int attempt, RuntimeException failure) {
+        if (attempt >= 3) return Optional.empty();              // at most 3 attempts
+        if (failure instanceof ServiceUnavailableException) {
+            return Optional.of(Duration.ofSeconds(attempt * 5L));
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public boolean allowNonIdempotent() { return false; }
+}
+```
+
+`attempt` is 1-based: after the first failure it is `1`, after the second it is `2`,
+etc.  Return `Optional.empty()` to stop retrying and propagate the exception to the
+caller.
+
+---
+
+## 18. TLS / custom SSLContext
 
 For HTTPS with the default JDK trust store, no configuration is needed — the JDK
 `HttpClient` uses TLS automatically for `https://` URIs.
@@ -735,26 +927,33 @@ Configuration.builder()
 
 ---
 
-## 18. Exception hierarchy
+## 19. Exception hierarchy
 
-All exceptions are subclasses of `WebServiceException`.
+All exceptions are subclasses of `HttpResponseException`.
 
 ### HTTP error responses
 
-| Exception                      | Status                  |
-|--------------------------------|-------------------------|
-| `BadRequestException`          | 400                     |
-| `UnauthorizedException`        | 401                     |
-| `ForbiddenException`           | 403                     |
-| `NotFoundException`            | 404                     |
-| `MethodNotAllowedException`    | 405                     |
-| `ConflictException`            | 409                     |
-| `GoneException`                | 410                     |
-| `UnprocessableEntityException` | 422                     |
-| `TooManyRequestsException`     | 429                     |
-| `InternalServerErrorException` | 500                     |
-| `ServiceUnavailableException`  | 503                     |
-| `HttpResponseException`        | any other `4xx` / `5xx` |
+| Exception                       | Status                  |
+|---------------------------------|-------------------------|
+| `BadRequestException`           | 400                     |
+| `UnauthorizedException`         | 401                     |
+| `ForbiddenException`            | 403                     |
+| `NotFoundException`             | 404                     |
+| `MethodNotAllowedException`     | 405                     |
+| `NotAcceptableException`        | 406                     |
+| `RequestTimeoutException`       | 408                     |
+| `ConflictException`             | 409                     |
+| `GoneException`                 | 410                     |
+| `PayloadTooLargeException`      | 413                     |
+| `UnsupportedMediaTypeException` | 415                     |
+| `UnprocessableEntityException`  | 422                     |
+| `TooManyRequestsException`      | 429                     |
+| `InternalServerErrorException`  | 500                     |
+| `NotImplementedException`       | 501                     |
+| `BadGatewayException`           | 502                     |
+| `ServiceUnavailableException`   | 503                     |
+| `GatewayTimeoutException`       | 504                     |
+| `HttpResponseException`         | any other `4xx` / `5xx` |
 
 All HTTP error exceptions extend `HttpResponseException` which provides:
 - `statusCode()` — the HTTP status code
@@ -780,7 +979,31 @@ All HTTP error exceptions extend `HttpResponseException` which provides:
 
 ---
 
-## 19. Complete examples
+## 20. Complete examples
+
+### Retry on transient failures
+
+```java
+RetryPolicy retryPolicy = RetryPolicy.builder()
+        .maxAttempts(4)
+        .on(RetryPolicy.GATEWAY_ERRORS)               // 502, 503, 504
+        .on(RetryOn.TOO_MANY_REQUESTS)                // 429
+        .delay(RetryDelay.exponential(Duration.ofSeconds(1)))
+        .honorRetryAfterHeader(Duration.ofMinutes(1))
+        .build();
+
+Client client = Client.builder()
+        .configuration(config)
+        .retryPolicy(retryPolicy)
+        .build();
+
+// The client transparently retries up to 3 times before propagating the exception
+Order order = client.post()
+        .path("/orders")
+        .body(createOrderRequest)
+        .send(Order.class)
+        .body();
+```
 
 ### Typed GET with error handling
 

@@ -29,7 +29,9 @@ import java.net.http.HttpHeaders;
  *
  * @see InternalServerErrorException
  * @see NotImplementedException
+ * @see BadGatewayException
  * @see ServiceUnavailableException
+ * @see GatewayTimeoutException
  */
 public class ServerException extends HttpResponseException {
     @Serial

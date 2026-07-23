@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import software.frisby.core.validation.BlankValueException;
 import software.frisby.core.validation.NullValueException;
+import software.frisby.core.validation.NumericValueOutsideRangeException;
 
 import java.net.URI;
 import java.time.Duration;
@@ -26,7 +27,7 @@ class RequestFailedEventTest {
         void nullMethod_throwsException() {
             assertThrows(
                     NullValueException.class,
-                    () -> new RequestFailedEvent(null, TEST_URI, Optional.empty(), LATENCY, CAUSE)
+                    () -> new RequestFailedEvent(null, TEST_URI, Optional.empty(), LATENCY, CAUSE, Optional.empty())
             );
         }
 
@@ -34,7 +35,7 @@ class RequestFailedEventTest {
         void blankMethod_throwsException() {
             assertThrows(
                     BlankValueException.class,
-                    () -> new RequestFailedEvent("  ", TEST_URI, Optional.empty(), LATENCY, CAUSE)
+                    () -> new RequestFailedEvent("  ", TEST_URI, Optional.empty(), LATENCY, CAUSE, Optional.empty())
             );
         }
 
@@ -42,7 +43,7 @@ class RequestFailedEventTest {
         void nullUri_throwsException() {
             assertThrows(
                     NullValueException.class,
-                    () -> new RequestFailedEvent("GET", null, Optional.empty(), LATENCY, CAUSE)
+                    () -> new RequestFailedEvent("GET", null, Optional.empty(), LATENCY, CAUSE, Optional.empty())
             );
         }
 
@@ -50,7 +51,7 @@ class RequestFailedEventTest {
         void nullStatusCode_throwsException() {
             assertThrows(
                     NullValueException.class,
-                    () -> new RequestFailedEvent("GET", TEST_URI, null, LATENCY, CAUSE)
+                    () -> new RequestFailedEvent("GET", TEST_URI, null, LATENCY, CAUSE, Optional.empty())
             );
         }
 
@@ -58,7 +59,7 @@ class RequestFailedEventTest {
         void nullLatency_throwsException() {
             assertThrows(
                     NullValueException.class,
-                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), null, CAUSE)
+                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), null, CAUSE, Optional.empty())
             );
         }
 
@@ -66,7 +67,31 @@ class RequestFailedEventTest {
         void nullCause_throwsException() {
             assertThrows(
                     NullValueException.class,
-                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), LATENCY, null)
+                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), LATENCY, null, Optional.empty())
+            );
+        }
+
+        @Test
+        void nullRetryAttempt_throwsException() {
+            assertThrows(
+                    NullValueException.class,
+                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), LATENCY, CAUSE, null)
+            );
+        }
+
+        @Test
+        void retryAttemptZero_throwsException() {
+            assertThrows(
+                    NumericValueOutsideRangeException.class,
+                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), LATENCY, CAUSE, Optional.of(0))
+            );
+        }
+
+        @Test
+        void retryAttemptNegative_throwsException() {
+            assertThrows(
+                    NumericValueOutsideRangeException.class,
+                    () -> new RequestFailedEvent("GET", TEST_URI, Optional.empty(), LATENCY, CAUSE, Optional.of(-1))
             );
         }
     }
@@ -92,6 +117,13 @@ class RequestFailedEventTest {
             RequestFailedEvent event = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
 
             assertTrue(event.statusCode().isEmpty());
+        }
+
+        @Test
+        void factory_retryAttemptIsEmpty() {
+            RequestFailedEvent event = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
+
+            assertTrue(event.retryAttempt().isEmpty());
         }
 
         @Test
@@ -145,12 +177,80 @@ class RequestFailedEventTest {
         }
 
         @Test
+        void factory_retryAttemptIsEmpty() {
+            RequestFailedEvent event = RequestFailedEvent.httpFailure("POST", TEST_URI, 422, LATENCY, CAUSE);
+
+            assertTrue(event.retryAttempt().isEmpty());
+        }
+
+        @Test
         void toString_containsStatusCode() {
             RequestFailedEvent event = RequestFailedEvent.httpFailure("POST", TEST_URI, 404, LATENCY, CAUSE);
             String s = event.toString();
 
             assertTrue(s.contains("404"));
             assertTrue(s.contains("→"));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // withRetryAttempt
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class WithRetryAttempt {
+        @Test
+        void setsRetryAttemptOnCopy() {
+            RequestFailedEvent base = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
+            RequestFailedEvent withAttempt = base.withRetryAttempt(2);
+
+            assertTrue(withAttempt.retryAttempt().isPresent());
+            assertEquals(2, withAttempt.retryAttempt().get());
+        }
+
+        @Test
+        void doesNotMutateOriginal() {
+            RequestFailedEvent base = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
+            base.withRetryAttempt(1);
+
+            assertTrue(base.retryAttempt().isEmpty());
+        }
+
+        @Test
+        void preservesAllOtherFields() {
+            RequestFailedEvent base = RequestFailedEvent.httpFailure("DELETE", TEST_URI, 503, LATENCY, CAUSE);
+            RequestFailedEvent withAttempt = base.withRetryAttempt(3);
+
+            assertEquals(base.method(), withAttempt.method());
+            assertEquals(base.uri(), withAttempt.uri());
+            assertEquals(base.statusCode(), withAttempt.statusCode());
+            assertEquals(base.latency(), withAttempt.latency());
+            assertEquals(base.cause(), withAttempt.cause());
+        }
+
+        @Test
+        void zeroAttempt_throwsException() {
+            RequestFailedEvent base = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
+
+            assertThrows(
+                    NumericValueOutsideRangeException.class,
+                    () -> base.withRetryAttempt(0)
+            );
+        }
+
+        @Test
+        void toString_includesAttemptNumber() {
+            RequestFailedEvent event = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE)
+                    .withRetryAttempt(2);
+
+            assertTrue(event.toString().contains("attempt 2"));
+        }
+
+        @Test
+        void toString_withoutRetryAttempt_doesNotContainAttempt() {
+            RequestFailedEvent event = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE);
+
+            assertFalse(event.toString().contains("attempt"));
         }
     }
 
@@ -175,6 +275,16 @@ class RequestFailedEventTest {
             RequestFailedEvent b = RequestFailedEvent.httpFailure("DELETE", TEST_URI, 404, LATENCY, CAUSE);
 
             assertEquals(a, b);
+        }
+
+        @Test
+        void eventsWithDifferentRetryAttempt_areNotEqual() {
+            RequestFailedEvent a = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE)
+                    .withRetryAttempt(1);
+            RequestFailedEvent b = RequestFailedEvent.transportFailure("GET", TEST_URI, LATENCY, CAUSE)
+                    .withRetryAttempt(2);
+
+            assertNotEquals(a, b);
         }
     }
 }

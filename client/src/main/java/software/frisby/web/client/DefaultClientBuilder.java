@@ -11,15 +11,18 @@ final class DefaultClientBuilder implements ClientBuilder {
     private static final String CONFIGURATION_ARGUMENT_NAME = "configuration";
     private static final String SECURITY_ARGUMENT_NAME = "security";
     private static final String EVENT_LISTENER_ARGUMENT_NAME = "eventListener";
+    private static final String RETRY_POLICY_ARGUMENT_NAME = "policy";
 
     private ClientConfiguration configuration;
     private SecurityProvider security;
     private ClientEventListener eventListener;
+    private RetryPolicy retryPolicy;
 
     DefaultClientBuilder() {
         this.configuration = null;
         this.security = null;
         this.eventListener = NoOpClientEventListener.INSTANCE;
+        this.retryPolicy = RetryPolicy.none();
     }
 
     @Override
@@ -41,8 +44,14 @@ final class DefaultClientBuilder implements ClientBuilder {
     }
 
     @Override
+    public ClientBuilder retryPolicy(RetryPolicy policy) {
+        this.retryPolicy = Values.notNull(RETRY_POLICY_ARGUMENT_NAME, policy);
+        return this;
+    }
+
+    @Override
     public Client build() {
-        return new DefaultClient(new HttpEngine(configuration, eventListener), security);
+        return new DefaultClient(new HttpEngine(configuration, eventListener, retryPolicy), security);
     }
 }
 

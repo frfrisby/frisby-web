@@ -38,8 +38,8 @@ public record RequestCompletedEvent(String method,
      * @param latency    the request latency; must not be {@code null} or negative
      * @throws software.frisby.core.validation.BlankValueException               if {@code method} is blank.
      * @throws software.frisby.core.validation.NullValueException                if {@code uri} or
-     *                                                                            {@code latency} is
-     *                                                                            {@code null}.
+     *                                                                           {@code latency} is
+     *                                                                           {@code null}.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code statusCode} is negative.
      * @throws software.frisby.core.validation.DurationOutsideRangeException     if {@code latency} is negative.
      */
