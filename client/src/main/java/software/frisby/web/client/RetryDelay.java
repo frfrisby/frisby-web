@@ -125,7 +125,10 @@ public interface RetryDelay {
             long exponentialMs = baseMs * (1L << shift);
             long cappedMs = Math.min(exponentialMs, maxMs);
 
-            // Add up to 20% random jitter so concurrent clients don't all retry simultaneously
+            // Add up to 20% random jitter so concurrent clients don't all retry simultaneously.
+            // nextDouble() is intentional: nextLong((long)(cappedMs * 0.2d)) would throw
+            // IllegalArgumentException when cappedMs is small enough that the bound rounds to 0.
+            @SuppressWarnings("java:S2140")
             long jitterMs = (long) (cappedMs * 0.2d * ThreadLocalRandom.current().nextDouble());
 
             return Duration.ofMillis(cappedMs + jitterMs);

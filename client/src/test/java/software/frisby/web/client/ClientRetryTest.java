@@ -437,6 +437,110 @@ class ClientRetryTest {
     }
 
     // -------------------------------------------------------------------------
+    // Logging disabled — effectiveLevel returns null, methods exit early
+    // -------------------------------------------------------------------------
+
+    /**
+     * Verifies that all three {@link RequestLogger} methods that gate on
+     * {@code RequestLogger.effectiveLevel()} handle logging being fully disabled
+     * gracefully — when neither the preferred nor the fallback level is loggable,
+     * the method exits early without producing any output or throwing an exception.
+     */
+    @Nested
+    class LoggingDisabled {
+
+        /**
+         * {@code logError} calls {@code effectiveLevel(TRACE, WARNING)}.
+         * Configuring the logger at {@code ERROR} makes both levels non-loggable,
+         * so {@code effectiveLevel} returns {@code null} and the method returns
+         * immediately without logging.
+         */
+        @Test
+        void httpError_withLoggerAboveWarning_silentlyIgnored() {
+            failableGet.failCount = 5;   // always returns 503
+
+            Client client = buildClient(RetryPolicy.none());
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.ERROR)
+                    .configure("software.frisby.web.server.RequestLogger", System.Logger.Level.ERROR)
+                    .build()) {
+                assertThrows(
+                        ServiceUnavailableException.class,
+                        () -> client.get().path("/retry/get").send(Person.class)
+                );
+
+                assertEquals(0, verifier.warningCount(), "logError must not emit a WARNING when the level is suppressed.");
+            }
+        }
+
+        /**
+         * {@code logTransportError(OutboundRequest, Throwable, int)} calls
+         * {@code effectiveLevel(TRACE, ERROR)}.  Configuring the logger at {@code OFF}
+         * makes both levels non-loggable → {@code null} → early return.
+         */
+        @Test
+        void transportError_withLoggerOff_silentlyIgnored() throws IOException {
+            int port;
+
+            try (ServerSocket socket = new ServerSocket(0)) {
+                port = socket.getLocalPort();
+            }
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .retryPolicy(RetryPolicy.none())
+                    .build();
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.OFF)
+                    .build()) {
+                assertThrows(
+                        ConnectException.class,
+                        () -> client.get().path("/anything").send(String.class)
+                );
+
+                assertEquals(0, verifier.errorCount(), "logTransportError must not emit an ERROR when the level is suppressed.");
+            }
+        }
+
+        /**
+         * {@code logTransportError(Throwable, int)} (the no-outbound auth-phase overload)
+         * also calls {@code effectiveLevel(TRACE, ERROR)}.  Configuring at {@code OFF}
+         * triggers the same {@code null} → early-return path.
+         */
+        @Test
+        void authTransportError_withLoggerOff_silentlyIgnored() {
+            SecurityProvider alwaysFailing = ctx -> {
+                throw new ConnectTimeoutException("Simulated auth failure", null);
+            };
+
+            Client client = buildClient(RetryPolicy.none());
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.OFF)
+                    .build()) {
+                assertThrows(
+                        ConnectTimeoutException.class,
+                        () -> client.get()
+                                .path("/retry/get")
+                                .security(alwaysFailing)
+                                .send(Person.class)
+                );
+
+                assertEquals(0, verifier.errorCount(), "logTransportError must not emit an ERROR when the level is suppressed.");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Sync retry — interrupted during retry delay sleep
     // -------------------------------------------------------------------------
 
