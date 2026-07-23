@@ -177,65 +177,18 @@ final class HttpEngine {
             RuntimeException failure;
 
             try {
-                // auth phase
-                outbound = supplier.get();
-
-                // HTTP phase
-                HttpResponse<T> response = executeRequest(outbound.request(), bodyHandler);
+                outbound = supplier.get();                                                  // auth phase
+                HttpResponse<T> response = executeRequest(outbound.request(), bodyHandler); // HTTP phase
 
                 watch.stop();
-                Duration latency = watch.duration();
-
-                byte[] responseSnapshot = bodyHandler instanceof JsonBodyHandler<?> jbh
-                        ? jbh.snapshot()
-                        : null;
-
-                requestLogger.logSuccess(outbound, response, latency, responseSnapshot, attempt);
-
-                fireRequestCompleted(new RequestCompletedEvent(
-                        outbound.request().method(),
-                        outbound.request().uri(),
-                        response.statusCode(),
-                        latency
-                ));
-
+                handleSuccess(outbound, response, bodyHandler, watch.duration(), attempt);
                 return response;
             } catch (HttpResponseException hre) {
-                // outbound is always non-null here: HttpResponseException is only thrown
-                // by the HTTP phase (inside executeRequest), never by the auth phase.
                 watch.stop();
-                Duration latency = watch.duration();
-
-                requestLogger.logError(outbound, hre, latency, attempt);
-
-                fireRequestFailed(buildFailedEvent(
-                        RequestFailedEvent.httpFailure(
-                                outbound.request().method(), outbound.request().uri(),
-                                hre.statusCode(), latency, hre),
-                        attempt
-                ));
-
-                failure = hre;
+                failure = handleHttpError(outbound, hre, watch.duration(), attempt);
             } catch (RuntimeException ex) {
                 watch.stop();
-                Duration latency = watch.duration();
-
-                // outbound is null when the auth phase threw before the request was built.
-                // Only log and fire an event when we have a fully-formed request to report on.
-                if (null == outbound) {
-                    requestLogger.logTransportError(ex, attempt);
-                } else {
-                    requestLogger.logTransportError(outbound, ex, attempt);
-
-                    fireRequestFailed(buildFailedEvent(
-                            RequestFailedEvent.transportFailure(
-                                    outbound.request().method(), outbound.request().uri(),
-                                    latency, ex),
-                            attempt
-                    ));
-                }
-
-                failure = ex;
+                failure = handleTransportError(outbound, ex, watch.duration(), attempt);
             }
 
             // null == outbound: auth phase threw — the request never reached the server,
@@ -247,29 +200,95 @@ final class HttpEngine {
                 Optional<Duration> delay = retryPolicy.retryDelay(attempt, failure);
 
                 if (delay.isPresent()) {
-                    attempt++;
-
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(delay.get().toMillis());
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-
-                        URI uri = null != outbound
-                                ? outbound.request().uri()
-                                : configuration.uri();
-                        String method = null != outbound
-                                ? outbound.request().method()
-                                : "UNKNOWN";
-
-                        throw new AbortedException(ie, method, uri);
-                    }
-
+                    attempt = sleepBeforeRetry(attempt, delay.get(), outbound);
                     continue;
                 }
             }
 
             throw failure;
         }
+    }
+
+    private <T> void handleSuccess(OutboundRequest outbound,
+                                   HttpResponse<T> response,
+                                   HttpResponse.BodyHandler<T> bodyHandler,
+                                   Duration latency,
+                                   int attempt) {
+        byte[] responseSnapshot = bodyHandler instanceof JsonBodyHandler<?> jbh
+                ? jbh.snapshot()
+                : null;
+
+        requestLogger.logSuccess(outbound, response, latency, responseSnapshot, attempt);
+
+        fireRequestCompleted(new RequestCompletedEvent(
+                outbound.request().method(),
+                outbound.request().uri(),
+                response.statusCode(),
+                latency
+        ));
+    }
+
+    private RuntimeException handleHttpError(OutboundRequest outbound,
+                                             HttpResponseException hre,
+                                             Duration latency,
+                                             int attempt) {
+        // outbound is always non-null here: HttpResponseException is only thrown
+        // by the HTTP phase (inside executeRequest), never by the auth phase.
+        requestLogger.logError(outbound, hre, latency, attempt);
+
+        fireRequestFailed(buildFailedEvent(
+                RequestFailedEvent.httpFailure(
+                        outbound.request().method(), outbound.request().uri(),
+                        hre.statusCode(), latency, hre),
+                attempt
+        ));
+
+        return hre;
+    }
+
+    private RuntimeException handleTransportError(OutboundRequest outbound,
+                                                  RuntimeException ex,
+                                                  Duration latency,
+                                                  int attempt) {
+        // outbound is null when the auth phase threw before the request was built.
+        // Only log and fire an event when we have a fully-formed request to report on.
+        if (null == outbound) {
+            requestLogger.logTransportError(ex, attempt);
+        } else {
+            requestLogger.logTransportError(outbound, ex, attempt);
+
+            fireRequestFailed(buildFailedEvent(
+                    RequestFailedEvent.transportFailure(
+                            outbound.request().method(), outbound.request().uri(),
+                            latency, ex),
+                    attempt
+            ));
+        }
+
+        return ex;
+    }
+
+    /**
+     * Sleeps for {@code delay} and returns the next attempt number.
+     * Throws {@link AbortedException} if the thread is interrupted during the sleep.
+     */
+    private int sleepBeforeRetry(int attempt, Duration delay, OutboundRequest outbound) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(delay.toMillis());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+
+            URI uri = null != outbound
+                    ? outbound.request().uri()
+                    : configuration.uri();
+            String method = null != outbound
+                    ? outbound.request().method()
+                    : "UNKNOWN";
+
+            throw new AbortedException(ie, method, uri);
+        }
+
+        return attempt + 1;
     }
 
     /**
