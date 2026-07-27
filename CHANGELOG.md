@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1](https://github.com/frfrisby/frisby-web/compare/v1.3.0...v1.3.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **client:** Add convenience constructors to all exception classes. ([#38](https://github.com/frfrisby/frisby-web/issues/38)) ([1e6c1cf](https://github.com/frfrisby/frisby-web/commit/1e6c1cfe26199b8bc7ef481ec5b8e0c58a2b2b0b))
+* Suppress deployment of root aggregator POM. ([#36](https://github.com/frfrisby/frisby-web/issues/36)) ([ac316ec](https://github.com/frfrisby/frisby-web/commit/ac316eceb59854aa18edb707960f80d36de4a676))
+
 ## [1.3.0](https://github.com/frfrisby/frisby-web/compare/v1.2.0...v1.3.0) (2026-07-27)
 
 
