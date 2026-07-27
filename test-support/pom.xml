@@ -30,6 +30,12 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Provides the embedded Jersey+Jetty server that hosts test resources. -->
         <dependency>
             <groupId>software.frisby.web</groupId>
@@ -55,6 +61,19 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- @{argLine} preserves the JaCoCo agent argument injected at prepare-agent. -->
+                    <argLine>@{argLine}</argLine>
+                    <!-- Expose project.basedir so tests can locate POM files relative to the
+                         module root without hardcoding absolute paths. -->
+                    <systemPropertyVariables>
+                        <project.basedir>${project.basedir}</project.basedir>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
