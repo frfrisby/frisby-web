@@ -72,5 +72,26 @@ public class ServerException extends HttpResponseException {
     public ServerException(int statusCode) {
         super(statusCode);
     }
+
+    /**
+     * Creates a {@code 5xx} exception with a status code, detail message, and cause.
+     *
+     * @param statusCode The HTTP status code returned by the server.
+     * @param message    The detail message.
+     * @param cause      The underlying cause.
+     */
+    public ServerException(int statusCode, String message, Throwable cause) {
+        super(statusCode, message, cause);
+    }
+
+    /**
+     * Creates a {@code 5xx} exception with a status code and cause.
+     *
+     * @param statusCode The HTTP status code returned by the server.
+     * @param cause      The underlying cause.
+     */
+    public ServerException(int statusCode, Throwable cause) {
+        super(statusCode, cause);
+    }
 }
 

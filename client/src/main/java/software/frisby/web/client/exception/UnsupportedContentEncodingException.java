@@ -48,6 +48,37 @@ public final class UnsupportedContentEncodingException extends RuntimeException 
     }
 
     /**
+     * Creates an exception with a detail message and cause, without an encoding token.
+     * <p>
+     * Intended for tests and custom error-handling where the encoding token is not
+     * relevant.  {@link #contentEncoding()} will return {@code null} when this
+     * constructor is used.
+     *
+     * @param message The detail message.
+     * @param cause   The underlying cause.
+     */
+    public UnsupportedContentEncodingException(String message, Throwable cause) {
+        super(message, cause);
+
+        this.contentEncoding = null;
+    }
+
+    /**
+     * Creates an exception wrapping a cause, without an encoding token.
+     * <p>
+     * Intended for tests and custom error-handling where the encoding token is not
+     * relevant.  {@link #contentEncoding()} will return {@code null} when this
+     * constructor is used.
+     *
+     * @param cause The underlying cause.
+     */
+    public UnsupportedContentEncodingException(Throwable cause) {
+        super(cause);
+
+        this.contentEncoding = null;
+    }
+
+    /**
      * Returns the unrecognised {@code Content-Encoding} token from the server response.
      *
      * @return The encoding token (e.g. {@code "br"}, {@code "zstd"}).

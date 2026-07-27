@@ -53,5 +53,32 @@ public final class TransportException extends HttpRequestException {
     public TransportException(String message, Throwable cause) {
         super(message, cause);
     }
+    /**
+     * Creates an exception with a detail message and no request context.
+     *
+     * @param message The detail message.
+     */
+    public TransportException(String message) {
+        super(message);
+    }
+
+    /**
+     * Creates an exception wrapping a cause, without request context.
+     *
+     * @param cause The underlying cause.
+     */
+    public TransportException(Throwable cause) {
+        super(cause);
+    }
+
+    /**
+     * Creates an exception without a message, cause, or request context.
+     * <p>
+     * Useful in tests where only the exception type matters.
+     */
+    public TransportException() {
+        super();
+    }
 }
+
 
