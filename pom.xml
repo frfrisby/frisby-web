@@ -159,6 +159,14 @@
                 <scope>import</scope>
             </dependency>
 
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- Test dependencies -->
             <dependency>
                 <groupId>org.junit</groupId>
@@ -173,25 +181,6 @@
                 <artifactId>junit-jupiter</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
-            </dependency>
-
-            <!-- Jackson -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.fasterxml.jackson.datatype</groupId>
-                <artifactId>jackson-datatype-jsr310</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.fasterxml.jackson.datatype</groupId>
-                <artifactId>jackson-datatype-jdk8</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
 
             <!-- WireMock standalone (shaded — no transitive dep conflicts) -->
