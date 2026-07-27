@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/frfrisby/frisby-web/compare/v1.2.0...v1.3.0) (2026-07-27)
+
+
+### Features
+
+* **bom:** pin frisby-core, Jetty, and Jersey BOMs in published BOM ([#33](https://github.com/frfrisby/frisby-web/issues/33)) ([59d80c7](https://github.com/frfrisby/frisby-web/commit/59d80c71b463ce33a0ef489049258374668f1365))
+
 ## [1.2.0](https://github.com/frfrisby/frisby-web/compare/v1.1.3...v1.2.0) (2026-07-23)
 
 
