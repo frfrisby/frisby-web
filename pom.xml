@@ -37,6 +37,11 @@
     </scm>
 
     <properties>
+        <!-- The root aggregator POM is not a consumable artifact — suppress its deployment.
+             All published artifacts (bom, client, server, etc.) are self-contained after
+             flattening and do not reference this POM as a parent at runtime. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>17</java.version>
