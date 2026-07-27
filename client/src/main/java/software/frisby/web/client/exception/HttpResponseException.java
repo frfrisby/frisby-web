@@ -133,7 +133,41 @@ public class HttpResponseException extends RuntimeException {
      * @param statusCode The HTTP response status code.
      */
     public HttpResponseException(int statusCode) {
-        this(statusCode, null);
+        this(statusCode, (String) null);
+    }
+
+    /**
+     * Creates an exception with a status code, detail message, and cause.
+     * <p>
+     * Useful when re-throwing or wrapping an exception that is associated with a
+     * known HTTP status code but no full response context.
+     *
+     * @param statusCode The HTTP response status code.
+     * @param message    The detail message.
+     * @param cause      The underlying cause.
+     */
+    public HttpResponseException(int statusCode, String message, Throwable cause) {
+        super(message, cause);
+
+        this.method = null;
+        this.uri = null;
+        this.statusCode = statusCode;
+        this.status = ResponseStatus.fromCode(statusCode);
+        this.headerMap = Map.of();
+        this.body = null;
+    }
+
+    /**
+     * Creates an exception with a status code and cause.
+     * <p>
+     * Useful when wrapping an exception that is associated with a known HTTP status
+     * code but no full response context.
+     *
+     * @param statusCode The HTTP response status code.
+     * @param cause      The underlying cause.
+     */
+    public HttpResponseException(int statusCode, Throwable cause) {
+        this(statusCode, null, cause);
     }
 
     /**

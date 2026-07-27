@@ -96,6 +96,46 @@ public class HttpRequestException extends RuntimeException {
     }
 
     /**
+     * Creates an exception with a detail message and no request context.
+     * <p>
+     * Useful in tests and custom error-handling code where a cause is not available.
+     *
+     * @param message The detail message.
+     */
+    public HttpRequestException(String message) {
+        super(message);
+
+        this.method = null;
+        this.uri = null;
+    }
+
+    /**
+     * Creates an exception wrapping a cause, without request context.
+     * <p>
+     * Useful when re-throwing or wrapping an exception without request context.
+     *
+     * @param cause The underlying cause.
+     */
+    public HttpRequestException(Throwable cause) {
+        super(cause);
+
+        this.method = null;
+        this.uri = null;
+    }
+
+    /**
+     * Creates an exception without a message, cause, or request context.
+     * <p>
+     * Useful in tests where only the exception type matters.
+     */
+    public HttpRequestException() {
+        super();
+
+        this.method = null;
+        this.uri = null;
+    }
+
+    /**
      * Returns the HTTP method of the request that caused this failure, when available.
      *
      * @return The method (e.g. {@code "GET"}), or empty if not set.

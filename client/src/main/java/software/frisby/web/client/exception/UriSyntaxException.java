@@ -33,5 +33,23 @@ public final class UriSyntaxException extends RuntimeException {
     public UriSyntaxException(String message, Throwable cause) {
         super(message, cause);
     }
+
+    /**
+     * Constructs a {@code UriSyntaxException} wrapping an underlying cause.
+     *
+     * @param cause The underlying cause.
+     */
+    public UriSyntaxException(Throwable cause) {
+        super(cause);
+    }
+
+    /**
+     * Constructs a {@code UriSyntaxException} without a message or cause.
+     * <p>
+     * Useful in tests where only the exception type matters.
+     */
+    public UriSyntaxException() {
+        super();
+    }
 }
 

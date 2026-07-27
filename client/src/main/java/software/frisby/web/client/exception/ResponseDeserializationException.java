@@ -63,6 +63,69 @@ public final class ResponseDeserializationException extends RuntimeException {
     }
 
     /**
+     * Creates an exception with a detail message and cause, without deserialization context.
+     * <p>
+     * Intended for tests and custom error-handling where {@code targetType} and
+     * {@code rawBody} are not relevant.  {@link #targetType()} will return {@code null}
+     * and {@link #rawBody()} will be empty when this constructor is used.
+     *
+     * @param message The detail message.
+     * @param cause   The underlying cause.
+     */
+    public ResponseDeserializationException(String message, Throwable cause) {
+        super(message, cause);
+
+        this.targetType = null;
+        this.rawBody = null;
+    }
+
+    /**
+     * Creates an exception wrapping a cause, without deserialization context.
+     * <p>
+     * Intended for tests and custom error-handling where {@code targetType} and
+     * {@code rawBody} are not relevant.  {@link #targetType()} will return {@code null}
+     * and {@link #rawBody()} will be empty when this constructor is used.
+     *
+     * @param cause The underlying cause.
+     */
+    public ResponseDeserializationException(Throwable cause) {
+        super(cause);
+
+        this.targetType = null;
+        this.rawBody = null;
+    }
+
+    /**
+     * Creates an exception with a detail message, without deserialization context.
+     * <p>
+     * Intended for tests and custom error-handling where {@code targetType} and
+     * {@code rawBody} are not relevant.  {@link #targetType()} will return {@code null}
+     * and {@link #rawBody()} will be empty when this constructor is used.
+     *
+     * @param message The detail message.
+     */
+    public ResponseDeserializationException(String message) {
+        super(message);
+
+        this.targetType = null;
+        this.rawBody = null;
+    }
+
+    /**
+     * Creates an exception without context.
+     * <p>
+     * Intended for tests where only the exception type matters.  {@link #targetType()}
+     * will return {@code null} and {@link #rawBody()} will be empty when this
+     * constructor is used.
+     */
+    public ResponseDeserializationException() {
+        super();
+
+        this.targetType = null;
+        this.rawBody = null;
+    }
+
+    /**
      * Returns the fully-qualified name of the type the client attempted to deserialize into.
      *
      * @return The target type name (e.g. {@code "com.example.MyDto"} or

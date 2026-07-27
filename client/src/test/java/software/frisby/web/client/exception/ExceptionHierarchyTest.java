@@ -125,7 +125,7 @@ class ExceptionHierarchyTest {
 
         @Test
         void toString_withoutMethodAndUri_omitsRequestContext() {
-            var ex = new HttpResponseException(503, null);
+            var ex = new HttpResponseException(503, (String) null);
             String s = ex.toString();
 
             assertTrue(s.contains("503"));
@@ -190,32 +190,32 @@ class ExceptionHierarchyTest {
 
         @Test
         void methodNotAllowedException_is405() {
-            assertEquals(405, new MethodNotAllowedException(null).statusCode());
+            assertEquals(405, new MethodNotAllowedException((String) null).statusCode());
         }
 
         @Test
         void conflictException_is409() {
-            assertEquals(409, new ConflictException(null).statusCode());
+            assertEquals(409, new ConflictException((String) null).statusCode());
         }
 
         @Test
         void payloadTooLargeException_is413() {
-            assertEquals(413, new PayloadTooLargeException(null).statusCode());
+            assertEquals(413, new PayloadTooLargeException((String) null).statusCode());
         }
 
         @Test
         void unprocessableEntityException_is422() {
-            assertEquals(422, new UnprocessableEntityException(null).statusCode());
+            assertEquals(422, new UnprocessableEntityException((String) null).statusCode());
         }
 
         @Test
         void tooManyRequestsException_is429() {
-            assertEquals(429, new TooManyRequestsException(null).statusCode());
+            assertEquals(429, new TooManyRequestsException((String) null).statusCode());
         }
 
         @Test
         void internalServerErrorException_is500AndServerException() {
-            var ex = new InternalServerErrorException(null);
+            var ex = new InternalServerErrorException((String) null);
 
             assertEquals(500, ex.statusCode());
             assertInstanceOf(ServerException.class, ex);
@@ -223,7 +223,7 @@ class ExceptionHierarchyTest {
 
         @Test
         void notImplementedException_is501() {
-            assertEquals(501, new NotImplementedException(null).statusCode());
+            assertEquals(501, new NotImplementedException((String) null).statusCode());
         }
 
         @Test
@@ -267,7 +267,7 @@ class ExceptionHierarchyTest {
 
         @Test
         void serviceUnavailableException_is503() {
-            assertEquals(503, new ServiceUnavailableException(null).statusCode());
+            assertEquals(503, new ServiceUnavailableException((String) null).statusCode());
         }
     }
 
@@ -724,6 +724,508 @@ class ExceptionHierarchyTest {
     }
 
     // -------------------------------------------------------------------------
+    // ResponseDeserializationException — additional constructors
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ResponseDeserializationExceptionAdditionalConstructors {
+        private static final RuntimeException CAUSE = new RuntimeException("json parse error");
+
+        @Test
+        void messageAndCauseConstructor_targetTypeAndRawBodyAreNull() {
+            var ex = new ResponseDeserializationException("deserialization failed", CAUSE);
+
+            assertEquals("deserialization failed", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertNull(ex.targetType());
+            assertTrue(ex.rawBody().isEmpty());
+        }
+
+        @Test
+        void causeConstructor_targetTypeAndRawBodyAreNull() {
+            var ex = new ResponseDeserializationException(CAUSE);
+
+            assertEquals(CAUSE, ex.getCause());
+            assertNull(ex.targetType());
+            assertTrue(ex.rawBody().isEmpty());
+        }
+
+        @Test
+        void messageConstructor_targetTypeAndRawBodyAreNull() {
+            var ex = new ResponseDeserializationException("deserialization failed");
+
+            assertEquals("deserialization failed", ex.getMessage());
+            assertNull(ex.targetType());
+            assertTrue(ex.rawBody().isEmpty());
+        }
+
+        @Test
+        void noArgConstructor_targetTypeAndRawBodyAreNull() {
+            var ex = new ResponseDeserializationException();
+
+            assertNull(ex.targetType());
+            assertTrue(ex.rawBody().isEmpty());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // UnsupportedContentEncodingException — additional constructors
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class UnsupportedContentEncodingExceptionAdditionalConstructors {
+        private static final RuntimeException CAUSE = new RuntimeException("decompression failed");
+
+        @Test
+        void messageAndCauseConstructor_contentEncodingIsNull() {
+            var ex = new UnsupportedContentEncodingException("unsupported encoding", CAUSE);
+
+            assertEquals("unsupported encoding", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertNull(ex.contentEncoding());
+        }
+
+        @Test
+        void causeConstructor_contentEncodingIsNull() {
+            var ex = new UnsupportedContentEncodingException(CAUSE);
+
+            assertEquals(CAUSE, ex.getCause());
+            assertNull(ex.contentEncoding());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HttpRequestException — convenience constructors (no context)
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class HttpRequestExceptionConvenienceConstructors {
+        @Test
+        void messageConstructor_messageIsAccessibleAndContextIsEmpty() {
+            var ex = new HttpRequestException("transport failure");
+
+            assertEquals("transport failure", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+            assertTrue(ex.uri().isEmpty());
+            assertNull(ex.getCause());
+        }
+
+        @Test
+        void causeConstructor_causeIsAccessibleAndContextIsEmpty() {
+            var cause = new RuntimeException("root cause");
+
+            var ex = new HttpRequestException(cause);
+
+            assertEquals(cause, ex.getCause());
+            assertTrue(ex.method().isEmpty());
+            assertTrue(ex.uri().isEmpty());
+        }
+
+        @Test
+        void noArgConstructor_messageAndContextAreEmpty() {
+            var ex = new HttpRequestException();
+
+            assertNull(ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+            assertTrue(ex.uri().isEmpty());
+            assertNull(ex.getCause());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Request exception subclasses — convenience constructors
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class RequestExceptionSubclassConvenienceConstructors {
+        private static final RuntimeException CAUSE = new RuntimeException("root cause");
+
+        @Test
+        void abortedException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new AbortedException("aborted");
+
+            assertEquals("aborted", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void abortedException_causeConstructor_causeIsAccessible() {
+            var ex = new AbortedException(CAUSE);
+
+            assertEquals(CAUSE, ex.getCause());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void abortedException_noArgConstructor_methodAndUriAreEmpty() {
+            var ex = new AbortedException();
+
+            assertNull(ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void connectException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new ConnectException("connection refused");
+
+            assertEquals("connection refused", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void connectException_causeConstructor_causeIsAccessible() {
+            assertEquals(CAUSE, new ConnectException(CAUSE).getCause());
+        }
+
+        @Test
+        void connectException_noArgConstructor_methodAndUriAreEmpty() {
+            assertTrue(new ConnectException().method().isEmpty());
+        }
+
+        @Test
+        void connectTimeoutException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new ConnectTimeoutException("timed out");
+
+            assertEquals("timed out", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void connectTimeoutException_causeConstructor_causeIsAccessible() {
+            assertEquals(CAUSE, new ConnectTimeoutException(CAUSE).getCause());
+        }
+
+        @Test
+        void connectTimeoutException_noArgConstructor_methodAndUriAreEmpty() {
+            assertTrue(new ConnectTimeoutException().method().isEmpty());
+        }
+
+        @Test
+        void readTimeoutException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new ReadTimeoutException("read timed out");
+
+            assertEquals("read timed out", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void readTimeoutException_causeConstructor_causeIsAccessible() {
+            assertEquals(CAUSE, new ReadTimeoutException(CAUSE).getCause());
+        }
+
+        @Test
+        void readTimeoutException_noArgConstructor_methodAndUriAreEmpty() {
+            assertTrue(new ReadTimeoutException().method().isEmpty());
+        }
+
+        @Test
+        void tooManyRedirectsException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new TooManyRedirectsException("redirect loop");
+
+            assertEquals("redirect loop", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void tooManyRedirectsException_causeConstructor_causeIsAccessible() {
+            assertEquals(CAUSE, new TooManyRedirectsException(CAUSE).getCause());
+        }
+
+        @Test
+        void tooManyRedirectsException_noArgConstructor_methodAndUriAreEmpty() {
+            assertTrue(new TooManyRedirectsException().method().isEmpty());
+        }
+
+        @Test
+        void transportException_messageConstructor_methodAndUriAreEmpty() {
+            var ex = new TransportException("tls failure");
+
+            assertEquals("tls failure", ex.getMessage());
+            assertTrue(ex.method().isEmpty());
+        }
+
+        @Test
+        void transportException_causeConstructor_causeIsAccessible() {
+            assertEquals(CAUSE, new TransportException(CAUSE).getCause());
+        }
+
+        @Test
+        void transportException_noArgConstructor_methodAndUriAreEmpty() {
+            assertTrue(new TransportException().method().isEmpty());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HttpResponseException / ClientException / ServerException — cause constructors
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ResponseExceptionCauseConstructors {
+        private static final RuntimeException CAUSE = new RuntimeException("upstream failure");
+
+        @Test
+        void httpResponseException_statusMessageCause_fieldsAreCorrect() {
+            var ex = new HttpResponseException(503, "service down", CAUSE);
+
+            assertEquals(503, ex.statusCode());
+            assertEquals(ResponseStatus.SERVICE_UNAVAILABLE, ex.status());
+            assertEquals("service down", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertTrue(ex.method().isEmpty());
+            assertTrue(ex.body().isEmpty());
+        }
+
+        @Test
+        void httpResponseException_statusCause_messageIsNull() {
+            var ex = new HttpResponseException(503, CAUSE);
+
+            assertEquals(503, ex.statusCode());
+            assertNull(ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+        }
+
+        @Test
+        void clientException_statusMessageCause_preservesStatusCode() {
+            var ex = new ClientException(422, "invalid input", CAUSE);
+
+            assertEquals(422, ex.statusCode());
+            assertEquals("invalid input", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertInstanceOf(ClientException.class, ex);
+        }
+
+        @Test
+        void clientException_statusCause_preservesStatusCode() {
+            var ex = new ClientException(422, CAUSE);
+
+            assertEquals(422, ex.statusCode());
+            assertEquals(CAUSE, ex.getCause());
+        }
+
+        @Test
+        void serverException_statusMessageCause_preservesStatusCode() {
+            var ex = new ServerException(500, "internal error", CAUSE);
+
+            assertEquals(500, ex.statusCode());
+            assertEquals("internal error", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertInstanceOf(ServerException.class, ex);
+        }
+
+        @Test
+        void serverException_statusCause_preservesStatusCode() {
+            var ex = new ServerException(500, CAUSE);
+
+            assertEquals(500, ex.statusCode());
+            assertEquals(CAUSE, ex.getCause());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Leaf response exceptions — message+cause and cause-only constructors
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ResponseExceptionLeafCauseConstructors {
+        private static final RuntimeException CAUSE = new RuntimeException("upstream");
+
+        // --- 4xx ---
+
+        @Test
+        void badRequestException_messageCause_preserves400() {
+            var ex = new BadRequestException("invalid payload", CAUSE);
+
+            assertEquals(400, ex.statusCode());
+            assertEquals("invalid payload", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+        }
+
+        @Test
+        void badRequestException_causeOnly_preserves400() {
+            assertEquals(400, new BadRequestException(CAUSE).statusCode());
+        }
+
+        @Test
+        void unauthorizedException_messageCause_preserves401() {
+            assertEquals(401, new UnauthorizedException("no token", CAUSE).statusCode());
+        }
+
+        @Test
+        void unauthorizedException_causeOnly_preserves401() {
+            assertEquals(401, new UnauthorizedException(CAUSE).statusCode());
+        }
+
+        @Test
+        void forbiddenException_messageCause_preserves403() {
+            assertEquals(403, new ForbiddenException("access denied", CAUSE).statusCode());
+        }
+
+        @Test
+        void forbiddenException_causeOnly_preserves403() {
+            assertEquals(403, new ForbiddenException(CAUSE).statusCode());
+        }
+
+        @Test
+        void notFoundException_messageCause_preserves404() {
+            var ex = new NotFoundException("item not found", CAUSE);
+
+            assertEquals(404, ex.statusCode());
+            assertEquals("item not found", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+        }
+
+        @Test
+        void notFoundException_causeOnly_preserves404() {
+            var ex = new NotFoundException(CAUSE);
+
+            assertEquals(404, ex.statusCode());
+            assertEquals(CAUSE, ex.getCause());
+        }
+
+        @Test
+        void methodNotAllowedException_messageCause_preserves405() {
+            assertEquals(405, new MethodNotAllowedException("not allowed", CAUSE).statusCode());
+        }
+
+        @Test
+        void methodNotAllowedException_causeOnly_preserves405() {
+            assertEquals(405, new MethodNotAllowedException(CAUSE).statusCode());
+        }
+
+        @Test
+        void notAcceptableException_messageCause_preserves406() {
+            assertEquals(406, new NotAcceptableException("unacceptable", CAUSE).statusCode());
+        }
+
+        @Test
+        void notAcceptableException_causeOnly_preserves406() {
+            assertEquals(406, new NotAcceptableException(CAUSE).statusCode());
+        }
+
+        @Test
+        void requestTimeoutException_messageCause_preserves408() {
+            assertEquals(408, new RequestTimeoutException("timed out", CAUSE).statusCode());
+        }
+
+        @Test
+        void requestTimeoutException_causeOnly_preserves408() {
+            assertEquals(408, new RequestTimeoutException(CAUSE).statusCode());
+        }
+
+        @Test
+        void conflictException_messageCause_preserves409() {
+            assertEquals(409, new ConflictException("duplicate", CAUSE).statusCode());
+        }
+
+        @Test
+        void conflictException_causeOnly_preserves409() {
+            assertEquals(409, new ConflictException(CAUSE).statusCode());
+        }
+
+        @Test
+        void goneException_messageCause_preserves410() {
+            assertEquals(410, new GoneException("resource gone", CAUSE).statusCode());
+        }
+
+        @Test
+        void goneException_causeOnly_preserves410() {
+            assertEquals(410, new GoneException(CAUSE).statusCode());
+        }
+
+        @Test
+        void payloadTooLargeException_messageCause_preserves413() {
+            assertEquals(413, new PayloadTooLargeException("too large", CAUSE).statusCode());
+        }
+
+        @Test
+        void payloadTooLargeException_causeOnly_preserves413() {
+            assertEquals(413, new PayloadTooLargeException(CAUSE).statusCode());
+        }
+
+        @Test
+        void unsupportedMediaTypeException_messageCause_preserves415() {
+            assertEquals(415, new UnsupportedMediaTypeException("wrong type", CAUSE).statusCode());
+        }
+
+        @Test
+        void unsupportedMediaTypeException_causeOnly_preserves415() {
+            assertEquals(415, new UnsupportedMediaTypeException(CAUSE).statusCode());
+        }
+
+        @Test
+        void unprocessableEntityException_messageCause_preserves422() {
+            assertEquals(422, new UnprocessableEntityException("validation failed", CAUSE).statusCode());
+        }
+
+        @Test
+        void unprocessableEntityException_causeOnly_preserves422() {
+            assertEquals(422, new UnprocessableEntityException(CAUSE).statusCode());
+        }
+
+        @Test
+        void tooManyRequestsException_messageCause_preserves429() {
+            assertEquals(429, new TooManyRequestsException("rate limited", CAUSE).statusCode());
+        }
+
+        @Test
+        void tooManyRequestsException_causeOnly_preserves429() {
+            assertEquals(429, new TooManyRequestsException(CAUSE).statusCode());
+        }
+
+        // --- 5xx ---
+
+        @Test
+        void internalServerErrorException_messageCause_preserves500() {
+            assertEquals(500, new InternalServerErrorException("server crash", CAUSE).statusCode());
+        }
+
+        @Test
+        void internalServerErrorException_causeOnly_preserves500() {
+            assertEquals(500, new InternalServerErrorException(CAUSE).statusCode());
+        }
+
+        @Test
+        void notImplementedException_messageCause_preserves501() {
+            assertEquals(501, new NotImplementedException("not implemented", CAUSE).statusCode());
+        }
+
+        @Test
+        void notImplementedException_causeOnly_preserves501() {
+            assertEquals(501, new NotImplementedException(CAUSE).statusCode());
+        }
+
+        @Test
+        void badGatewayException_messageCause_preserves502() {
+            assertEquals(502, new BadGatewayException("bad gateway", CAUSE).statusCode());
+        }
+
+        @Test
+        void badGatewayException_causeOnly_preserves502() {
+            assertEquals(502, new BadGatewayException(CAUSE).statusCode());
+        }
+
+        @Test
+        void serviceUnavailableException_messageCause_preserves503() {
+            assertEquals(503, new ServiceUnavailableException("down for maintenance", CAUSE).statusCode());
+        }
+
+        @Test
+        void serviceUnavailableException_causeOnly_preserves503() {
+            assertEquals(503, new ServiceUnavailableException(CAUSE).statusCode());
+        }
+
+        @Test
+        void gatewayTimeoutException_messageCause_preserves504() {
+            assertEquals(504, new GatewayTimeoutException("upstream timeout", CAUSE).statusCode());
+        }
+
+        @Test
+        void gatewayTimeoutException_causeOnly_preserves504() {
+            assertEquals(504, new GatewayTimeoutException(CAUSE).statusCode());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // UriSyntaxException
     // -------------------------------------------------------------------------
 
@@ -744,6 +1246,23 @@ class ExceptionHierarchyTest {
 
             assertEquals("assembled URI is invalid", ex.getMessage());
             assertEquals(cause, ex.getCause());
+        }
+
+        @Test
+        void causeConstructor_causeIsAccessible() {
+            var cause = new java.net.URISyntaxException("https://bad uri", "Illegal character");
+
+            var ex = new UriSyntaxException(cause);
+
+            assertEquals(cause, ex.getCause());
+        }
+
+        @Test
+        void noArgConstructor_messageIsNull() {
+            var ex = new UriSyntaxException();
+
+            assertNull(ex.getMessage());
+            assertNull(ex.getCause());
         }
     }
 }

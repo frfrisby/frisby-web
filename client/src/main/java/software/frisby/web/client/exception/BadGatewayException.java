@@ -44,5 +44,29 @@ public final class BadGatewayException extends ServerException {
     public BadGatewayException() {
         super(STATUS_CODE);
     }
+
+    /**
+     * Creates an exception with a detail message and cause.
+     * <p>
+     * Useful when wrapping or re-throwing a lower-level exception with additional context.
+     *
+     * @param message The detail message.
+     * @param cause   The underlying cause.
+     */
+    public BadGatewayException(String message, Throwable cause) {
+        super(STATUS_CODE, message, cause);
+    }
+
+    /**
+     * Creates an exception wrapping a cause.
+     * <p>
+     * Useful when re-throwing a lower-level exception while preserving the original cause.
+     *
+     * @param cause The underlying cause.
+     */
+    public BadGatewayException(Throwable cause) {
+        super(STATUS_CODE, cause);
+    }
 }
+
 

@@ -75,5 +75,26 @@ public class ClientException extends HttpResponseException {
     public ClientException(int statusCode) {
         super(statusCode);
     }
+
+    /**
+     * Creates an exception with a status code, detail message, and cause.
+     *
+     * @param statusCode The HTTP response status code.
+     * @param message    The detail message.
+     * @param cause      The underlying cause.
+     */
+    public ClientException(int statusCode, String message, Throwable cause) {
+        super(statusCode, message, cause);
+    }
+
+    /**
+     * Creates an exception with a status code and cause.
+     *
+     * @param statusCode The HTTP response status code.
+     * @param cause      The underlying cause.
+     */
+    public ClientException(int statusCode, Throwable cause) {
+        super(statusCode, cause);
+    }
 }
 
