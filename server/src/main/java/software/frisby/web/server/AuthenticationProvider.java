@@ -103,10 +103,19 @@ public interface AuthenticationProvider {
      *
      * @param context The incoming request context; never {@code null}.
      * @return A {@link SecurityContext} for the authenticated request; never {@code null}.
-     * @throws jakarta.ws.rs.NotAuthorizedException if authentication fails (wrong credentials,
-     *                                              expired token, etc.).
-     * @throws jakarta.ws.rs.ForbiddenException     if the caller is authenticated but not
-     *                                              permitted to access this resource.
+     * @throws jakarta.ws.rs.NotAuthorizedException  if authentication fails (wrong credentials,
+     *                                               expired token, etc.).
+     * @throws jakarta.ws.rs.ForbiddenException      if the caller is authenticated but not
+     *                                               permitted to access this resource.
+     * @throws jakarta.ws.rs.WebApplicationException any other {@link jakarta.ws.rs.WebApplicationException}
+     *                                               subclass propagates to the caller unchanged.
+     *                                               Use this to signal upstream dependency failures — for
+     *                                               example, throw {@link jakarta.ws.rs.ServiceUnavailableException}
+     *                                               if a remote key-fetch times out or returns a {@code 5xx},
+     *                                               so the caller receives a meaningful {@code 503} rather
+     *                                               than a misleading {@code 401}.
+     *                                               Any other exception type is wrapped in a
+     *                                               {@code 500 Internal Server Error}.
      */
     SecurityContext authenticate(ContainerRequestContext context);
 }
