@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/frfrisby/frisby-web/compare/v1.3.1...v1.3.2) (2026-07-28)
+
+
+### Bug Fixes
+
+* **server:** Add Endpoint to RequestCompletedEvent. ([#40](https://github.com/frfrisby/frisby-web/issues/40)) ([c6aa30c](https://github.com/frfrisby/frisby-web/commit/c6aa30c020892bb2abe5e30ab906c7eada7af67c))
+
 ## [1.3.1](https://github.com/frfrisby/frisby-web/compare/v1.3.0...v1.3.1) (2026-07-27)
 
 
