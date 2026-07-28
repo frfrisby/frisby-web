@@ -1,7 +1,7 @@
 package software.frisby.web.server;
 
-import jakarta.ws.rs.core.SecurityContext;
 import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.SecurityContext;
 
 /**
  * Pluggable server-side authentication provider.

@@ -25,6 +25,34 @@ import java.util.List;
  */
 public sealed interface AllowedHeaders permits AllowedHeaders.Echo, AllowedHeaders.Explicit {
     /**
+     * Returns the singleton {@link Echo} instance — the server echoes the browser's
+     * {@code Access-Control-Request-Headers} value.
+     *
+     * @return The singleton {@link Echo} instance; never {@code null}.
+     */
+    static Echo echo() {
+        return Echo.INSTANCE;
+    }
+
+    /**
+     * Returns an {@link Explicit} instance advertising exactly the given headers.
+     *
+     * @param headers The header names to allow; must not be {@code null}, and each
+     *                element must not be {@code null} or blank.  An empty list is
+     *                accepted and results in no {@code Access-Control-Allow-Headers}
+     *                header being sent.
+     * @return A new {@link Explicit} instance; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException   if {@code headers} is
+     *                                                              {@code null}.
+     * @throws software.frisby.core.validation.NullElementException if any element is
+     *                                                              {@code null}.
+     * @throws software.frisby.core.validation.BlankValueException  if any element is blank.
+     */
+    static Explicit explicit(List<String> headers) {
+        return new Explicit(headers);
+    }
+
+    /**
      * The server echoes the {@code Access-Control-Request-Headers} value sent by the
      * browser, permitting any headers the client chooses to include.
      * <p>
@@ -60,34 +88,6 @@ public sealed interface AllowedHeaders permits AllowedHeaders.Echo, AllowedHeade
         public List<String> headers() {
             return headers;
         }
-    }
-
-    /**
-     * Returns the singleton {@link Echo} instance — the server echoes the browser's
-     * {@code Access-Control-Request-Headers} value.
-     *
-     * @return The singleton {@link Echo} instance; never {@code null}.
-     */
-    static Echo echo() {
-        return Echo.INSTANCE;
-    }
-
-    /**
-     * Returns an {@link Explicit} instance advertising exactly the given headers.
-     *
-     * @param headers The header names to allow; must not be {@code null}, and each
-     *                element must not be {@code null} or blank.  An empty list is
-     *                accepted and results in no {@code Access-Control-Allow-Headers}
-     *                header being sent.
-     * @return A new {@link Explicit} instance; never {@code null}.
-     * @throws software.frisby.core.validation.NullValueException   if {@code headers} is
-     *                                                              {@code null}.
-     * @throws software.frisby.core.validation.NullElementException if any element is
-     *                                                              {@code null}.
-     * @throws software.frisby.core.validation.BlankValueException  if any element is blank.
-     */
-    static Explicit explicit(List<String> headers) {
-        return new Explicit(headers);
     }
 }
 

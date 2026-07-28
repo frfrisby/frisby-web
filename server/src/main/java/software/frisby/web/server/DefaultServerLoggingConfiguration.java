@@ -3,7 +3,9 @@ package software.frisby.web.server;
 import software.frisby.core.validation.Numbers;
 import software.frisby.core.validation.Sequences;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
 final class DefaultServerLoggingConfiguration implements ServerLoggingConfiguration {
     static final int MAX_BODY_SIZE_LIMIT = 100 * 1024 * 1024;
@@ -16,8 +18,8 @@ final class DefaultServerLoggingConfiguration implements ServerLoggingConfigurat
     private final int maxBodySize;
 
     DefaultServerLoggingConfiguration(Set<String> additionalRedactedHeaders,
-                                Set<String> redactedBodyFields,
-                                int maxBodySize) {
+                                      Set<String> redactedBodyFields,
+                                      int maxBodySize) {
         Set<String> combined = new HashSet<>(HARD_REDACTED_HEADERS);
 
         for (String header : Sequences.noNullElements("additionalRedactedHeaders", additionalRedactedHeaders)) {

@@ -2,7 +2,10 @@ package software.frisby.web.server;
 
 import software.frisby.core.validation.StringSequences;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder {
     private static final String ALLOWED_ORIGINS = "allowedOrigins";

@@ -5,20 +5,20 @@ import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import org.glassfish.jersey.server.internal.process.MappableException;
+import org.glassfish.jersey.server.model.ResourceMethod;
 import org.glassfish.jersey.server.monitoring.RequestEvent;
 import org.glassfish.jersey.server.monitoring.RequestEventListener;
 import software.frisby.core.util.StopWatch;
 import software.frisby.core.validation.Values;
+import software.frisby.web.server.event.Endpoint;
 import software.frisby.web.server.event.RequestCompletedEvent;
 import software.frisby.web.server.event.ServerEventListener;
 
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -36,11 +36,6 @@ import java.util.stream.Collectors;
  * {@link #appendResponseBodySection} to keep cognitive complexity manageable.
  */
 final class ServerRequestEventListener implements RequestEventListener {
-    private static final System.Logger LOGGER = System.getLogger(ServerRequestEventListener.class.getName());
-
-    private static final String INDENT_1 = "\n  ";
-    private static final String INDENT_2 = "\n    ";
-
     /**
      * Request context property key under which {@code RequestBodyBufferingFilter} stores
      * the first {@code maxLogBodySize} bytes of the request body as a {@code byte[]}.
@@ -48,6 +43,30 @@ final class ServerRequestEventListener implements RequestEventListener {
      */
     static final String BUFFERED_BODY_KEY =
             "software.frisby.web.server.ServerRequestEventListener.requestBody";
+    private static final System.Logger LOGGER = System.getLogger(ServerRequestEventListener.class.getName());
+    private static final String INDENT_1 = "\n  ";
+    private static final String INDENT_2 = "\n    ";
+    private final ServerConfiguration configuration;
+    private final ServerEventListener eventListener;
+    private final RequestLogger requestLogger;
+    private final String healthCheckPath;
+    private final StopWatch watch;
+    // Captured at ON_EXCEPTION — the FINISHED event clears its exception field once
+    // an ExceptionMapper has successfully produced a response, so we must preserve
+    // the original throwable here for inclusion in the 5xx failure log.
+    private Throwable requestException;
+
+    ServerRequestEventListener(ServerConfiguration configuration,
+                               ServerEventListener eventListener,
+                               RequestLogger requestLogger,
+                               String healthCheckPath) {
+        this.configuration = configuration;
+        this.eventListener = eventListener;
+        this.requestLogger = requestLogger;
+        this.healthCheckPath = healthCheckPath;
+        this.watch = StopWatch.start();
+        this.requestException = null;
+    }
 
     /**
      * Returns {@code true} for content types that are safe to buffer and display as
@@ -91,27 +110,27 @@ final class ServerRequestEventListener implements RequestEventListener {
         return false;
     }
 
-    private final ServerConfiguration configuration;
-    private final ServerEventListener eventListener;
-    private final RequestLogger requestLogger;
-    private final String healthCheckPath;
-    private final StopWatch watch;
+    /**
+     * Extracts the matched JAX-RS resource class and method from the request event.
+     * <p>
+     * Returns empty when no resource method was matched — for example, when a request
+     * produces a {@code 404} because no resource is registered at that path.
+     *
+     * @param event The Jersey request event at {@code FINISHED} phase.
+     * @return The matched endpoint, or empty if no resource method was matched.
+     */
+    private static Optional<Endpoint> resolveEndpoint(RequestEvent event) {
+        ResourceMethod resourceMethod = event.getUriInfo().getMatchedResourceMethod();
+        if (null == resourceMethod) {
+            return Optional.empty();
+        }
 
-    // Captured at ON_EXCEPTION — the FINISHED event clears its exception field once
-    // an ExceptionMapper has successfully produced a response, so we must preserve
-    // the original throwable here for inclusion in the 5xx failure log.
-    private Throwable requestException;
+        Method method = resourceMethod.getInvocable().getDefinitionMethod();
 
-    ServerRequestEventListener(ServerConfiguration configuration,
-                               ServerEventListener eventListener,
-                               RequestLogger requestLogger,
-                               String healthCheckPath) {
-        this.configuration = configuration;
-        this.eventListener = eventListener;
-        this.requestLogger = requestLogger;
-        this.healthCheckPath = healthCheckPath;
-        this.watch = StopWatch.start();
-        this.requestException = null;
+        return Optional.of(new Endpoint(
+                method.getDeclaringClass(),
+                method
+        ));
     }
 
     /**
@@ -392,7 +411,8 @@ final class ServerRequestEventListener implements RequestEventListener {
                     statusCode,
                     latency,
                     requestBytes,
-                    responseBytes
+                    responseBytes,
+                    resolveEndpoint(event)
             );
 
             String detail = "";
