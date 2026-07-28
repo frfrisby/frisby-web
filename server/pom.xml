@@ -69,6 +69,18 @@
             <artifactId>jetty-alpn-java-server</artifactId>
         </dependency>
 
+        <!--
+            Jersey registers a MessageBodyWriter for jakarta.activation.DataSource at startup
+            but marks the dependency optional — the class is not found and Jersey emits a
+            WARNING on every startup.  Declaring it runtime here puts the class on the
+            classpath and silences that warning for all consumers of this module.
+        -->
+        <dependency>
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>software.frisby.web</groupId>
