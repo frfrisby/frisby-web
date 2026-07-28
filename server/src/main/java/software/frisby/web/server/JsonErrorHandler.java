@@ -13,6 +13,7 @@ import software.frisby.web.server.event.ServerEventListener;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -96,7 +97,8 @@ final class JsonErrorHandler extends ErrorHandler {
                     status,
                     Duration.ofMillis(latencyMs),
                     requestBytes,
-                    jsonBytes.length
+                    jsonBytes.length,
+                    Optional.empty()
             ));
         } catch (Exception ex) {
             if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {

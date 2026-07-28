@@ -5,19 +5,23 @@ import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import org.glassfish.jersey.server.internal.process.MappableException;
+import org.glassfish.jersey.server.model.ResourceMethod;
 import org.glassfish.jersey.server.monitoring.RequestEvent;
 import org.glassfish.jersey.server.monitoring.RequestEventListener;
 import software.frisby.core.util.StopWatch;
 import software.frisby.core.validation.Values;
+import software.frisby.web.server.event.Endpoint;
 import software.frisby.web.server.event.RequestCompletedEvent;
 import software.frisby.web.server.event.ServerEventListener;
 
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -112,6 +116,29 @@ final class ServerRequestEventListener implements RequestEventListener {
         this.healthCheckPath = healthCheckPath;
         this.watch = StopWatch.start();
         this.requestException = null;
+    }
+
+    /**
+     * Extracts the matched JAX-RS resource class and method from the request event.
+     * <p>
+     * Returns empty when no resource method was matched — for example, when a request
+     * produces a {@code 404} because no resource is registered at that path.
+     *
+     * @param event The Jersey request event at {@code FINISHED} phase.
+     * @return The matched endpoint, or empty if no resource method was matched.
+     */
+    private static Optional<Endpoint> resolveEndpoint(RequestEvent event) {
+        ResourceMethod resourceMethod = event.getUriInfo().getMatchedResourceMethod();
+        if (null == resourceMethod) {
+            return Optional.empty();
+        }
+
+        Method method = resourceMethod.getInvocable().getDefinitionMethod();
+
+        return Optional.of(new Endpoint(
+                method.getDeclaringClass(),
+                method
+        ));
     }
 
     /**
@@ -392,7 +419,8 @@ final class ServerRequestEventListener implements RequestEventListener {
                     statusCode,
                     latency,
                     requestBytes,
-                    responseBytes
+                    responseBytes,
+                    resolveEndpoint(event)
             );
 
             String detail = "";

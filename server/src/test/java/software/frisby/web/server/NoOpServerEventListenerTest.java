@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import software.frisby.web.server.event.RequestCompletedEvent;
 
 import java.time.Duration;
+import java.util.Optional;
 
 class NoOpServerEventListenerTest {
     @Test
@@ -14,7 +15,8 @@ class NoOpServerEventListenerTest {
                 200,
                 Duration.ofMillis(5),
                 0L,
-                32L
+                32L,
+                Optional.empty()
         );
 
         NoOpServerEventListener.INSTANCE.onRequestCompleted(event);

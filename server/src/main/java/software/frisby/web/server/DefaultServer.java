@@ -745,7 +745,8 @@ final class DefaultServer implements Server {
                         HttpStatus.SERVICE_UNAVAILABLE_503,
                         latency,
                         0L,
-                        BODY_503.length
+                        BODY_503.length,
+                        java.util.Optional.empty()
                 ));
             } catch (Exception ex) {
                 if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
