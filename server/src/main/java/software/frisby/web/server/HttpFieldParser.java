@@ -4,7 +4,8 @@ import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 
 final class HttpFieldParser {
-    private HttpFieldParser() {}
+    private HttpFieldParser() {
+    }
 
     /**
      * Returns the numeric value of the named header field, or {@code defaultValue} if

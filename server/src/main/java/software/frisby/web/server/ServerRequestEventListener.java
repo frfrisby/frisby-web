@@ -18,11 +18,7 @@ import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -40,11 +36,6 @@ import java.util.stream.Collectors;
  * {@link #appendResponseBodySection} to keep cognitive complexity manageable.
  */
 final class ServerRequestEventListener implements RequestEventListener {
-    private static final System.Logger LOGGER = System.getLogger(ServerRequestEventListener.class.getName());
-
-    private static final String INDENT_1 = "\n  ";
-    private static final String INDENT_2 = "\n    ";
-
     /**
      * Request context property key under which {@code RequestBodyBufferingFilter} stores
      * the first {@code maxLogBodySize} bytes of the request body as a {@code byte[]}.
@@ -52,6 +43,30 @@ final class ServerRequestEventListener implements RequestEventListener {
      */
     static final String BUFFERED_BODY_KEY =
             "software.frisby.web.server.ServerRequestEventListener.requestBody";
+    private static final System.Logger LOGGER = System.getLogger(ServerRequestEventListener.class.getName());
+    private static final String INDENT_1 = "\n  ";
+    private static final String INDENT_2 = "\n    ";
+    private final ServerConfiguration configuration;
+    private final ServerEventListener eventListener;
+    private final RequestLogger requestLogger;
+    private final String healthCheckPath;
+    private final StopWatch watch;
+    // Captured at ON_EXCEPTION — the FINISHED event clears its exception field once
+    // an ExceptionMapper has successfully produced a response, so we must preserve
+    // the original throwable here for inclusion in the 5xx failure log.
+    private Throwable requestException;
+
+    ServerRequestEventListener(ServerConfiguration configuration,
+                               ServerEventListener eventListener,
+                               RequestLogger requestLogger,
+                               String healthCheckPath) {
+        this.configuration = configuration;
+        this.eventListener = eventListener;
+        this.requestLogger = requestLogger;
+        this.healthCheckPath = healthCheckPath;
+        this.watch = StopWatch.start();
+        this.requestException = null;
+    }
 
     /**
      * Returns {@code true} for content types that are safe to buffer and display as
@@ -93,29 +108,6 @@ final class ServerRequestEventListener implements RequestEventListener {
         }
 
         return false;
-    }
-
-    private final ServerConfiguration configuration;
-    private final ServerEventListener eventListener;
-    private final RequestLogger requestLogger;
-    private final String healthCheckPath;
-    private final StopWatch watch;
-
-    // Captured at ON_EXCEPTION — the FINISHED event clears its exception field once
-    // an ExceptionMapper has successfully produced a response, so we must preserve
-    // the original throwable here for inclusion in the 5xx failure log.
-    private Throwable requestException;
-
-    ServerRequestEventListener(ServerConfiguration configuration,
-                               ServerEventListener eventListener,
-                               RequestLogger requestLogger,
-                               String healthCheckPath) {
-        this.configuration = configuration;
-        this.eventListener = eventListener;
-        this.requestLogger = requestLogger;
-        this.healthCheckPath = healthCheckPath;
-        this.watch = StopWatch.start();
-        this.requestException = null;
     }
 
     /**
