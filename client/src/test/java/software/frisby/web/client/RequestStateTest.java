@@ -405,17 +405,6 @@ class RequestStateTest {
             );
         }
 
-        @Test
-        void accept_varargs_throwsIllegalArgumentException() {
-            RequestState state = new RequestState(null);
-
-            IllegalArgumentException ex = assertThrows(
-                    IllegalArgumentException.class,
-                    () -> state.header("accept", "application/json", "text/plain")
-            );
-
-            assertEquals(String.format(RESTRICTED_MSG_TEMPLATE, "accept"), ex.getMessage());
-        }
 
         @Test
         void acceptEncoding_singleValue_throwsIllegalArgumentException() {
@@ -445,6 +434,82 @@ class RequestStateTest {
                     IllegalArgumentException.class,
                     () -> state.header("transfer-encoding", "chunked")
             );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Accept header — conditional default
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class AcceptHeader {
+        private static final URI URI = java.net.URI.create("http://example.com/test");
+        private static final Duration TIMEOUT = Duration.ofSeconds(30);
+
+        @Test
+        void noUserAcceptHeader_addAcceptJsonTrue_sendsApplicationJson() {
+            RequestState state = new RequestState(null);
+
+            HttpRequest request = state.prepareBuilder(
+                    URI,
+                    "GET",
+                    HttpRequest.BodyPublishers.noBody(),
+                    true,
+                    null,
+                    TIMEOUT
+            ).build();
+
+            assertEquals("application/json", request.headers().firstValue("Accept").orElse(null));
+        }
+
+        @Test
+        void userSetsAcceptHeader_addAcceptJsonTrue_userValueWins() {
+            RequestState state = new RequestState(null);
+            state.header("Accept", "text/plain");
+
+            HttpRequest request = state.prepareBuilder(
+                    URI,
+                    "GET",
+                    HttpRequest.BodyPublishers.noBody(),
+                    true,
+                    null,
+                    TIMEOUT
+            ).build();
+
+            assertEquals("text/plain", request.headers().firstValue("Accept").orElse(null));
+        }
+
+        @Test
+        void userSetsAcceptHeader_addAcceptJsonFalse_userValuePresent() {
+            RequestState state = new RequestState(null);
+            state.header("Accept", "text/plain");
+
+            HttpRequest request = state.prepareBuilder(
+                    URI,
+                    "GET",
+                    HttpRequest.BodyPublishers.noBody(),
+                    false,
+                    null,
+                    TIMEOUT
+            ).build();
+
+            assertEquals("text/plain", request.headers().firstValue("Accept").orElse(null));
+        }
+
+        @Test
+        void noUserAcceptHeader_addAcceptJsonFalse_noAcceptHeader() {
+            RequestState state = new RequestState(null);
+
+            HttpRequest request = state.prepareBuilder(
+                    URI,
+                    "GET",
+                    HttpRequest.BodyPublishers.noBody(),
+                    false,
+                    null,
+                    TIMEOUT
+            ).build();
+
+            assertEquals(java.util.Optional.empty(), request.headers().firstValue("Accept"));
         }
     }
 
