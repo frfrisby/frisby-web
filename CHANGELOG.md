@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/frfrisby/frisby-web/compare/v1.3.3...v1.3.4) (2026-07-29)
+
+
+### Bug Fixes
+
+* **server:** Removed duplicate argument name strings and increased unit test coverage. ([#46](https://github.com/frfrisby/frisby-web/issues/46)) ([af17443](https://github.com/frfrisby/frisby-web/commit/af174430ad0f80eba28d02bfc8ba3cf62707a53a))
+
 ## [1.3.3](https://github.com/frfrisby/frisby-web/compare/v1.3.2...v1.3.3) (2026-07-29)
 
 
