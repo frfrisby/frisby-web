@@ -21,14 +21,15 @@ support — with zero framework magic and a minimal, explicit API.
 9. [GZIP compression](#9-gzip-compression)
 10. [CORS](#10-cors)
 11. [Authentication](#11-authentication)
-12. [Health check endpoint](#12-health-check-endpoint)
-13. [Graceful shutdown](#13-graceful-shutdown)
-14. [Logging](#14-logging)
-15. [Failure-detail logging and redaction](#15-failure-detail-logging-and-redaction)
-16. [Observability — ServerEventListener](#16-observability--servereventlistener)
-17. [Advanced: custom JAX-RS components](#17-advanced-custom-jax-rs-components)
-18. [Comparison with alternatives](#18-comparison-with-alternatives)
-19. [Complete examples](#19-complete-examples)
+12. [Throwing HTTP errors — `HttpErrors`](#12-throwing-http-errors--httperrors)
+13. [Health check endpoint](#13-health-check-endpoint)
+14. [Graceful shutdown](#14-graceful-shutdown)
+15. [Logging](#15-logging)
+16. [Failure-detail logging and redaction](#16-failure-detail-logging-and-redaction)
+17. [Observability — ServerEventListener](#17-observability--servereventlistener)
+18. [Advanced: custom JAX-RS components](#18-advanced-custom-jax-rs-components)
+19. [Comparison with alternatives](#19-comparison-with-alternatives)
+20. [Complete examples](#20-complete-examples)
 
 ---
 
@@ -511,7 +512,117 @@ public final class AlbOidcAuthenticationProvider implements AuthenticationProvid
 
 ---
 
-## 12. Health check endpoint
+## 12. Throwing HTTP errors — `HttpErrors`
+
+Jersey's built-in exception constructors have several well-known quirks that make them
+error-prone in practice:
+
+- `NotAuthorizedException` silently adds a `WWW-Authenticate` challenge header unless you
+  pass a fully pre-built `Response` to suppress it.
+- Most exceptions carry no response body by default — adding a message to the caller
+  requires constructing a `Response` inline.
+- Common status codes (409, 410, 422, 429) have no dedicated Jersey exception type,
+  forcing you to reach for the generic `ClientErrorException`.
+
+`HttpErrors` is a static factory that handles all of this correctly, every time:
+
+```java
+// Before HttpErrors — verbose, quirky, easy to get wrong
+throw new NotAuthorizedException(
+        "Token has expired.",
+        Response.status(Response.Status.UNAUTHORIZED).build()
+);
+
+throw new BadRequestException(
+        "'enabled' must not be absent",
+        Response.status(Response.Status.BAD_REQUEST)
+                .entity("'enabled' must not be absent")
+                .type(MediaType.TEXT_PLAIN)
+                .build()
+);
+
+throw new ClientErrorException(
+        "Record has changed — please refresh.",
+        Response.status(409).entity("Record has changed...").type(MediaType.TEXT_PLAIN).build()
+);
+
+// After HttpErrors — one line, no boilerplate
+throw HttpErrors.unauthorized("Token has expired.");
+throw HttpErrors.badRequest("'enabled' must not be absent");
+throw HttpErrors.conflict("Record has changed — please refresh.");
+```
+
+### Body overloads
+
+Each status code method has six overloads:
+
+```java
+// No body
+HttpErrors.conflict()
+
+// Text body — Content-Type: text/plain
+HttpErrors.conflict("Record has changed — please refresh and retry.")
+
+// JSON body — Content-Type: application/json; serialized by your JsonSerializer at write time
+HttpErrors.conflict(new ConflictBody("Record has changed.", currentVersion))
+
+// Cause only — no body exposed to caller; attached to the exception for server-side logging
+HttpErrors.serviceUnavailable(upstreamException)
+
+// Text body + cause
+HttpErrors.serviceUnavailable("Key service unreachable.", upstreamException)
+
+// JSON body + cause
+HttpErrors.unprocessableEntity(new ValidationErrorBody(violations), validationException)
+```
+
+The `String` overload always produces `text/plain`; the `Object` overload always produces
+`application/json` (serialized by the `JsonMessageBodyProvider` at response-write time —
+no manual serialization required).
+
+### Covered status codes
+
+All eighteen status codes from the client and server exception hierarchy are covered:
+
+| 4xx                          | 5xx                         |
+|------------------------------|-----------------------------|
+| `400` `badRequest`           | `500` `internalServerError` |
+| `401` `unauthorized`         | `501` `notImplemented`      |
+| `403` `forbidden`            | `502` `badGateway`          |
+| `404` `notFound`             | `503` `serviceUnavailable`  |
+| `405` `methodNotAllowed`     | `504` `gatewayTimeout`      |
+| `406` `notAcceptable`        |                             |
+| `408` `requestTimeout`       |                             |
+| `409` `conflict`             |                             |
+| `410` `gone`                 |                             |
+| `413` `payloadTooLarge`      |                             |
+| `415` `unsupportedMediaType` |                             |
+| `422` `unprocessableEntity`  |                             |
+| `429` `tooManyRequests`      |                             |
+
+### Usage in `AuthenticationProvider`
+
+`HttpErrors` is particularly useful inside `AuthenticationProvider.authenticate()` — throw
+a meaningful status with full context instead of fighting the Jersey constructor API:
+
+```java
+@Override
+public SecurityContext authenticate(ContainerRequestContext ctx) {
+    String token = ctx.getHeaderString("X-Token");
+    try {
+        return tokenService.validate(token);
+    } catch (TokenExpiredException ex) {
+        throw HttpErrors.unauthorized("Token has expired.", ex);
+    } catch (KeyServiceUnavailableException ex) {
+        // 503 — caller should back off and retry; not a credential problem
+        throw HttpErrors.serviceUnavailable("Authentication service unavailable.", ex);
+    }
+}
+```
+
+---
+
+## 13. Health check endpoint
 
 ```java
 Server.builder()
@@ -539,7 +650,7 @@ requests.  High-frequency polling must not inflate application metrics.
 
 ---
 
-## 13. Graceful shutdown
+## 14. Graceful shutdown
 
 Without `stopTimeout`, calling `server.stop()` terminates connections immediately.
 
@@ -561,7 +672,7 @@ This prevents requests from being abruptly terminated during rolling deployments
 
 ---
 
-## 14. Logging
+## 15. Logging
 
 The server uses `System.Logger` throughout, routing through the standard JUL bridge
 (or whichever logging backend is wired to `System.Logger` at runtime — SLF4J, Log4j 2,
@@ -606,7 +717,7 @@ software.frisby.web.server.RequestLogger.level = WARNING
 
 ---
 
-## 15. Failure-detail logging and redaction
+## 16. Failure-detail logging and redaction
 
 On 4xx and 5xx responses, the server automatically logs full request context — headers,
 buffered request body, and response headers — at `WARNING` (4xx) or `ERROR` (5xx).  This
@@ -664,7 +775,7 @@ All other types produce the `[type/subtype — body not logged]` placeholder.
 
 ---
 
-## 16. Observability — ServerEventListener
+## 17. Observability — ServerEventListener
 
 Register a listener on `ServerBuilder` to receive a structured callback after each request:
 
@@ -721,7 +832,7 @@ to fail.
 
 ---
 
-## 17. Advanced: custom JAX-RS components
+## 18. Advanced: custom JAX-RS components
 
 Register any JAX-RS provider component via `ServerBuilder.components(...)`:
 
@@ -773,7 +884,7 @@ software.frisby.web.server.RequestLogger.level = WARNING
 
 ---
 
-## 18. Comparison with alternatives
+## 19. Comparison with alternatives
 
 ### vs. Spring Boot (embedded Tomcat / Netty)
 
@@ -856,7 +967,7 @@ that scales well via virtual threads.
 
 ---
 
-## 19. Complete examples
+## 20. Complete examples
 
 ### Minimal HTTP server
 

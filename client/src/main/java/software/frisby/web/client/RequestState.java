@@ -40,7 +40,6 @@ final class RequestState {
     private static final String PROVIDER_ARGUMENT_NAME = "provider";
 
     private static final Set<String> RESTRICTED_HEADERS = Set.of(
-            "accept",
             "accept-encoding",
             "content-type",
             "content-length",
@@ -215,7 +214,10 @@ final class RequestState {
                 .timeout(readTimeout)
                 .header(Headers.USER_AGENT, "");
 
-        if (addAcceptJson) {
+        boolean userSetAccept = headers.stream()
+                .anyMatch(e -> e.getKey().equalsIgnoreCase(Headers.ACCEPT));
+
+        if (addAcceptJson && !userSetAccept) {
             builder.header(Headers.ACCEPT, "application/json");
         }
 

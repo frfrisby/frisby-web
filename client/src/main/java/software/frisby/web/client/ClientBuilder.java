@@ -50,8 +50,7 @@ public interface ClientBuilder {
      * {@link #configuration(ClientConfiguration)}.  This is equivalent to:
      *
      * <pre>{@code
-     * ClientConfigurationBuilder builder = ClientConfiguration.builder();
-     * ClientConfiguration configuration = configurer.apply(builder).build();
+     * ClientConfiguration configuration = configurer.apply(ClientConfiguration.builder()).build();
      * return configuration(configuration);
      * }</pre>
      * <p>
@@ -74,11 +73,9 @@ public interface ClientBuilder {
      * @throws software.frisby.core.validation.NullValueException if {@code configurer} is {@code null}.
      */
     default ClientBuilder configuration(UnaryOperator<ClientConfigurationBuilder> configurer) {
-        ClientConfigurationBuilder builder = ClientConfiguration.builder();
-
         return configuration(
                 Values.notNull("configurer", configurer)
-                        .apply(builder)
+                        .apply(ClientConfiguration.builder())
                         .build()
         );
     }
@@ -124,6 +121,48 @@ public interface ClientBuilder {
      * @throws software.frisby.core.validation.NullValueException if {@code policy} is {@code null}.
      */
     ClientBuilder retryPolicy(RetryPolicy policy);
+
+    /**
+     * Convenience overload — configures the retry policy inline via a lambda instead of
+     * constructing a {@link RetryPolicy} object explicitly.
+     * <p>
+     * The library creates a fresh {@link RetryPolicyBuilder}, passes it to
+     * {@code configurer}, and delegates the result to {@link #retryPolicy(RetryPolicy)}.
+     * This is equivalent to:
+     *
+     * <pre>{@code
+     * RetryPolicyBuilder builder = RetryPolicy.builder();
+     * RetryPolicy policy = configurer.apply(builder).build();
+     * return retryPolicy(policy);
+     * }</pre>
+     * <p>
+     * Typical usage:
+     *
+     * <pre>{@code
+     * Client client = Client.builder()
+     *         .configuration(c -> c
+     *                 .uri(URI.create("https://api.example.com"))
+     *                 .serializer(new JacksonSerializer()))
+     *         .retryPolicy(p -> p
+     *                 .maxAttempts(3)
+     *                 .on(RetryPolicy.GATEWAY_ERRORS)
+     *                 .delay(RetryDelay.exponential(Duration.ofSeconds(1))))
+     *         .build();
+     * }</pre>
+     *
+     * @param configurer A function that receives a fresh {@link RetryPolicyBuilder}
+     *                   and returns it after applying the desired settings; must not be
+     *                   {@code null}.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code configurer} is {@code null}.
+     */
+    default ClientBuilder retryPolicy(UnaryOperator<RetryPolicyBuilder> configurer) {
+        return retryPolicy(
+                Values.notNull("configurer", configurer)
+                        .apply(RetryPolicy.builder())
+                        .build()
+        );
+    }
 
     /**
      * Returns a new {@link Client} instance based on the provided options.

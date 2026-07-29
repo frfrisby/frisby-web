@@ -1,5 +1,6 @@
 package software.frisby.web.server;
 
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.core.MediaType;
@@ -243,6 +244,49 @@ final class ServerRequestEventListener implements RequestEventListener {
     }
 
     /**
+     * Appends an {@code Exception:} section to the detail block for
+     * {@link WebApplicationException}-based failures.
+     * <p>
+     * Stack traces are omitted for {@code WebApplicationException} — they are deliberate,
+     * controlled failures, not bugs.  However, the exception message and its immediate
+     * cause often contain diagnostic context that is stripped from the response payload
+     * (e.g. auth failure details) or that is simply not visible from the status code alone
+     * (e.g. {@code "Upstream key service unavailable"} for a {@code 503}).  Appending them
+     * here makes failures diagnosable from the log alone.
+     * <p>
+     * Nothing is appended if neither the exception nor its cause carry a meaningful message
+     * — in those cases the status code already tells the full story.
+     *
+     * @param sb    The detail string builder to append to.
+     * @param cause The {@link WebApplicationException} that triggered the failure.
+     */
+    private static void appendExceptionSection(StringBuilder sb, Throwable cause) {
+        String message = cause.getMessage();
+        boolean hasMessage = null != message && !message.isBlank();
+        Throwable nested = cause.getCause();
+
+        if (!hasMessage && null == nested) {
+            return;
+        }
+
+        sb.append(INDENT_1).append("Exception: ").append(cause.getClass().getSimpleName());
+
+        if (hasMessage) {
+            sb.append(": ").append(message);
+        }
+
+        if (null != nested) {
+            sb.append(INDENT_2).append("Caused by: ").append(nested.getClass().getSimpleName());
+
+            String nestedMessage = nested.getMessage();
+
+            if (null != nestedMessage && !nestedMessage.isBlank()) {
+                sb.append(": ").append(nestedMessage);
+            }
+        }
+    }
+
+    /**
      * Builds a multi-line detail string for log entries, including masked
      * request headers, optionally redacted request body, response headers,
      * and optionally redacted response body.
@@ -433,11 +477,22 @@ final class ServerRequestEventListener implements RequestEventListener {
                 // Include request context detail only when the corresponding log level
                 // is actually enabled.
                 if (requestLogger.isDetailLoggable(statusCode, requestException)) {
-                    detail = buildDetail(
+                    StringBuilder sb = new StringBuilder(buildDetail(
                             event.getContainerRequest(),
                             containerResponse,
                             configuration
-                    );
+                    ));
+
+                    // For WebApplicationException failures the stack trace is deliberately
+                    // omitted, but the exception message and cause chain may contain
+                    // diagnostic context (auth details, upstream error descriptions) that
+                    // are not visible from the status code alone.  Append them as plain
+                    // text so failures are diagnosable without needing a stack trace.
+                    if (requestException instanceof WebApplicationException) {
+                        appendExceptionSection(sb, requestException);
+                    }
+
+                    detail = sb.toString();
                 }
 
                 requestLogger.logFailureDetail(

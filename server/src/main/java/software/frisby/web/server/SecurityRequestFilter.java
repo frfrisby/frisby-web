@@ -4,6 +4,7 @@ import jakarta.annotation.Priority;
 import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.Response;
@@ -24,11 +25,13 @@ import java.util.List;
  *       asked to {@link AuthenticationProvider#authenticate authenticate()} the request.</li>
  *   <li>If {@code authenticate()} succeeds, the resulting {@link jakarta.ws.rs.core.SecurityContext}
  *       is installed on the request context and processing continues.</li>
- *   <li>If {@code authenticate()} throws {@link NotAuthorizedException} or
- *       {@link ForbiddenException} the exception propagates unchanged.</li>
+ *   <li>If {@code authenticate()} throws a {@link jakarta.ws.rs.WebApplicationException}
+ *       (including {@link NotAuthorizedException}, {@link ForbiddenException},
+ *       {@link jakarta.ws.rs.ServiceUnavailableException}, etc.) the exception propagates
+ *       unchanged — the provider's intended HTTP response is preserved.</li>
  *   <li>Any other exception thrown by {@code authenticate()} is wrapped in a
- *       {@code 500 Internal Server Error} WebApplicationException so that stack traces
- *       and internal state never reach callers.</li>
+ *       {@code 500 Internal Server Error} so that stack traces and internal state never
+ *       reach callers.</li>
  *   <li>If no provider's {@code accepts()} method returns {@code true} a
  *       {@code 401 Unauthorized} response is returned immediately.</li>
  * </ol>
@@ -65,7 +68,7 @@ final class SecurityRequestFilter implements ContainerRequestFilter {
 
                 try {
                     sc = provider.authenticate(context);
-                } catch (NotAuthorizedException | ForbiddenException ex) {
+                } catch (WebApplicationException ex) {
                     throw ex;
                 } catch (Exception ex) {
                     throw new jakarta.ws.rs.InternalServerErrorException(ex);

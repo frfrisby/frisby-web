@@ -52,6 +52,12 @@
         <jersey.version>3.1.12</jersey.version>
         <jetty.version>12.0.37</jetty.version>
 
+        <!-- jakarta.activation-api — Jersey registers a DataSource MessageBodyWriter that
+             requires this class at startup.  Jersey marks it optional so it is never pulled
+             in transitively; declaring it here ensures it is on the classpath and suppresses
+             the "A class jakarta.activation.DataSource was not found" WARNING at startup. -->
+        <jakarta-activation.version>2.1.3</jakarta-activation.version>
+
         <!-- Jackson (jackson-serializer module) -->
         <jackson.version>2.22.1</jackson.version>
 
@@ -205,6 +211,12 @@
                 <artifactId>slf4j-jdk14</artifactId>
                 <version>${slf4j.version}</version>
                 <scope>test</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>jakarta.activation</groupId>
+                <artifactId>jakarta.activation-api</artifactId>
+                <version>${jakarta-activation.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

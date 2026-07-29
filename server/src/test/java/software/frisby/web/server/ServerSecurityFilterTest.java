@@ -3,6 +3,7 @@ package software.frisby.web.server;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.MediaType;
@@ -12,12 +13,15 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import software.frisby.web.test.log.LogExpectation;
+import software.frisby.web.test.log.SystemLogVerifier;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.Principal;
+import java.time.Duration;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -221,6 +225,63 @@ class ServerSecurityFilterTest {
     }
 
     // -------------------------------------------------------------------------
+    // Provider throws WebApplicationException — propagates unchanged
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ProviderThrowsWebApplicationException {
+        private static Server server;
+        private static int port;
+
+        @BeforeAll
+        static void startServer() {
+            server = Server.builder()
+                    .configuration(c -> c
+                            .port(0)
+                            .serializer(new TestJsonSerializer()))
+                    .resources(new SecuredResource())
+                    .authentication(new ServiceUnavailableProvider())
+                    .components(TestLogging.forClass(ProviderThrowsWebApplicationException.class))
+                    .build();
+
+            server.start();
+            port = server.port();
+        }
+
+        @AfterAll
+        static void stopServer() {
+            if (null != server) {
+                server.stop();
+            }
+        }
+
+        @Test
+        void serviceUnavailableException_returns503() throws Exception {
+            HttpResponse<String> response = get(port, "/secured", "any-token");
+
+            assertEquals(503, response.statusCode());
+        }
+
+        @Test
+        void serviceUnavailableException_logsExceptionMessageAtWarning() throws Exception {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .expect(LogExpectation.builder()
+                            .logger(RequestLogger.class)
+                            .level(System.Logger.Level.WARNING)
+                            .predicate(e -> e.message().contains("503")
+                                    && e.message().contains("ServiceUnavailableException")
+                                    && e.message().contains("Upstream key service unavailable"))
+                            .build()
+                    )
+                    .build()) {
+                get(port, "/secured", "any-token");
+
+                verifier.assertExpectations(Duration.ofSeconds(2));
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // SecurityContext propagation — principal and roles
     // -------------------------------------------------------------------------
 
@@ -368,6 +429,18 @@ class ServerSecurityFilterTest {
         @Override
         public SecurityContext authenticate(ContainerRequestContext context) {
             throw new RuntimeException("Unexpected provider failure");
+        }
+    }
+
+    private static final class ServiceUnavailableProvider implements AuthenticationProvider {
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return true;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            throw new ServiceUnavailableException("Upstream key service unavailable");
         }
     }
 }
