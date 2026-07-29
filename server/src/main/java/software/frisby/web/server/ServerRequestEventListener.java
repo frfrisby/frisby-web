@@ -112,6 +112,49 @@ final class ServerRequestEventListener implements RequestEventListener {
     }
 
     /**
+     * Appends an {@code Exception:} section to the detail block for
+     * {@link WebApplicationException}-based failures.
+     * <p>
+     * Stack traces are omitted for {@code WebApplicationException} — they are deliberate,
+     * controlled failures, not bugs.  However, the exception message and its immediate
+     * cause often contain diagnostic context that is stripped from the response payload
+     * (e.g. auth failure details) or that is simply not visible from the status code alone
+     * (e.g. {@code "Upstream key service unavailable"} for a {@code 503}).  Appending them
+     * here makes failures diagnosable from the log alone.
+     * <p>
+     * Nothing is appended if neither the exception nor its cause carry a meaningful message
+     * — in those cases the status code already tells the full story.
+     *
+     * @param sb    The detail string builder to append to.
+     * @param cause The {@link WebApplicationException} that triggered the failure.
+     */
+    static void appendExceptionSection(StringBuilder sb, Throwable cause) {
+        String message = cause.getMessage();
+        boolean hasMessage = null != message && !message.isBlank();
+        Throwable nested = cause.getCause();
+
+        if (!hasMessage && null == nested) {
+            return;
+        }
+
+        sb.append(INDENT_1).append("Exception: ").append(cause.getClass().getSimpleName());
+
+        if (hasMessage) {
+            sb.append(": ").append(message);
+        }
+
+        if (null != nested) {
+            sb.append(INDENT_2).append("Caused by: ").append(nested.getClass().getSimpleName());
+
+            String nestedMessage = nested.getMessage();
+
+            if (null != nestedMessage && !nestedMessage.isBlank()) {
+                sb.append(": ").append(nestedMessage);
+            }
+        }
+    }
+
+    /**
      * Extracts the matched JAX-RS resource class and method from the request event.
      * <p>
      * Returns empty when no resource method was matched — for example, when a request
@@ -244,49 +287,6 @@ final class ServerRequestEventListener implements RequestEventListener {
     }
 
     /**
-     * Appends an {@code Exception:} section to the detail block for
-     * {@link WebApplicationException}-based failures.
-     * <p>
-     * Stack traces are omitted for {@code WebApplicationException} — they are deliberate,
-     * controlled failures, not bugs.  However, the exception message and its immediate
-     * cause often contain diagnostic context that is stripped from the response payload
-     * (e.g. auth failure details) or that is simply not visible from the status code alone
-     * (e.g. {@code "Upstream key service unavailable"} for a {@code 503}).  Appending them
-     * here makes failures diagnosable from the log alone.
-     * <p>
-     * Nothing is appended if neither the exception nor its cause carry a meaningful message
-     * — in those cases the status code already tells the full story.
-     *
-     * @param sb    The detail string builder to append to.
-     * @param cause The {@link WebApplicationException} that triggered the failure.
-     */
-    private static void appendExceptionSection(StringBuilder sb, Throwable cause) {
-        String message = cause.getMessage();
-        boolean hasMessage = null != message && !message.isBlank();
-        Throwable nested = cause.getCause();
-
-        if (!hasMessage && null == nested) {
-            return;
-        }
-
-        sb.append(INDENT_1).append("Exception: ").append(cause.getClass().getSimpleName());
-
-        if (hasMessage) {
-            sb.append(": ").append(message);
-        }
-
-        if (null != nested) {
-            sb.append(INDENT_2).append("Caused by: ").append(nested.getClass().getSimpleName());
-
-            String nestedMessage = nested.getMessage();
-
-            if (null != nestedMessage && !nestedMessage.isBlank()) {
-                sb.append(": ").append(nestedMessage);
-            }
-        }
-    }
-
-    /**
      * Builds a multi-line detail string for log entries, including masked
      * request headers, optionally redacted request body, response headers,
      * and optionally redacted response body.
@@ -414,6 +414,7 @@ final class ServerRequestEventListener implements RequestEventListener {
     }
 
     @Override
+    @SuppressWarnings("java:S3776")
     public void onEvent(RequestEvent event) {
         // Capture the exception as early as possible.  Jersey clears getException()
         // on the FINISHED event once an ExceptionMapper has produced a response, so
