@@ -47,6 +47,7 @@ final class ServerRequestEventListener implements RequestEventListener {
     private static final System.Logger LOGGER = System.getLogger(ServerRequestEventListener.class.getName());
     private static final String INDENT_1 = "\n  ";
     private static final String INDENT_2 = "\n    ";
+    private static final int MAX_CAUSE_DEPTH = 10;
     private final ServerConfiguration configuration;
     private final ServerEventListener eventListener;
     private final RequestLogger requestLogger;
@@ -143,14 +144,17 @@ final class ServerRequestEventListener implements RequestEventListener {
             sb.append(": ").append(message);
         }
 
-        if (null != nested) {
+        int depth = 0;
+        while (null != nested && depth < MAX_CAUSE_DEPTH) {
             sb.append(INDENT_2).append("Caused by: ").append(nested.getClass().getSimpleName());
 
             String nestedMessage = nested.getMessage();
-
             if (null != nestedMessage && !nestedMessage.isBlank()) {
                 sb.append(": ").append(nestedMessage);
             }
+
+            nested = nested.getCause();
+            depth++;
         }
     }
 
