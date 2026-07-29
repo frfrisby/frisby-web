@@ -3,12 +3,7 @@ package software.frisby.web.server;
 import software.frisby.core.validation.Sequences;
 import software.frisby.core.validation.StringSequences;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 
 final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder {
     private static final String ALLOWED_ORIGINS = "allowedOrigins";
@@ -76,7 +71,7 @@ final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder 
 
         return new DefaultCorsConfiguration(
                 new ArrayList<>(allowedOrigins),
-                allowedMethods.stream().map(HttpVerb::name).collect(Collectors.toList()),
+                allowedMethods.stream().map(HttpVerb::name).toList(),
                 null == allowedHeaders ? AllowedHeaders.echo() : AllowedHeaders.explicit(new ArrayList<>(allowedHeaders)),
                 allowCredentials
         );
