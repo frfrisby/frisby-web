@@ -246,6 +246,69 @@ successful()     boolean  — true for 2xx
 
 ---
 
+## `HttpErrors` — static factory for HTTP error responses
+
+`HttpErrors` removes the boilerplate and quirks of constructing Jersey exceptions directly.
+Use it anywhere in a resource class, service layer, or `AuthenticationProvider`.
+
+```java
+import software.frisby.web.server.HttpErrors;
+
+// Text body (Content-Type: text/plain)
+throw HttpErrors.badRequest("'name' must not be blank.");
+throw HttpErrors.unauthorized("Token has expired.");
+throw HttpErrors.conflict("Record has changed — refresh and retry.");
+
+// JSON body (Content-Type: application/json — serialized by the configured JsonSerializer)
+throw HttpErrors.unprocessableEntity(new ValidationErrorBody(violations));
+
+// Cause attached (for server-side logging; not exposed to the caller)
+throw HttpErrors.serviceUnavailable("Key service unreachable.", upstreamException);
+
+// Text body + cause
+throw HttpErrors.internalServerError("Unexpected state.", unexpectedException);
+
+// No body
+throw HttpErrors.notFound();
+```
+
+### Six overloads per status code
+
+| Signature | Body | Cause |
+|---|---|---|
+| `badRequest()` | none | — |
+| `badRequest(String message)` | `text/plain` | — |
+| `badRequest(Object body)` | `application/json` | — |
+| `badRequest(Throwable cause)` | none | ✓ |
+| `badRequest(String message, Throwable cause)` | `text/plain` | ✓ |
+| `badRequest(Object body, Throwable cause)` | `application/json` | ✓ |
+
+> **Important:** Pass `String` for plain-text bodies; pass non-`String` objects for JSON.
+> Java picks the `String` overload for string literals automatically.
+
+### Covered status codes
+
+```
+4xx: badRequest(400)  unauthorized(401)  forbidden(403)  notFound(404)
+     methodNotAllowed(405)  notAcceptable(406)  requestTimeout(408)
+     conflict(409)  gone(410)  payloadTooLarge(413)  unsupportedMediaType(415)
+     unprocessableEntity(422)  tooManyRequests(429)
+
+5xx: internalServerError(500)  notImplemented(501)  badGateway(502)
+     serviceUnavailable(503)  gatewayTimeout(504)
+```
+
+### Key behaviors
+
+- **`unauthorized()`** — all overloads suppress the `WWW-Authenticate` challenge header
+  that Jersey's `NotAuthorizedException` constructors add by default.
+- **JSON body** — the `Object` body is passed directly to the `Response` entity; it is
+  serialized at write time by the server's registered `JsonMessageBodyProvider`, which
+  delegates to the configured `JsonSerializer`.  No manual serialization required.
+- **Return type** — all methods return `WebApplicationException`; callers just `throw` it.
+
+---
+
 ## Complete example — production-grade server
 
 ```java

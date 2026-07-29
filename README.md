@@ -184,6 +184,18 @@ server.start();
 Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
 ```
 
+`HttpErrors` provides static factory methods for throwing clean, properly-configured HTTP
+error responses from any resource method or authentication provider — no `Response`
+boilerplate, no Jersey constructor quirks:
+
+```java
+throw HttpErrors.badRequest("'name' must not be blank.");
+throw HttpErrors.unauthorized("Token has expired.");
+throw HttpErrors.conflict("Record has changed — please refresh and retry.");
+throw HttpErrors.unprocessableEntity(new ValidationErrorBody(violations));  // JSON body
+throw HttpErrors.serviceUnavailable("Key service unreachable.", upstreamEx); // + cause
+```
+
 See the [full server guide](docs/server.md) for TLS, HTTP/2, CORS, authentication, virtual
 threads, graceful shutdown, structured logging, and more.
 
