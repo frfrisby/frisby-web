@@ -9,7 +9,7 @@ package software.frisby.web.server;
  * // Specific origins with credentials
  * CorsConfiguration cors = CorsConfiguration.builder()
  *         .allowedOrigins("https://app.example.com")
- *         .allowedMethods("GET", "POST", "PUT", "DELETE")
+ *         .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.PUT, HttpVerb.DELETE)
  *         .allowedHeaders("Authorization", "Content-Type")
  *         .allowCredentials()
  *         .build();
@@ -17,7 +17,7 @@ package software.frisby.web.server;
  * // Wildcard — any browser origin permitted
  * CorsConfiguration cors = CorsConfiguration.builder()
  *         .allowedOrigins("*")
- *         .allowedMethods("GET", "POST")
+ *         .allowedMethods(HttpVerb.GET, HttpVerb.POST)
  *         .build();
  * }</pre>
  *
@@ -54,17 +54,15 @@ public interface CorsConfigurationBuilder {
      * <p>
      * Required.  {@link #build()} throws if no method has been configured.
      * <p>
-     * May be called multiple times; each call appends to the existing list.
+     * May be called multiple times; each call appends to the existing set.  Duplicate
+     * values (across any number of calls) are silently deduplicated.
      *
-     * @param methods One or more HTTP method strings (e.g. {@code "GET"}, {@code "POST"});
-     *                must not be {@code null} or empty, and each method must not be blank.
+     * @param methods One or more {@link HttpVerb} values; must not be {@code null} or empty.
      * @return This builder.
      * @throws software.frisby.core.validation.NullValueException       if {@code methods} is {@code null}.
      * @throws software.frisby.core.validation.MissingElementsException if {@code methods} is empty.
-     * @throws software.frisby.core.validation.NullElementException     if any element is {@code null}.
-     * @throws software.frisby.core.validation.BlankValueException      if any element is blank.
      */
-    CorsConfigurationBuilder allowedMethods(String... methods);
+    CorsConfigurationBuilder allowedMethods(HttpVerb... methods);
 
     /**
      * Adds one or more request headers permitted in cross-origin requests.

@@ -11,7 +11,7 @@ import java.util.List;
  * <pre>{@code
  * CorsConfiguration cors = CorsConfiguration.builder()
  *         .allowedOrigins("https://app.example.com", "https://admin.example.com")
- *         .allowedMethods("GET", "POST", "PUT", "DELETE")
+ *         .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.PUT, HttpVerb.DELETE)
  *         .allowedHeaders("Authorization", "Content-Type")
  *         .allowCredentials()
  *         .build();
@@ -19,7 +19,7 @@ import java.util.List;
  * // Wildcard origin — allows any browser origin (cannot be combined with allowCredentials())
  * CorsConfiguration cors = CorsConfiguration.builder()
  *         .allowedOrigins("*")
- *         .allowedMethods("GET", "POST")
+ *         .allowedMethods(HttpVerb.GET, HttpVerb.POST)
  *         .build();
  * }</pre>
  *

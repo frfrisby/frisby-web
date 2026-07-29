@@ -1,11 +1,14 @@
 package software.frisby.web.server;
 
+import software.frisby.core.validation.Sequences;
 import software.frisby.core.validation.StringSequences;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder {
     private static final String ALLOWED_ORIGINS = "allowedOrigins";
@@ -20,7 +23,7 @@ final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder 
                     + "Specify an explicit allowedOrigins list instead of the wildcard.";
 
     private final Set<String> allowedOrigins;
-    private final Set<String> allowedMethods;
+    private final Set<HttpVerb> allowedMethods;
     private Set<String> allowedHeaders;
     private boolean allowCredentials;
 
@@ -38,8 +41,8 @@ final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder 
     }
 
     @Override
-    public CorsConfigurationBuilder allowedMethods(String... methods) {
-        allowedMethods.addAll(List.of(StringSequences.notBlank(ALLOWED_METHODS, methods)));
+    public CorsConfigurationBuilder allowedMethods(HttpVerb... methods) {
+        allowedMethods.addAll(Arrays.asList(Sequences.notEmpty(ALLOWED_METHODS, methods)));
         return this;
     }
 
@@ -65,7 +68,7 @@ final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder 
     @Override
     public CorsConfiguration build() {
         StringSequences.notBlank(ALLOWED_ORIGINS, allowedOrigins);
-        StringSequences.notBlank(ALLOWED_METHODS, allowedMethods);
+        Sequences.notEmpty(ALLOWED_METHODS, allowedMethods);
 
         if (allowCredentials && allowedOrigins.contains(WILDCARD)) {
             throw new IllegalStateException(CREDENTIALS_WITH_WILDCARD_MESSAGE);
@@ -73,10 +76,9 @@ final class DefaultCorsConfigurationBuilder implements CorsConfigurationBuilder 
 
         return new DefaultCorsConfiguration(
                 new ArrayList<>(allowedOrigins),
-                new ArrayList<>(allowedMethods),
+                allowedMethods.stream().map(HttpVerb::name).collect(Collectors.toList()),
                 null == allowedHeaders ? AllowedHeaders.echo() : AllowedHeaders.explicit(new ArrayList<>(allowedHeaders)),
                 allowCredentials
         );
     }
 }
-

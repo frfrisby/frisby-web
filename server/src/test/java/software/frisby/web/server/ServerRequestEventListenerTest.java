@@ -22,6 +22,23 @@ class ServerRequestEventListenerTest {
         }
 
         @Test
+        void nullMessageWithCause_appendsCause() {
+            StringBuilder sb = new StringBuilder();
+            RuntimeException cause = new RuntimeException((String) null, new IOException("An IO error occurred"));
+
+            ServerRequestEventListener.appendExceptionSection(sb, cause);
+
+            assertEquals(
+                    """
+                            
+                              Exception: RuntimeException
+                                Caused by: IOException: An IO error occurred\
+                            """,
+                    sb.toString()
+            );
+        }
+
+        @Test
         void blankMessageWithCause_appendCause() {
             StringBuilder sb = new StringBuilder();
             RuntimeException cause = new RuntimeException("", new IOException("An IO error occurred"));
