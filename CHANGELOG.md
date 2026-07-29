@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/frfrisby/frisby-web/compare/v1.3.4...v1.4.0) (2026-07-29)
+
+
+### Features
+
+* **server:** Introduce HttpVerb enum for type-safe method specification. ([#49](https://github.com/frfrisby/frisby-web/issues/49)) ([980368d](https://github.com/frfrisby/frisby-web/commit/980368dfeca46bbbaede41272cb92937a3534149))
+
 ## [1.3.4](https://github.com/frfrisby/frisby-web/compare/v1.3.3...v1.3.4) (2026-07-29)
 
 
