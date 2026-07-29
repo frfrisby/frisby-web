@@ -3,10 +3,9 @@ package software.frisby.web.server;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import software.frisby.core.validation.Durations;
 
 import java.time.Duration;
-
-import software.frisby.core.validation.Durations;
 
 /**
  * Static factory for creating properly configured {@link WebApplicationException} instances.
@@ -53,6 +52,8 @@ import software.frisby.core.validation.Durations;
  * }</pre>
  */
 public final class HttpErrors {
+    private static final String RETRY_AFTER_ARGUMENT_NAME = "retryAfter";
+    private static final String RETRY_AFTER = "Retry-After";
 
     private HttpErrors() {
     }
@@ -60,8 +61,6 @@ public final class HttpErrors {
     // -------------------------------------------------------------------------
     // Private response builders
     // -------------------------------------------------------------------------
-
-    private static final String RETRY_AFTER = "Retry-After";
 
     private static Response textResponse(int status, String message) {
         return Response.status(status).entity(message).type(MediaType.TEXT_PLAIN).build();
@@ -76,20 +75,20 @@ public final class HttpErrors {
     }
 
     private static Response emptyResponseRetryAfter(int status, Duration retryAfter) {
-        Durations.notNegative("retryAfter", retryAfter);
+        Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
         return Response.status(status).header(RETRY_AFTER, retryAfter.toSeconds()).build();
     }
 
     private static Response textResponseRetryAfter(int status, String message, Duration retryAfter) {
-        Durations.notNegative("retryAfter", retryAfter);
+        Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
         return Response.status(status).entity(message).type(MediaType.TEXT_PLAIN)
                 .header(RETRY_AFTER, retryAfter.toSeconds()).build();
     }
 
     private static Response jsonResponseRetryAfter(int status, Object body, Duration retryAfter) {
-        Durations.notNegative("retryAfter", retryAfter);
+        Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
         return Response.status(status).entity(body).type(MediaType.APPLICATION_JSON)
                 .header(RETRY_AFTER, retryAfter.toSeconds()).build();
@@ -1044,9 +1043,9 @@ public final class HttpErrors {
      *
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(Duration retryAfter) {
         return new WebApplicationException(emptyResponseRetryAfter(429, retryAfter));
@@ -1059,9 +1058,9 @@ public final class HttpErrors {
      * @param message    the response body text; sent to the caller as {@code text/plain}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(String message, Duration retryAfter) {
         return new WebApplicationException(message, textResponseRetryAfter(429, message, retryAfter));
@@ -1076,9 +1075,9 @@ public final class HttpErrors {
      *                   {@link software.frisby.web.serial.JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(Object body, Duration retryAfter) {
         return new WebApplicationException(jsonResponseRetryAfter(429, body, retryAfter));
@@ -1092,9 +1091,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(Duration retryAfter, Throwable cause) {
         return new WebApplicationException(cause, emptyResponseRetryAfter(429, retryAfter));
@@ -1109,9 +1108,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(String message, Duration retryAfter, Throwable cause) {
         return new WebApplicationException(message, cause, textResponseRetryAfter(429, message, retryAfter));
@@ -1128,9 +1127,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException tooManyRequests(Object body, Duration retryAfter, Throwable cause) {
         return new WebApplicationException(cause, jsonResponseRetryAfter(429, body, retryAfter));
@@ -1434,9 +1433,9 @@ public final class HttpErrors {
      *
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(Duration retryAfter) {
         return new WebApplicationException(emptyResponseRetryAfter(503, retryAfter));
@@ -1449,9 +1448,9 @@ public final class HttpErrors {
      * @param message    the response body text; sent to the caller as {@code text/plain}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(String message, Duration retryAfter) {
         return new WebApplicationException(message, textResponseRetryAfter(503, message, retryAfter));
@@ -1466,9 +1465,9 @@ public final class HttpErrors {
      *                   {@link software.frisby.web.serial.JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(Object body, Duration retryAfter) {
         return new WebApplicationException(jsonResponseRetryAfter(503, body, retryAfter));
@@ -1482,9 +1481,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(Duration retryAfter, Throwable cause) {
         return new WebApplicationException(cause, emptyResponseRetryAfter(503, retryAfter));
@@ -1499,9 +1498,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(String message, Duration retryAfter, Throwable cause) {
         return new WebApplicationException(message, cause, textResponseRetryAfter(503, message, retryAfter));
@@ -1518,9 +1517,9 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @throws software.frisby.core.validation.NullValueException             if {@code retryAfter} is {@code null}.
-     * @throws software.frisby.core.validation.DurationOutsideRangeException  if {@code retryAfter} is negative.
      * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
     public static WebApplicationException serviceUnavailable(Object body, Duration retryAfter, Throwable cause) {
         return new WebApplicationException(cause, jsonResponseRetryAfter(503, body, retryAfter));

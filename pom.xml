@@ -271,7 +271,7 @@
                                 <!--
                                     Declares a stable automatic module name so that consumers
                                     building JPMS-modular applications can safely write
-                                    "requires software.frisby.core.<module>;" in their
+                                    "requires software.frisby.web.<module>;" in their
                                     module-info.java.  Without this, Java derives the name from
                                     the JAR filename, which is unstable across versions and
                                     tooling.
