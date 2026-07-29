@@ -29,7 +29,7 @@ class DefaultCorsConfigurationBuilderTest {
             assertThrows(
                     MissingElementsException.class,
                     () -> CorsConfiguration.builder()
-                            .allowedMethods("GET")
+                            .allowedMethods(HttpVerb.GET)
                             .build()
             );
         }
@@ -54,7 +54,7 @@ class DefaultCorsConfigurationBuilderTest {
         void singleOrigin_isApplied() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertEquals(List.of("https://app.example.com"), config.allowedOrigins());
@@ -64,7 +64,7 @@ class DefaultCorsConfigurationBuilderTest {
         void multipleOrigins_areApplied() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com", "https://admin.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertTrue(config.allowedOrigins().contains("https://app.example.com"));
@@ -75,7 +75,7 @@ class DefaultCorsConfigurationBuilderTest {
         void wildcardOrigin_isApplied() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("*")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertTrue(config.allowedOrigins().contains("*"));
@@ -86,7 +86,7 @@ class DefaultCorsConfigurationBuilderTest {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
                     .allowedOrigins("https://admin.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertEquals(2, config.allowedOrigins().size());
@@ -113,15 +113,15 @@ class DefaultCorsConfigurationBuilderTest {
         void nullMethods_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> CorsConfiguration.builder().allowedMethods((String[]) null)
+                    () -> CorsConfiguration.builder().allowedMethods((HttpVerb[]) null)
             );
         }
 
         @Test
-        void blankMethod_throwsBlankValueException() {
+        void emptyMethods_throwsMissingElementsException() {
             assertThrows(
-                    BlankValueException.class,
-                    () -> CorsConfiguration.builder().allowedMethods("  ")
+                    MissingElementsException.class,
+                    () -> CorsConfiguration.builder().allowedMethods()
             );
         }
 
@@ -129,7 +129,7 @@ class DefaultCorsConfigurationBuilderTest {
         void multipleMethods_areApplied() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET", "POST", "PUT", "DELETE")
+                    .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.PUT, HttpVerb.DELETE)
                     .build();
 
             assertTrue(config.allowedMethods().contains("GET"));
@@ -142,11 +142,34 @@ class DefaultCorsConfigurationBuilderTest {
         void multipleCallsToAllowedMethods_areAdditive() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
-                    .allowedMethods("POST")
+                    .allowedMethods(HttpVerb.GET)
+                    .allowedMethods(HttpVerb.POST)
                     .build();
 
             assertEquals(2, config.allowedMethods().size());
+        }
+
+        @Test
+        void duplicateMethods_areDeduped() {
+            CorsConfiguration config = CorsConfiguration.builder()
+                    .allowedOrigins("https://app.example.com")
+                    .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.GET)
+                    .build();
+
+            assertEquals(2, config.allowedMethods().size());
+            assertTrue(config.allowedMethods().contains("GET"));
+            assertTrue(config.allowedMethods().contains("POST"));
+        }
+
+        @Test
+        void duplicateMethodsAcrossCalls_areDeduped() {
+            CorsConfiguration config = CorsConfiguration.builder()
+                    .allowedOrigins("https://app.example.com")
+                    .allowedMethods(HttpVerb.GET)
+                    .allowedMethods(HttpVerb.GET)
+                    .build();
+
+            assertEquals(1, config.allowedMethods().size());
         }
     }
 
@@ -160,7 +183,7 @@ class DefaultCorsConfigurationBuilderTest {
         void noHeadersConfigured_returnsEcho() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertInstanceOf(AllowedHeaders.Echo.class, config.allowedHeaders());
@@ -186,7 +209,7 @@ class DefaultCorsConfigurationBuilderTest {
         void configuredHeaders_areApplied() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .allowedHeaders("Authorization", "Content-Type")
                     .build();
 
@@ -199,7 +222,7 @@ class DefaultCorsConfigurationBuilderTest {
         void multipleCallsToAllowedHeaders_areAdditive() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .allowedHeaders("Authorization")
                     .allowedHeaders("Content-Type")
                     .build();
@@ -219,7 +242,7 @@ class DefaultCorsConfigurationBuilderTest {
         void allowCredentials_defaultsToFalse() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             assertFalse(config.allowCredentials());
@@ -229,7 +252,7 @@ class DefaultCorsConfigurationBuilderTest {
         void allowCredentials_canBeEnabled() {
             CorsConfiguration config = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .allowCredentials()
                     .build();
 
@@ -242,7 +265,7 @@ class DefaultCorsConfigurationBuilderTest {
                     IllegalStateException.class,
                     () -> CorsConfiguration.builder()
                             .allowedOrigins("*")
-                            .allowedMethods("GET")
+                            .allowedMethods(HttpVerb.GET)
                             .allowCredentials()
                             .build()
             );
@@ -251,7 +274,3 @@ class DefaultCorsConfigurationBuilderTest {
         }
     }
 }
-
-
-
-

@@ -1,13 +1,17 @@
 package software.frisby.web.server;
 
+import jakarta.ws.rs.NotAllowedException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import software.frisby.core.validation.DurationOutsideRangeException;
+import software.frisby.core.validation.MissingElementsException;
 import software.frisby.core.validation.NullValueException;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -224,7 +228,10 @@ class HttpErrorsTest {
 
         @Test
         void methodNotAllowed_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed().getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed(HttpVerb.GET);
+
+            assertEquals(405, ex.getResponse().getStatus());
+            assertEquals(List.of("GET"), ex.getResponse().getHeaders().get("Allow"));
         }
 
         @Test
@@ -366,28 +373,126 @@ class HttpErrorsTest {
         private static final Object BODY = new Object();
 
         @Test
+        void noBody_returns405() {
+            NotAllowedException ex = HttpErrors.methodNotAllowed(HttpVerb.GET, HttpVerb.PUT, HttpVerb.PUT);
+
+            assertNull(ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertNull(ex.getResponse().getEntity());
+        }
+
+        @Test
         void string_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed("msg").getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed("msg", HttpVerb.GET, HttpVerb.PUT);
+
+            assertEquals("msg", ex.getMessage());
+            assertNull(ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertEquals("msg", ex.getResponse().getEntity());
+            assertEquals(MediaType.TEXT_PLAIN_TYPE, ex.getResponse().getMediaType());
         }
 
         @Test
         void object_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed(BODY).getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed(BODY, HttpVerb.GET, HttpVerb.PUT);
+
+            assertNull(ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertEquals(BODY, ex.getResponse().getEntity());
+            assertEquals(MediaType.APPLICATION_JSON_TYPE, ex.getResponse().getMediaType());
         }
 
         @Test
         void throwable_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed(CAUSE).getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed(CAUSE, HttpVerb.GET, HttpVerb.PUT);
+
+            assertEquals(CAUSE, ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertNull(ex.getResponse().getEntity());
         }
 
         @Test
         void stringAndThrowable_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed("msg", CAUSE).getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed("msg", CAUSE, HttpVerb.GET, HttpVerb.PUT);
+
+            assertEquals("msg", ex.getMessage());
+            assertEquals(CAUSE, ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertEquals("msg", ex.getResponse().getEntity());
+            assertEquals(MediaType.TEXT_PLAIN_TYPE, ex.getResponse().getMediaType());
         }
 
         @Test
         void objectAndThrowable_returns405() {
-            assertEquals(405, HttpErrors.methodNotAllowed(BODY, CAUSE).getResponse().getStatus());
+            NotAllowedException ex = HttpErrors.methodNotAllowed(BODY, CAUSE, HttpVerb.GET, HttpVerb.PUT);
+
+            assertEquals(CAUSE, ex.getCause());
+            assertEquals(405, ex.getResponse().getStatus());
+
+            Set<String> methods = Set.of(ex.getResponse().getHeaders().getFirst("Allow").toString().split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+
+            assertEquals(BODY, ex.getResponse().getEntity());
+            assertEquals(MediaType.APPLICATION_JSON_TYPE, ex.getResponse().getMediaType());
+        }
+
+        @Test
+        void duplicateMethods_areDeduped() {
+            NotAllowedException ex = HttpErrors.methodNotAllowed(HttpVerb.GET, HttpVerb.PUT, HttpVerb.GET);
+
+            String allowHeader = ex.getResponse().getHeaders().getFirst("Allow").toString();
+            Set<String> methods = Set.of(allowHeader.split(", "));
+            assertEquals(2, methods.size());
+            assertTrue(methods.contains("GET"));
+            assertTrue(methods.contains("PUT"));
+        }
+
+        @Test
+        void nullMethods_throwsNullValueException() {
+            assertThrows(
+                    NullValueException.class,
+                    () -> HttpErrors.methodNotAllowed((HttpVerb[]) null)
+            );
+        }
+
+        @Test
+        void emptyMethods_throwsMissingElementsException() {
+            assertThrows(
+                    MissingElementsException.class,
+                    () -> HttpErrors.methodNotAllowed()
+            );
         }
     }
 
@@ -659,7 +764,8 @@ class HttpErrorsTest {
 
         @Test
         void objectAndRetryAfter_returns429WithJsonBodyAndHeader() {
-            record RateLimitBody(String message) {}
+            record RateLimitBody(String message) {
+            }
             RateLimitBody body = new RateLimitBody("Rate limit exceeded.");
 
             WebApplicationException ex = HttpErrors.tooManyRequests(body, Duration.ofSeconds(30));
@@ -695,7 +801,8 @@ class HttpErrorsTest {
 
         @Test
         void objectAndRetryAfterAndCause_returns429WithJsonBodyHeaderAndCause() {
-            record RateLimitBody(String message) {}
+            record RateLimitBody(String message) {
+            }
             RateLimitBody body = new RateLimitBody("Rate limit exceeded.");
             RuntimeException cause = new RuntimeException("upstream");
 
@@ -852,7 +959,8 @@ class HttpErrorsTest {
 
         @Test
         void objectAndRetryAfter_returns503WithJsonBodyAndHeader() {
-            record ServiceErrorBody(String message) {}
+            record ServiceErrorBody(String message) {
+            }
             ServiceErrorBody body = new ServiceErrorBody("Key service down.");
 
             WebApplicationException ex = HttpErrors.serviceUnavailable(body, Duration.ofSeconds(60));
@@ -888,7 +996,8 @@ class HttpErrorsTest {
 
         @Test
         void objectAndRetryAfterAndCause_returns503WithJsonBodyHeaderAndCause() {
-            record ServiceErrorBody(String message) {}
+            record ServiceErrorBody(String message) {
+            }
             ServiceErrorBody body = new ServiceErrorBody("Key service down.");
             RuntimeException cause = new RuntimeException("upstream");
 

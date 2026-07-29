@@ -55,7 +55,7 @@ class ServerCorsTest {
                                     .cors(
                                             CorsConfiguration.builder()
                                                     .allowedOrigins(ALLOWED_ORIGIN, OTHER_ALLOWED_ORIGIN)
-                                                    .allowedMethods("GET", "POST", "DELETE")
+                                                    .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.DELETE)
                                                     .build()
                                     )
                                     .build()
@@ -178,7 +178,7 @@ class ServerCorsTest {
                                     .cors(
                                             CorsConfiguration.builder()
                                                     .allowedOrigins("*")
-                                                    .allowedMethods("GET")
+                                                    .allowedMethods(HttpVerb.GET)
                                                     .build()
                                     )
                                     .build()
@@ -258,7 +258,7 @@ class ServerCorsTest {
                                     .cors(
                                             CorsConfiguration.builder()
                                                     .allowedOrigins(ALLOWED_ORIGIN)
-                                                    .allowedMethods("GET", "POST")
+                                                    .allowedMethods(HttpVerb.GET, HttpVerb.POST)
                                                     .allowCredentials()
                                                     .build()
                                     )
@@ -322,7 +322,7 @@ class ServerCorsTest {
                                     .cors(
                                             CorsConfiguration.builder()
                                                     .allowedOrigins(ALLOWED_ORIGIN)
-                                                    .allowedMethods("GET", "POST", "PUT", "DELETE")
+                                                    .allowedMethods(HttpVerb.GET, HttpVerb.POST, HttpVerb.PUT, HttpVerb.DELETE)
                                                     .allowedHeaders("Authorization", "Content-Type")
                                                     .build()
                                     )
@@ -410,7 +410,7 @@ class ServerCorsTest {
                                     .cors(
                                             CorsConfiguration.builder()
                                                     .allowedOrigins(ALLOWED_ORIGIN)
-                                                    .allowedMethods("POST")
+                                                    .allowedMethods(HttpVerb.POST)
                                                     // intentionally no allowedHeaders() call
                                                     .build()
                                     )

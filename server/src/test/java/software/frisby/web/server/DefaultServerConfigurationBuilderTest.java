@@ -465,7 +465,7 @@ class DefaultServerConfigurationBuilderTest {
         void validCors_isApplied() {
             CorsConfiguration cors = CorsConfiguration.builder()
                     .allowedOrigins("https://app.example.com")
-                    .allowedMethods("GET")
+                    .allowedMethods(HttpVerb.GET)
                     .build();
 
             ServerConfiguration config = ServerConfiguration.builder()

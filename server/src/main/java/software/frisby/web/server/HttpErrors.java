@@ -1,11 +1,17 @@
 package software.frisby.web.server;
 
-import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.MessageBodyWriter;
 import software.frisby.core.validation.Durations;
+import software.frisby.core.validation.Sequences;
+import software.frisby.web.serial.JsonSerializer;
 
 import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Static factory for creating properly configured {@link WebApplicationException} instances.
@@ -15,7 +21,7 @@ import java.time.Duration;
  * cause.  This eliminates the verbose {@link Response}-building boilerplate that Jersey's own
  * exception constructors require and avoids their common pitfalls — most notably, the
  * unwanted {@code WWW-Authenticate} challenge header that
- * {@link jakarta.ws.rs.NotAuthorizedException} adds when constructed with anything other
+ * {@link NotAuthorizedException} adds when constructed with anything other
  * than a pre-built {@link Response}.
  *
  * <h2>Body variants</h2>
@@ -26,7 +32,7 @@ import java.time.Duration;
  *   <li><strong>{@link String} body</strong> — sent as {@code text/plain; charset=UTF-8}.</li>
  *   <li><strong>{@link Object} body</strong> — sent as {@code application/json}, serialized
  *       at response-write time by the server's configured
- *       {@link software.frisby.web.serial.JsonSerializer} via {@link JsonMessageBodyProvider}.
+ *       {@link JsonSerializer} via an internal {@link MessageBodyWriter}.
  *       Do <em>not</em> pass a {@link String} here — use the {@link String} overload for
  *       plain-text bodies.</li>
  * </ul>
@@ -52,8 +58,10 @@ import java.time.Duration;
  * }</pre>
  */
 public final class HttpErrors {
+    private static final String ALLOWED_METHODS_ARGUMENT_NAME = "allowedMethods";
     private static final String RETRY_AFTER_ARGUMENT_NAME = "retryAfter";
-    private static final String RETRY_AFTER = "Retry-After";
+    private static final String ALLOW_HEADER = "Allow";
+    private static final String RETRY_AFTER_HEADER = "Retry-After";
 
     private HttpErrors() {
     }
@@ -74,24 +82,58 @@ public final class HttpErrors {
         return Response.status(status).build();
     }
 
+    private static String verbsToHeader(HttpVerb[] allowedMethods) {
+        Sequences.notEmpty(ALLOWED_METHODS_ARGUMENT_NAME, allowedMethods);
+
+        return new LinkedHashSet<>(List.of(allowedMethods))
+                .stream()
+                .map(HttpVerb::name)
+                .collect(Collectors.joining(", "));
+    }
+
+    private static Response emptyResponseAllow(HttpVerb[] allowedMethods) {
+        return Response
+                .status(405)
+                .header(ALLOW_HEADER, verbsToHeader(allowedMethods))
+                .build();
+    }
+
+    private static Response textResponseAllow(String message, HttpVerb[] allowedMethods) {
+        return Response
+                .status(405)
+                .entity(message)
+                .type(MediaType.TEXT_PLAIN)
+                .header(ALLOW_HEADER, verbsToHeader(allowedMethods))
+                .build();
+    }
+
+    private static Response jsonResponseAllow(Object body, HttpVerb[] allowedMethods) {
+        return Response
+                .status(405)
+                .entity(body)
+                .type(MediaType.APPLICATION_JSON)
+                .header(ALLOW_HEADER, verbsToHeader(allowedMethods))
+                .build();
+    }
+
     private static Response emptyResponseRetryAfter(int status, Duration retryAfter) {
         Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
-        return Response.status(status).header(RETRY_AFTER, retryAfter.toSeconds()).build();
+        return Response.status(status).header(RETRY_AFTER_HEADER, retryAfter.toSeconds()).build();
     }
 
     private static Response textResponseRetryAfter(int status, String message, Duration retryAfter) {
         Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
         return Response.status(status).entity(message).type(MediaType.TEXT_PLAIN)
-                .header(RETRY_AFTER, retryAfter.toSeconds()).build();
+                .header(RETRY_AFTER_HEADER, retryAfter.toSeconds()).build();
     }
 
     private static Response jsonResponseRetryAfter(int status, Object body, Duration retryAfter) {
         Durations.notNegative(RETRY_AFTER_ARGUMENT_NAME, retryAfter);
 
         return Response.status(status).entity(body).type(MediaType.APPLICATION_JSON)
-                .header(RETRY_AFTER, retryAfter.toSeconds()).build();
+                .header(RETRY_AFTER_HEADER, retryAfter.toSeconds()).build();
     }
 
     // =========================================================================
@@ -105,20 +147,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 400 Bad Request} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest() {
-        return new WebApplicationException(emptyResponse(400));
+    public static BadRequestException badRequest() {
+        return new BadRequestException(emptyResponse(400));
     }
 
     /**
      * Returns a {@code 400 Bad Request} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest(String message) {
-        return new WebApplicationException(message, textResponse(400, message));
+    public static BadRequestException badRequest(String message) {
+        return new BadRequestException(message, textResponse(400, message));
     }
 
     /**
@@ -126,11 +168,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest(Object body) {
-        return new WebApplicationException(jsonResponse(400, body));
+    public static BadRequestException badRequest(Object body) {
+        return new BadRequestException(jsonResponse(400, body));
     }
 
     /**
@@ -138,10 +180,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(400));
+    public static BadRequestException badRequest(Throwable cause) {
+        return new BadRequestException(emptyResponse(400), cause);
     }
 
     /**
@@ -150,10 +192,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(400, message));
+    public static BadRequestException badRequest(String message, Throwable cause) {
+        return new BadRequestException(message, textResponse(400, message), cause);
     }
 
     /**
@@ -161,13 +203,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 400}; never {@code null}.
+     * @return a {@link BadRequestException} with HTTP status {@code 400}; never {@code null}.
      */
-    public static WebApplicationException badRequest(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(400, body));
+    public static BadRequestException badRequest(Object body, Throwable cause) {
+        return new BadRequestException(jsonResponse(400, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -180,20 +222,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 401 Unauthorized} exception with no {@code WWW-Authenticate} challenge.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized() {
-        return new WebApplicationException(emptyResponse(401));
+    public static NotAuthorizedException unauthorized() {
+        return new NotAuthorizedException(emptyResponse(401));
     }
 
     /**
      * Returns a {@code 401 Unauthorized} exception with a {@code text/plain} body and no {@code WWW-Authenticate} challenge.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized(String message) {
-        return new WebApplicationException(message, textResponse(401, message));
+    public static NotAuthorizedException unauthorized(String message) {
+        return new NotAuthorizedException(message, textResponse(401, message));
     }
 
     /**
@@ -201,11 +243,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized(Object body) {
-        return new WebApplicationException(jsonResponse(401, body));
+    public static NotAuthorizedException unauthorized(Object body) {
+        return new NotAuthorizedException(jsonResponse(401, body));
     }
 
     /**
@@ -213,10 +255,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(401));
+    public static NotAuthorizedException unauthorized(Throwable cause) {
+        return new NotAuthorizedException(emptyResponse(401), cause);
     }
 
     /**
@@ -225,10 +267,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(401, message));
+    public static NotAuthorizedException unauthorized(String message, Throwable cause) {
+        return new NotAuthorizedException(message, textResponse(401, message), cause);
     }
 
     /**
@@ -236,13 +278,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 401}; never {@code null}.
+     * @return a {@link NotAuthorizedException} with HTTP status {@code 401}; never {@code null}.
      */
-    public static WebApplicationException unauthorized(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(401, body));
+    public static NotAuthorizedException unauthorized(Object body, Throwable cause) {
+        return new NotAuthorizedException(jsonResponse(401, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -252,20 +294,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 403 Forbidden} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden() {
-        return new WebApplicationException(emptyResponse(403));
+    public static ForbiddenException forbidden() {
+        return new ForbiddenException(emptyResponse(403));
     }
 
     /**
      * Returns a {@code 403 Forbidden} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden(String message) {
-        return new WebApplicationException(message, textResponse(403, message));
+    public static ForbiddenException forbidden(String message) {
+        return new ForbiddenException(message, textResponse(403, message));
     }
 
     /**
@@ -273,11 +315,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden(Object body) {
-        return new WebApplicationException(jsonResponse(403, body));
+    public static ForbiddenException forbidden(Object body) {
+        return new ForbiddenException(jsonResponse(403, body));
     }
 
     /**
@@ -285,10 +327,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(403));
+    public static ForbiddenException forbidden(Throwable cause) {
+        return new ForbiddenException(emptyResponse(403), cause);
     }
 
     /**
@@ -297,10 +339,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(403, message));
+    public static ForbiddenException forbidden(String message, Throwable cause) {
+        return new ForbiddenException(message, textResponse(403, message), cause);
     }
 
     /**
@@ -308,13 +350,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 403}; never {@code null}.
+     * @return a {@link ForbiddenException} with HTTP status {@code 403}; never {@code null}.
      */
-    public static WebApplicationException forbidden(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(403, body));
+    public static ForbiddenException forbidden(Object body, Throwable cause) {
+        return new ForbiddenException(jsonResponse(403, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -324,20 +366,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 404 Not Found} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound() {
-        return new WebApplicationException(emptyResponse(404));
+    public static NotFoundException notFound() {
+        return new NotFoundException(emptyResponse(404));
     }
 
     /**
      * Returns a {@code 404 Not Found} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound(String message) {
-        return new WebApplicationException(message, textResponse(404, message));
+    public static NotFoundException notFound(String message) {
+        return new NotFoundException(message, textResponse(404, message));
     }
 
     /**
@@ -345,11 +387,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound(Object body) {
-        return new WebApplicationException(jsonResponse(404, body));
+    public static NotFoundException notFound(Object body) {
+        return new NotFoundException(jsonResponse(404, body));
     }
 
     /**
@@ -357,10 +399,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(404));
+    public static NotFoundException notFound(Throwable cause) {
+        return new NotFoundException(emptyResponse(404), cause);
     }
 
     /**
@@ -369,10 +411,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(404, message));
+    public static NotFoundException notFound(String message, Throwable cause) {
+        return new NotFoundException(message, textResponse(404, message), cause);
     }
 
     /**
@@ -380,13 +422,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 404}; never {@code null}.
+     * @return a {@link NotFoundException} with HTTP status {@code 404}; never {@code null}.
      */
-    public static WebApplicationException notFound(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(404, body));
+    public static NotFoundException notFound(Object body, Throwable cause) {
+        return new NotFoundException(jsonResponse(404, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -396,69 +438,103 @@ public final class HttpErrors {
     /**
      * Returns a {@code 405 Method Not Allowed} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed() {
-        return new WebApplicationException(emptyResponse(405));
+    public static NotAllowedException methodNotAllowed(HttpVerb... allowedMethods) {
+        return new NotAllowedException(emptyResponseAllow(allowedMethods));
     }
 
     /**
      * Returns a {@code 405 Method Not Allowed} exception with a {@code text/plain} body.
      *
-     * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param message        The response body text; sent to the caller as {@code text/plain}.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed(String message) {
-        return new WebApplicationException(message, textResponse(405, message));
+    public static NotAllowedException methodNotAllowed(String message, HttpVerb... allowedMethods) {
+        return new NotAllowedException(message, textResponseAllow(message, allowedMethods));
     }
 
     /**
      * Returns a {@code 405 Method Not Allowed} exception with an {@code application/json} body.
      *
-     * @param body the response entity; serialized to {@code application/json}
-     *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param body           The response entity; serialized to {@code application/json}
+     *                       by the server's configured {@link JsonSerializer}.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed(Object body) {
-        return new WebApplicationException(jsonResponse(405, body));
+    public static NotAllowedException methodNotAllowed(Object body, HttpVerb... allowedMethods) {
+        return new NotAllowedException(jsonResponseAllow(body, allowedMethods));
     }
 
     /**
      * Returns a {@code 405 Method Not Allowed} exception with the given cause and no response body.
      *
-     * @param cause the exception to attach as the cause; available for server-side
-     *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param cause          The exception to attach as the cause; available for server-side
+     *                       logging but not exposed in the response body.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(405));
+    public static NotAllowedException methodNotAllowed(Throwable cause, HttpVerb... allowedMethods) {
+        return new NotAllowedException(emptyResponseAllow(allowedMethods), cause);
     }
 
     /**
      * Returns a {@code 405 Method Not Allowed} exception with a {@code text/plain} body and the given cause.
      *
-     * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @param cause   the exception to attach as the cause; available for server-side
-     *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param message        The response body text; sent to the caller as {@code text/plain}.
+     * @param cause          The exception to attach as the cause; available for server-side
+     *                       logging but not exposed in the response body.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(405, message));
+    public static NotAllowedException methodNotAllowed(String message, Throwable cause, HttpVerb... allowedMethods) {
+        return new NotAllowedException(message, textResponseAllow(message, allowedMethods), cause);
     }
 
     /**
      * Returns a {@code 405 Method Not Allowed} exception with an {@code application/json} body and the given cause.
      *
-     * @param body  the response entity; serialized to {@code application/json}
-     *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
-     * @param cause the exception to attach as the cause; available for server-side
-     *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 405}; never {@code null}.
+     * @param body           The response entity; serialized to {@code application/json}
+     *                       by the server's configured {@link JsonSerializer}.
+     * @param cause          The exception to attach as the cause; available for server-side
+     *                       logging but not exposed in the response body.
+     * @param allowedMethods One or more {@link HttpVerb} values that are permitted for the
+     *                       target resource; must not be {@code null} or empty.  Duplicate
+     *                       values are silently deduplicated.  Sent as the {@code Allow}
+     *                       response header.
+     * @return a {@link NotAllowedException} with HTTP status {@code 405}; never {@code null}.
+     * @throws software.frisby.core.validation.NullValueException       if {@code allowedMethods} is null.
+     * @throws software.frisby.core.validation.MissingElementsException if {@code allowedMethods} is empty.
      */
-    public static WebApplicationException methodNotAllowed(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(405, body));
+    public static NotAllowedException methodNotAllowed(Object body, Throwable cause, HttpVerb... allowedMethods) {
+        return new NotAllowedException(jsonResponseAllow(body, allowedMethods), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -468,20 +544,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 406 Not Acceptable} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable() {
-        return new WebApplicationException(emptyResponse(406));
+    public static NotAcceptableException notAcceptable() {
+        return new NotAcceptableException(emptyResponse(406));
     }
 
     /**
      * Returns a {@code 406 Not Acceptable} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable(String message) {
-        return new WebApplicationException(message, textResponse(406, message));
+    public static NotAcceptableException notAcceptable(String message) {
+        return new NotAcceptableException(message, textResponse(406, message));
     }
 
     /**
@@ -489,11 +565,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable(Object body) {
-        return new WebApplicationException(jsonResponse(406, body));
+    public static NotAcceptableException notAcceptable(Object body) {
+        return new NotAcceptableException(jsonResponse(406, body));
     }
 
     /**
@@ -501,10 +577,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(406));
+    public static NotAcceptableException notAcceptable(Throwable cause) {
+        return new NotAcceptableException(emptyResponse(406), cause);
     }
 
     /**
@@ -513,10 +589,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(406, message));
+    public static NotAcceptableException notAcceptable(String message, Throwable cause) {
+        return new NotAcceptableException(message, textResponse(406, message), cause);
     }
 
     /**
@@ -524,13 +600,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 406}; never {@code null}.
+     * @return a {@link NotAcceptableException} with HTTP status {@code 406}; never {@code null}.
      */
-    public static WebApplicationException notAcceptable(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(406, body));
+    public static NotAcceptableException notAcceptable(Object body, Throwable cause) {
+        return new NotAcceptableException(jsonResponse(406, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -540,20 +616,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 408 Request Timeout} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout() {
-        return new WebApplicationException(emptyResponse(408));
+    public static ClientErrorException requestTimeout() {
+        return new ClientErrorException(emptyResponse(408));
     }
 
     /**
      * Returns a {@code 408 Request Timeout} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout(String message) {
-        return new WebApplicationException(message, textResponse(408, message));
+    public static ClientErrorException requestTimeout(String message) {
+        return new ClientErrorException(message, textResponse(408, message));
     }
 
     /**
@@ -561,11 +637,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout(Object body) {
-        return new WebApplicationException(jsonResponse(408, body));
+    public static ClientErrorException requestTimeout(Object body) {
+        return new ClientErrorException(jsonResponse(408, body));
     }
 
     /**
@@ -573,10 +649,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(408));
+    public static ClientErrorException requestTimeout(Throwable cause) {
+        return new ClientErrorException(emptyResponse(408), cause);
     }
 
     /**
@@ -585,10 +661,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(408, message));
+    public static ClientErrorException requestTimeout(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(408, message), cause);
     }
 
     /**
@@ -596,13 +672,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 408}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 408}; never {@code null}.
      */
-    public static WebApplicationException requestTimeout(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(408, body));
+    public static ClientErrorException requestTimeout(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(408, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -612,20 +688,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 409 Conflict} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict() {
-        return new WebApplicationException(emptyResponse(409));
+    public static ClientErrorException conflict() {
+        return new ClientErrorException(emptyResponse(409));
     }
 
     /**
      * Returns a {@code 409 Conflict} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict(String message) {
-        return new WebApplicationException(message, textResponse(409, message));
+    public static ClientErrorException conflict(String message) {
+        return new ClientErrorException(message, textResponse(409, message));
     }
 
     /**
@@ -633,11 +709,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict(Object body) {
-        return new WebApplicationException(jsonResponse(409, body));
+    public static ClientErrorException conflict(Object body) {
+        return new ClientErrorException(jsonResponse(409, body));
     }
 
     /**
@@ -645,10 +721,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(409));
+    public static ClientErrorException conflict(Throwable cause) {
+        return new ClientErrorException(emptyResponse(409), cause);
     }
 
     /**
@@ -657,10 +733,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(409, message));
+    public static ClientErrorException conflict(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(409, message), cause);
     }
 
     /**
@@ -668,13 +744,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 409}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 409}; never {@code null}.
      */
-    public static WebApplicationException conflict(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(409, body));
+    public static ClientErrorException conflict(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(409, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -684,20 +760,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 410 Gone} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone() {
-        return new WebApplicationException(emptyResponse(410));
+    public static ClientErrorException gone() {
+        return new ClientErrorException(emptyResponse(410));
     }
 
     /**
      * Returns a {@code 410 Gone} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone(String message) {
-        return new WebApplicationException(message, textResponse(410, message));
+    public static ClientErrorException gone(String message) {
+        return new ClientErrorException(message, textResponse(410, message));
     }
 
     /**
@@ -705,11 +781,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone(Object body) {
-        return new WebApplicationException(jsonResponse(410, body));
+    public static ClientErrorException gone(Object body) {
+        return new ClientErrorException(jsonResponse(410, body));
     }
 
     /**
@@ -717,10 +793,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(410));
+    public static ClientErrorException gone(Throwable cause) {
+        return new ClientErrorException(emptyResponse(410), cause);
     }
 
     /**
@@ -729,10 +805,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(410, message));
+    public static ClientErrorException gone(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(410, message), cause);
     }
 
     /**
@@ -740,13 +816,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 410}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 410}; never {@code null}.
      */
-    public static WebApplicationException gone(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(410, body));
+    public static ClientErrorException gone(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(410, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -756,20 +832,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 413 Payload Too Large} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge() {
-        return new WebApplicationException(emptyResponse(413));
+    public static ClientErrorException payloadTooLarge() {
+        return new ClientErrorException(emptyResponse(413));
     }
 
     /**
      * Returns a {@code 413 Payload Too Large} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge(String message) {
-        return new WebApplicationException(message, textResponse(413, message));
+    public static ClientErrorException payloadTooLarge(String message) {
+        return new ClientErrorException(message, textResponse(413, message));
     }
 
     /**
@@ -777,11 +853,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge(Object body) {
-        return new WebApplicationException(jsonResponse(413, body));
+    public static ClientErrorException payloadTooLarge(Object body) {
+        return new ClientErrorException(jsonResponse(413, body));
     }
 
     /**
@@ -789,10 +865,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(413));
+    public static ClientErrorException payloadTooLarge(Throwable cause) {
+        return new ClientErrorException(emptyResponse(413), cause);
     }
 
     /**
@@ -801,10 +877,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(413, message));
+    public static ClientErrorException payloadTooLarge(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(413, message), cause);
     }
 
     /**
@@ -812,13 +888,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 413}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 413}; never {@code null}.
      */
-    public static WebApplicationException payloadTooLarge(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(413, body));
+    public static ClientErrorException payloadTooLarge(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(413, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -828,20 +904,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 415 Unsupported Media Type} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType() {
-        return new WebApplicationException(emptyResponse(415));
+    public static NotSupportedException unsupportedMediaType() {
+        return new NotSupportedException(emptyResponse(415));
     }
 
     /**
      * Returns a {@code 415 Unsupported Media Type} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType(String message) {
-        return new WebApplicationException(message, textResponse(415, message));
+    public static NotSupportedException unsupportedMediaType(String message) {
+        return new NotSupportedException(message, textResponse(415, message));
     }
 
     /**
@@ -849,11 +925,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType(Object body) {
-        return new WebApplicationException(jsonResponse(415, body));
+    public static NotSupportedException unsupportedMediaType(Object body) {
+        return new NotSupportedException(jsonResponse(415, body));
     }
 
     /**
@@ -861,10 +937,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(415));
+    public static NotSupportedException unsupportedMediaType(Throwable cause) {
+        return new NotSupportedException(emptyResponse(415), cause);
     }
 
     /**
@@ -873,10 +949,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(415, message));
+    public static NotSupportedException unsupportedMediaType(String message, Throwable cause) {
+        return new NotSupportedException(message, textResponse(415, message), cause);
     }
 
     /**
@@ -884,13 +960,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 415}; never {@code null}.
+     * @return a {@link NotSupportedException} with HTTP status {@code 415}; never {@code null}.
      */
-    public static WebApplicationException unsupportedMediaType(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(415, body));
+    public static NotSupportedException unsupportedMediaType(Object body, Throwable cause) {
+        return new NotSupportedException(jsonResponse(415, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -900,20 +976,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 422 Unprocessable Entity} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity() {
-        return new WebApplicationException(emptyResponse(422));
+    public static ClientErrorException unprocessableEntity() {
+        return new ClientErrorException(emptyResponse(422));
     }
 
     /**
      * Returns a {@code 422 Unprocessable Entity} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity(String message) {
-        return new WebApplicationException(message, textResponse(422, message));
+    public static ClientErrorException unprocessableEntity(String message) {
+        return new ClientErrorException(message, textResponse(422, message));
     }
 
     /**
@@ -921,11 +997,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity(Object body) {
-        return new WebApplicationException(jsonResponse(422, body));
+    public static ClientErrorException unprocessableEntity(Object body) {
+        return new ClientErrorException(jsonResponse(422, body));
     }
 
     /**
@@ -933,10 +1009,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(422));
+    public static ClientErrorException unprocessableEntity(Throwable cause) {
+        return new ClientErrorException(emptyResponse(422), cause);
     }
 
     /**
@@ -945,10 +1021,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(422, message));
+    public static ClientErrorException unprocessableEntity(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(422, message), cause);
     }
 
     /**
@@ -956,13 +1032,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 422}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 422}; never {@code null}.
      */
-    public static WebApplicationException unprocessableEntity(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(422, body));
+    public static ClientErrorException unprocessableEntity(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(422, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -972,20 +1048,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 429 Too Many Requests} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests() {
-        return new WebApplicationException(emptyResponse(429));
+    public static ClientErrorException tooManyRequests() {
+        return new ClientErrorException(emptyResponse(429));
     }
 
     /**
      * Returns a {@code 429 Too Many Requests} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests(String message) {
-        return new WebApplicationException(message, textResponse(429, message));
+    public static ClientErrorException tooManyRequests(String message) {
+        return new ClientErrorException(message, textResponse(429, message));
     }
 
     /**
@@ -993,11 +1069,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests(Object body) {
-        return new WebApplicationException(jsonResponse(429, body));
+    public static ClientErrorException tooManyRequests(Object body) {
+        return new ClientErrorException(jsonResponse(429, body));
     }
 
     /**
@@ -1005,10 +1081,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(429));
+    public static ClientErrorException tooManyRequests(Throwable cause) {
+        return new ClientErrorException(emptyResponse(429), cause);
     }
 
     /**
@@ -1017,10 +1093,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(429, message));
+    public static ClientErrorException tooManyRequests(String message, Throwable cause) {
+        return new ClientErrorException(message, textResponse(429, message), cause);
     }
 
     /**
@@ -1028,13 +1104,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      */
-    public static WebApplicationException tooManyRequests(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(429, body));
+    public static ClientErrorException tooManyRequests(Object body, Throwable cause) {
+        return new ClientErrorException(jsonResponse(429, body), cause);
     }
 
     /**
@@ -1043,12 +1119,12 @@ public final class HttpErrors {
      *
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(Duration retryAfter) {
-        return new WebApplicationException(emptyResponseRetryAfter(429, retryAfter));
+    public static ClientErrorException tooManyRequests(Duration retryAfter) {
+        return new ClientErrorException(emptyResponseRetryAfter(429, retryAfter));
     }
 
     /**
@@ -1058,12 +1134,12 @@ public final class HttpErrors {
      * @param message    the response body text; sent to the caller as {@code text/plain}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(String message, Duration retryAfter) {
-        return new WebApplicationException(message, textResponseRetryAfter(429, message, retryAfter));
+    public static ClientErrorException tooManyRequests(String message, Duration retryAfter) {
+        return new ClientErrorException(message, textResponseRetryAfter(429, message, retryAfter));
     }
 
     /**
@@ -1072,15 +1148,15 @@ public final class HttpErrors {
      *
      * @param body       the response entity; serialized to {@code application/json} by the
      *                   server's configured
-     *                   {@link software.frisby.web.serial.JsonSerializer}.
+     *                   {@link JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(Object body, Duration retryAfter) {
-        return new WebApplicationException(jsonResponseRetryAfter(429, body, retryAfter));
+    public static ClientErrorException tooManyRequests(Object body, Duration retryAfter) {
+        return new ClientErrorException(jsonResponseRetryAfter(429, body, retryAfter));
     }
 
     /**
@@ -1091,12 +1167,12 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(cause, emptyResponseRetryAfter(429, retryAfter));
+    public static ClientErrorException tooManyRequests(Duration retryAfter, Throwable cause) {
+        return new ClientErrorException(emptyResponseRetryAfter(429, retryAfter), cause);
     }
 
     /**
@@ -1108,12 +1184,12 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(String message, Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponseRetryAfter(429, message, retryAfter));
+    public static ClientErrorException tooManyRequests(String message, Duration retryAfter, Throwable cause) {
+        return new ClientErrorException(message, textResponseRetryAfter(429, message, retryAfter), cause);
     }
 
     /**
@@ -1122,17 +1198,17 @@ public final class HttpErrors {
      *
      * @param body       the response entity; serialized to {@code application/json} by the
      *                   server's configured
-     *                   {@link software.frisby.web.serial.JsonSerializer}.
+     *                   {@link JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 429}; never {@code null}.
+     * @return a {@link ClientErrorException} with HTTP status {@code 429}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException tooManyRequests(Object body, Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponseRetryAfter(429, body, retryAfter));
+    public static ClientErrorException tooManyRequests(Object body, Duration retryAfter, Throwable cause) {
+        return new ClientErrorException(jsonResponseRetryAfter(429, body, retryAfter), cause);
     }
 
     // =========================================================================
@@ -1146,20 +1222,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 500 Internal Server Error} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError() {
-        return new WebApplicationException(emptyResponse(500));
+    public static InternalServerErrorException internalServerError() {
+        return new InternalServerErrorException(emptyResponse(500));
     }
 
     /**
      * Returns a {@code 500 Internal Server Error} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError(String message) {
-        return new WebApplicationException(message, textResponse(500, message));
+    public static InternalServerErrorException internalServerError(String message) {
+        return new InternalServerErrorException(message, textResponse(500, message));
     }
 
     /**
@@ -1167,11 +1243,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError(Object body) {
-        return new WebApplicationException(jsonResponse(500, body));
+    public static InternalServerErrorException internalServerError(Object body) {
+        return new InternalServerErrorException(jsonResponse(500, body));
     }
 
     /**
@@ -1179,10 +1255,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(500));
+    public static InternalServerErrorException internalServerError(Throwable cause) {
+        return new InternalServerErrorException(emptyResponse(500), cause);
     }
 
     /**
@@ -1191,10 +1267,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(500, message));
+    public static InternalServerErrorException internalServerError(String message, Throwable cause) {
+        return new InternalServerErrorException(message, textResponse(500, message), cause);
     }
 
     /**
@@ -1202,13 +1278,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 500}; never {@code null}.
+     * @return a {@link InternalServerErrorException} with HTTP status {@code 500}; never {@code null}.
      */
-    public static WebApplicationException internalServerError(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(500, body));
+    public static InternalServerErrorException internalServerError(Object body, Throwable cause) {
+        return new InternalServerErrorException(jsonResponse(500, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -1218,20 +1294,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 501 Not Implemented} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented() {
-        return new WebApplicationException(emptyResponse(501));
+    public static ServerErrorException notImplemented() {
+        return new ServerErrorException(emptyResponse(501));
     }
 
     /**
      * Returns a {@code 501 Not Implemented} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented(String message) {
-        return new WebApplicationException(message, textResponse(501, message));
+    public static ServerErrorException notImplemented(String message) {
+        return new ServerErrorException(message, textResponse(501, message));
     }
 
     /**
@@ -1239,11 +1315,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented(Object body) {
-        return new WebApplicationException(jsonResponse(501, body));
+    public static ServerErrorException notImplemented(Object body) {
+        return new ServerErrorException(jsonResponse(501, body));
     }
 
     /**
@@ -1251,10 +1327,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(501));
+    public static ServerErrorException notImplemented(Throwable cause) {
+        return new ServerErrorException(emptyResponse(501), cause);
     }
 
     /**
@@ -1263,10 +1339,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(501, message));
+    public static ServerErrorException notImplemented(String message, Throwable cause) {
+        return new ServerErrorException(message, textResponse(501, message), cause);
     }
 
     /**
@@ -1274,13 +1350,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 501}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 501}; never {@code null}.
      */
-    public static WebApplicationException notImplemented(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(501, body));
+    public static ServerErrorException notImplemented(Object body, Throwable cause) {
+        return new ServerErrorException(jsonResponse(501, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -1290,20 +1366,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 502 Bad Gateway} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway() {
-        return new WebApplicationException(emptyResponse(502));
+    public static ServerErrorException badGateway() {
+        return new ServerErrorException(emptyResponse(502));
     }
 
     /**
      * Returns a {@code 502 Bad Gateway} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway(String message) {
-        return new WebApplicationException(message, textResponse(502, message));
+    public static ServerErrorException badGateway(String message) {
+        return new ServerErrorException(message, textResponse(502, message));
     }
 
     /**
@@ -1311,11 +1387,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway(Object body) {
-        return new WebApplicationException(jsonResponse(502, body));
+    public static ServerErrorException badGateway(Object body) {
+        return new ServerErrorException(jsonResponse(502, body));
     }
 
     /**
@@ -1323,10 +1399,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(502));
+    public static ServerErrorException badGateway(Throwable cause) {
+        return new ServerErrorException(emptyResponse(502), cause);
     }
 
     /**
@@ -1335,10 +1411,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(502, message));
+    public static ServerErrorException badGateway(String message, Throwable cause) {
+        return new ServerErrorException(message, textResponse(502, message), cause);
     }
 
     /**
@@ -1346,13 +1422,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 502}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 502}; never {@code null}.
      */
-    public static WebApplicationException badGateway(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(502, body));
+    public static ServerErrorException badGateway(Object body, Throwable cause) {
+        return new ServerErrorException(jsonResponse(502, body), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -1362,20 +1438,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 503 Service Unavailable} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable() {
-        return new WebApplicationException(emptyResponse(503));
+    public static ServiceUnavailableException serviceUnavailable() {
+        return new ServiceUnavailableException(emptyResponse(503));
     }
 
     /**
      * Returns a {@code 503 Service Unavailable} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable(String message) {
-        return new WebApplicationException(message, textResponse(503, message));
+    public static ServiceUnavailableException serviceUnavailable(String message) {
+        return new ServiceUnavailableException(message, textResponse(503, message));
     }
 
     /**
@@ -1383,11 +1459,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable(Object body) {
-        return new WebApplicationException(jsonResponse(503, body));
+    public static ServiceUnavailableException serviceUnavailable(Object body) {
+        return new ServiceUnavailableException(jsonResponse(503, body));
     }
 
     /**
@@ -1395,10 +1471,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(503));
+    public static ServiceUnavailableException serviceUnavailable(Throwable cause) {
+        return new ServiceUnavailableException(emptyResponse(503), cause);
     }
 
     /**
@@ -1407,10 +1483,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(503, message));
+    public static ServiceUnavailableException serviceUnavailable(String message, Throwable cause) {
+        return new ServiceUnavailableException(message, textResponse(503, message), cause);
     }
 
     /**
@@ -1418,13 +1494,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      */
-    public static WebApplicationException serviceUnavailable(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(503, body));
+    public static ServiceUnavailableException serviceUnavailable(Object body, Throwable cause) {
+        return new ServiceUnavailableException(jsonResponse(503, body), cause);
     }
 
     /**
@@ -1433,12 +1509,12 @@ public final class HttpErrors {
      *
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(Duration retryAfter) {
-        return new WebApplicationException(emptyResponseRetryAfter(503, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(Duration retryAfter) {
+        return new ServiceUnavailableException(emptyResponseRetryAfter(503, retryAfter));
     }
 
     /**
@@ -1448,12 +1524,12 @@ public final class HttpErrors {
      * @param message    the response body text; sent to the caller as {@code text/plain}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(String message, Duration retryAfter) {
-        return new WebApplicationException(message, textResponseRetryAfter(503, message, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(String message, Duration retryAfter) {
+        return new ServiceUnavailableException(message, textResponseRetryAfter(503, message, retryAfter));
     }
 
     /**
@@ -1462,15 +1538,15 @@ public final class HttpErrors {
      *
      * @param body       the response entity; serialized to {@code application/json} by the
      *                   server's configured
-     *                   {@link software.frisby.web.serial.JsonSerializer}.
+     *                   {@link JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(Object body, Duration retryAfter) {
-        return new WebApplicationException(jsonResponseRetryAfter(503, body, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(Object body, Duration retryAfter) {
+        return new ServiceUnavailableException(jsonResponseRetryAfter(503, body, retryAfter));
     }
 
     /**
@@ -1481,12 +1557,12 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(cause, emptyResponseRetryAfter(503, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(Duration retryAfter, Throwable cause) {
+        return new ServiceUnavailableException(emptyResponseRetryAfter(503, retryAfter), cause);
     }
 
     /**
@@ -1498,12 +1574,12 @@ public final class HttpErrors {
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(String message, Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponseRetryAfter(503, message, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(String message, Duration retryAfter, Throwable cause) {
+        return new ServiceUnavailableException(message, textResponseRetryAfter(503, message, retryAfter), cause);
     }
 
     /**
@@ -1512,17 +1588,17 @@ public final class HttpErrors {
      *
      * @param body       the response entity; serialized to {@code application/json} by the
      *                   server's configured
-     *                   {@link software.frisby.web.serial.JsonSerializer}.
+     *                   {@link JsonSerializer}.
      * @param retryAfter the duration after which the caller may retry; written as
      *                   {@code Retry-After: <seconds>} in the response.
      * @param cause      the exception to attach as the cause; available for server-side
      *                   logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 503}; never {@code null}.
+     * @return a {@link ServiceUnavailableException} with HTTP status {@code 503}; never {@code null}.
      * @throws software.frisby.core.validation.NullValueException            if {@code retryAfter} is {@code null}.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code retryAfter} is negative.
      */
-    public static WebApplicationException serviceUnavailable(Object body, Duration retryAfter, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponseRetryAfter(503, body, retryAfter));
+    public static ServiceUnavailableException serviceUnavailable(Object body, Duration retryAfter, Throwable cause) {
+        return new ServiceUnavailableException(jsonResponseRetryAfter(503, body, retryAfter), cause);
     }
 
     // -------------------------------------------------------------------------
@@ -1532,20 +1608,20 @@ public final class HttpErrors {
     /**
      * Returns a {@code 504 Gateway Timeout} exception.
      *
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout() {
-        return new WebApplicationException(emptyResponse(504));
+    public static ServerErrorException gatewayTimeout() {
+        return new ServerErrorException(emptyResponse(504));
     }
 
     /**
      * Returns a {@code 504 Gateway Timeout} exception with a {@code text/plain} body.
      *
      * @param message the response body text; sent to the caller as {@code text/plain}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout(String message) {
-        return new WebApplicationException(message, textResponse(504, message));
+    public static ServerErrorException gatewayTimeout(String message) {
+        return new ServerErrorException(message, textResponse(504, message));
     }
 
     /**
@@ -1553,11 +1629,11 @@ public final class HttpErrors {
      *
      * @param body the response entity; serialized to {@code application/json}
      *             by the server's configured
-     *             {@link software.frisby.web.serial.JsonSerializer}.
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     *             {@link JsonSerializer}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout(Object body) {
-        return new WebApplicationException(jsonResponse(504, body));
+    public static ServerErrorException gatewayTimeout(Object body) {
+        return new ServerErrorException(jsonResponse(504, body));
     }
 
     /**
@@ -1565,10 +1641,10 @@ public final class HttpErrors {
      *
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout(Throwable cause) {
-        return new WebApplicationException(cause, emptyResponse(504));
+    public static ServerErrorException gatewayTimeout(Throwable cause) {
+        return new ServerErrorException(emptyResponse(504), cause);
     }
 
     /**
@@ -1577,10 +1653,10 @@ public final class HttpErrors {
      * @param message the response body text; sent to the caller as {@code text/plain}.
      * @param cause   the exception to attach as the cause; available for server-side
      *                logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout(String message, Throwable cause) {
-        return new WebApplicationException(message, cause, textResponse(504, message));
+    public static ServerErrorException gatewayTimeout(String message, Throwable cause) {
+        return new ServerErrorException(message, textResponse(504, message), cause);
     }
 
     /**
@@ -1588,13 +1664,13 @@ public final class HttpErrors {
      *
      * @param body  the response entity; serialized to {@code application/json}
      *              by the server's configured
-     *              {@link software.frisby.web.serial.JsonSerializer}.
+     *              {@link JsonSerializer}.
      * @param cause the exception to attach as the cause; available for server-side
      *              logging but not exposed in the response body.
-     * @return a {@link WebApplicationException} with HTTP status {@code 504}; never {@code null}.
+     * @return a {@link ServerErrorException} with HTTP status {@code 504}; never {@code null}.
      */
-    public static WebApplicationException gatewayTimeout(Object body, Throwable cause) {
-        return new WebApplicationException(cause, jsonResponse(504, body));
+    public static ServerErrorException gatewayTimeout(Object body, Throwable cause) {
+        return new ServerErrorException(jsonResponse(504, body), cause);
     }
 }
 
