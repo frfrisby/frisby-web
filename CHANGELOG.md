@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/frfrisby/frisby-web/compare/v1.3.2...v1.3.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* Allow custom Accept header and improve exception handling. ([#43](https://github.com/frfrisby/frisby-web/issues/43)) ([9894cb8](https://github.com/frfrisby/frisby-web/commit/9894cb8ca64dfcea63e8d96e482b44b06244e5bf))
+
 ## [1.3.2](https://github.com/frfrisby/frisby-web/compare/v1.3.1...v1.3.2) (2026-07-28)
 
 
