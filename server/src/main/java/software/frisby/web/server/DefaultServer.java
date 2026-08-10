@@ -271,8 +271,15 @@ final class DefaultServer implements Server {
             sb.append("\n  livenessProbePath=").append(healthCheckPath);
         }
 
-        sb.append("\n  maxConcurrentRequests=").append(configuration.maxConcurrentRequests());
+        for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
+            sb.append("\n  staticAssets: ").append(config.describeSource())
+              .append(" → ").append(config.urlPrefix());
+            if (config.spaFallback()) {
+                sb.append(" (SPA fallback)");
+            }
+        }
 
+        sb.append("\n  maxConcurrentRequests=").append(configuration.maxConcurrentRequests());
         sb.append("\n  maxRequestSize=").append(configuration.maxRequestSize()).append(" bytes");
 
         configuration.stopTimeout().ifPresent(t ->
@@ -282,8 +289,8 @@ final class DefaultServer implements Server {
         String executorType = configuration.executor()
                 .map(e -> e.getClass().getSimpleName())
                 .orElse("platform threads");
-        sb.append("\n  executor=").append(executorType);
 
+        sb.append("\n  executor=").append(executorType);
         sb.append("\n  ssl=").append(configuration.ssl().isPresent());
 
         if (configuration.http2()) {
@@ -371,7 +378,7 @@ final class DefaultServer implements Server {
             Handler.Sequence sequence = new Handler.Sequence();
 
             for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
-                sequence.addHandler(new StaticHandler((DefaultStaticAssetsConfiguration) config, eventListener));
+                sequence.addHandler(new StaticHandler(config, eventListener));
             }
 
             sequence.addHandler(jerseyHandler);

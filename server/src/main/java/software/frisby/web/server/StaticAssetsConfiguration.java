@@ -43,6 +43,10 @@ import java.util.Optional;
  * static files.  Static handlers only receive requests that were not matched by
  * any registered JAX-RS resource.
  *
+ * <p><strong>Note:</strong> This interface is not intended for external implementation.
+ * Use the {@link #classpath(String)} or {@link #filesystem(Path)} factory methods
+ * to obtain an instance.
+ *
  * @see StaticAssetsConfigurationBuilder
  * @see ServerBuilder
  */
@@ -178,5 +182,38 @@ public interface StaticAssetsConfiguration {
      * {@link Optional#empty()} if not set
      */
     Optional<StaticAssetsAuthFilter> authFilter();
+
+    /**
+     * Returns the classpath resource path if this configuration was created via
+     * {@link #classpath(String)}, or {@link Optional#empty()} if it was created via
+     * {@link #filesystem(Path)}.
+     *
+     * @return the classpath resource path, or {@link Optional#empty()} for filesystem sources
+     */
+    Optional<String> classpathResourcePath();
+
+    /**
+     * Returns the filesystem directory if this configuration was created via
+     * {@link #filesystem(Path)}, or {@link Optional#empty()} if it was created via
+     * {@link #classpath(String)}.
+     *
+     * @return the filesystem directory, or {@link Optional#empty()} for classpath sources
+     */
+    Optional<Path> filesystemDirectory();
+
+    /**
+     * Returns a human-readable description of the asset source for use in
+     * logging and diagnostics, e.g. {@code "classpath:/web"} or
+     * {@code "/var/app/static"}.
+     *
+     * @return a non-null, non-blank source description
+     */
+    default String describeSource() {
+        return classpathResourcePath()
+                .map(p -> "classpath:" + p)
+                .orElseGet(() -> filesystemDirectory()
+                        .map(Path::toString)
+                        .orElse("unknown"));
+    }
 }
 

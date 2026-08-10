@@ -21,7 +21,6 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private static final String DEFAULT_URL_PREFIX = "/";
     private static final Pattern STARTS_WITH_SLASH = Pattern.compile("^/.*");
 
-    private final DefaultStaticAssetsConfiguration.AssetSourceType sourceType;
     private final String classpathResourcePath;
     private final Path filesystemDirectory;
     private final Map<String, String> responseHeaders;
@@ -32,7 +31,6 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private StaticAssetsAuthFilter authFilter;
 
     DefaultStaticAssetsConfigurationBuilder(String resourcePath) {
-        this.sourceType = DefaultStaticAssetsConfiguration.AssetSourceType.CLASSPATH;
         this.classpathResourcePath = Strings.notBlankWithMatches(RESOURCE_PATH_ARGUMENT_NAME, resourcePath, STARTS_WITH_SLASH);
         this.filesystemDirectory = null;
         this.urlPrefix = DEFAULT_URL_PREFIX;
@@ -52,7 +50,6 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
             );
         }
 
-        this.sourceType = DefaultStaticAssetsConfiguration.AssetSourceType.FILESYSTEM;
         this.classpathResourcePath = null;
         this.filesystemDirectory = directory;
         this.urlPrefix = DEFAULT_URL_PREFIX;
@@ -118,7 +115,6 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     @Override
     public StaticAssetsConfiguration build() {
         return new DefaultStaticAssetsConfiguration(
-                sourceType,
                 classpathResourcePath,
                 filesystemDirectory,
                 urlPrefix,
@@ -130,4 +126,3 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
         );
     }
 }
-

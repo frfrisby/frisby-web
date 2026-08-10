@@ -13,10 +13,13 @@ import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.util.resource.ResourceFactory;
 import org.eclipse.jetty.util.resource.Resources;
 import software.frisby.core.util.StopWatch;
+import software.frisby.core.validation.FieldGroup;
+import software.frisby.core.validation.FieldGroups;
 import software.frisby.web.server.event.RequestCompletedEvent;
 import software.frisby.web.server.event.ServerEventListener;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
@@ -34,7 +37,10 @@ import java.util.Optional;
 final class StaticHandler extends Handler.Wrapper {
     private static final System.Logger LOGGER = System.getLogger(StaticHandler.class.getName());
 
-    private final DefaultStaticAssetsConfiguration configuration;
+    private static final FieldGroup SOURCE_FIELDS =
+            FieldGroup.of("classpathResourcePath", "filesystemDirectory");
+
+    private final StaticAssetsConfiguration configuration;
     private final ServerEventListener eventListener;
 
     /**
@@ -43,7 +49,7 @@ final class StaticHandler extends Handler.Wrapper {
      */
     private Resource baseResource;
 
-    StaticHandler(DefaultStaticAssetsConfiguration configuration,
+    StaticHandler(StaticAssetsConfiguration configuration,
                   ServerEventListener eventListener) {
         super(new ResourceHandler());
         this.configuration = configuration;
@@ -61,22 +67,16 @@ final class StaticHandler extends Handler.Wrapper {
 
         baseResource = createBaseResource();
 
-        if (null == baseResource || !baseResource.exists()) {
+        if (null == baseResource || !baseResource.isDirectory()) {
             throw new IllegalStateException(
                     "The '" + sourceArgumentName() + "' value of '" + describeSource()
-                    + "' is invalid.  The resource does not exist."
-            );
-        }
-
-        if (!baseResource.isDirectory()) {
-            throw new IllegalStateException(
-                    "The '" + sourceArgumentName() + "' value of '" + describeSource()
-                    + "' is invalid.  The resource is not a directory."
+                            + "' is invalid.  The resource does not exist or is not a directory."
             );
         }
 
         resourceHandler.setBaseResource(baseResource);
         resourceHandler.setDirAllowed(false);
+        resourceHandler.setEtags(true);
         resourceHandler.setWelcomeFiles("index.html");
 
         configuration.notFoundPage().ifPresent(notFoundPath -> {
@@ -97,41 +97,34 @@ final class StaticHandler extends Handler.Wrapper {
             resourceHandler.setCacheControl(cacheControl);
         });
 
-        LOGGER.log(
-                System.Logger.Level.INFO,
-                "Static assets: {0} → {1}{2}",
-                describeSource(),
-                configuration.urlPrefix(),
-                configuration.spaFallback() ? " (SPA fallback enabled)" : ""
-        );
 
         super.doStart();
     }
 
     private Resource createBaseResource() {
-        if (configuration.sourceType() == DefaultStaticAssetsConfiguration.AssetSourceType.CLASSPATH) {
-            return ResourceFactory.of(this).newClassLoaderResource(
-                    configuration.classpathResourcePath()
-            );
+        String classpathPath = configuration.classpathResourcePath().orElse(null);
+        Path filesystemPath = configuration.filesystemDirectory().orElse(null);
+
+        FieldGroups.onlyOne(
+                SOURCE_FIELDS,
+                classpathPath,
+                filesystemPath
+        );
+
+        if (null != classpathPath) {
+            return ResourceFactory.of(this).newClassLoaderResource(classpathPath);
         }
 
-        return ResourceFactory.of(this).newResource(configuration.filesystemDirectory());
+        return ResourceFactory.of(this).newResource(filesystemPath);
     }
 
-    private String describeSource() {
-        if (configuration.sourceType() == DefaultStaticAssetsConfiguration.AssetSourceType.CLASSPATH) {
-            return "classpath:" + configuration.classpathResourcePath();
-        }
 
-        return configuration.filesystemDirectory().toString();
+    private String describeSource() {
+        return configuration.describeSource();
     }
 
     private String sourceArgumentName() {
-        if (configuration.sourceType() == DefaultStaticAssetsConfiguration.AssetSourceType.CLASSPATH) {
-            return "resourcePath";
-        }
-
-        return "directory";
+        return configuration.classpathResourcePath().isPresent() ? "resourcePath" : "directory";
     }
 
     // -------------------------------------------------------------------------
@@ -205,13 +198,7 @@ final class StaticHandler extends Handler.Wrapper {
         // 6. Serve the resource.
         if (resourceExists) {
             boolean served = resourceHandler().handle(strippedRequest, response, eventCallback);
-
-            if (!served) {
-                // Resource disappeared between the existence check and serving (race condition).
-                // Own the 404 so we don't pass the now-header-decorated response to Jersey.
-                LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", path);
-                Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
-            }
+            writeErrorIfNotServed(served, path, request, response, eventCallback);
 
             return true;
         }
@@ -232,7 +219,7 @@ final class StaticHandler extends Handler.Wrapper {
             }
 
             // index.html itself is missing — fall through to custom 404 or plain 404.
-            if (!configuration.notFoundPage().isPresent()) {
+            if (configuration.notFoundPage().isEmpty()) {
                 LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404 (index.html missing)", path);
                 Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
                 return true;
@@ -240,7 +227,36 @@ final class StaticHandler extends Handler.Wrapper {
         }
 
         // 8. Custom 404 page.
-        return serveNotFoundPage(path, request, response, eventCallback);
+        serveNotFoundPage(path, request, response, eventCallback);
+        return true;
+    }
+
+    /**
+     * Writes a {@code 404 Not Found} error response if the {@link ResourceHandler} did not
+     * serve the request.
+     *
+     * <p>The {@code served = false} path handles a narrow race condition: the file existed
+     * when {@link #resourceExists} checked above, but was deleted before
+     * {@link ResourceHandler#handle} ran.  Returning {@code false} at that point is not safe
+     * because response headers (e.g. CSP / security headers) were already written in step 5 —
+     * passing a header-decorated response to Jersey would be worse than a plain 404.
+     *
+     * @param served   {@code true} if {@link ResourceHandler} claimed the request; {@code false}
+     *                 if it returned without writing a response (file-disappeared race condition)
+     * @param path     the original request path, used for the warning log entry
+     * @param request  the Jetty request, forwarded to {@link Response#writeError}
+     * @param response the Jetty response, forwarded to {@link Response#writeError}
+     * @param callback the response-completion callback, forwarded to {@link Response#writeError}
+     */
+    static void writeErrorIfNotServed(boolean served,
+                                      String path,
+                                      Request request,
+                                      Response response,
+                                      Callback callback) {
+        if (!served) {
+            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", path);
+            Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -353,17 +369,17 @@ final class StaticHandler extends Handler.Wrapper {
      * HTTP status {@code 404}.  If the custom 404 file itself cannot be found in
      * the asset root, falls back to a plain {@code 404} with no body.
      */
-    private boolean serveNotFoundPage(String originalPath,
-                                      Request request,
-                                      Response response,
-                                      Callback callback) {
+    void serveNotFoundPage(String originalPath,
+                                   Request request,
+                                   Response response,
+                                   Callback callback) {
         String notFoundPath = configuration.notFoundPage().orElseThrow();
         Resource notFoundResource = baseResource.resolve(notFoundPath);
 
         if (!Resources.isReadableFile(notFoundResource)) {
             LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", originalPath);
             Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
-            return true;
+            return;
         }
 
         response.setStatus(HttpStatus.NOT_FOUND_404);
@@ -380,14 +396,12 @@ final class StaticHandler extends Handler.Wrapper {
                 originalPath
         );
 
-        try {
-            byte[] content = notFoundResource.newInputStream().readAllBytes();
+        try (var in = notFoundResource.newInputStream()) {
+            byte[] content = in.readAllBytes();
             response.write(true, ByteBuffer.wrap(content), callback);
         } catch (Exception e) {
             callback.failed(e);
         }
-
-        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -461,16 +475,4 @@ final class StaticHandler extends Handler.Wrapper {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 

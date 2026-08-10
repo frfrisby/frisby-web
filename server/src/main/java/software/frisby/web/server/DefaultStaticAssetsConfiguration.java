@@ -6,9 +6,8 @@ import java.util.Map;
 import java.util.Optional;
 
 final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguration {
-    private final AssetSourceType sourceType;
-    private final String classpathResourcePath; // non-null when sourceType == CLASSPATH
-    private final Path filesystemDirectory;     // non-null when sourceType == FILESYSTEM
+    private final String classpathPath; // non-null for classpath sources
+    private final Path filesystemPath;  // non-null for filesystem sources
     private final String urlPrefix;
     private final Duration cacheMaxAge;         // null = not configured
     private final Map<String, String> responseHeaders;
@@ -17,18 +16,16 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final StaticAssetsAuthFilter authFilter; // null = not configured
 
     DefaultStaticAssetsConfiguration(
-            AssetSourceType sourceType,
-            String classpathResourcePath,
-            Path filesystemDirectory,
+            String classpathPath,
+            Path filesystemPath,
             String urlPrefix,
             Duration cacheMaxAge,
             Map<String, String> responseHeaders,
             boolean spaFallback,
             String notFoundPage,
             StaticAssetsAuthFilter authFilter) {
-        this.sourceType = sourceType;
-        this.classpathResourcePath = classpathResourcePath;
-        this.filesystemDirectory = filesystemDirectory;
+        this.classpathPath = classpathPath;
+        this.filesystemPath = filesystemPath;
         this.urlPrefix = urlPrefix;
         this.cacheMaxAge = cacheMaxAge;
         this.responseHeaders = responseHeaders;
@@ -37,16 +34,14 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
         this.authFilter = authFilter;
     }
 
-    AssetSourceType sourceType() {
-        return sourceType;
+    @Override
+    public Optional<String> classpathResourcePath() {
+        return Optional.ofNullable(classpathPath);
     }
 
-    String classpathResourcePath() {
-        return classpathResourcePath;
-    }
-
-    Path filesystemDirectory() {
-        return filesystemDirectory;
+    @Override
+    public Optional<Path> filesystemDirectory() {
+        return Optional.ofNullable(filesystemPath);
     }
 
     @Override
@@ -78,9 +73,4 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     public Optional<StaticAssetsAuthFilter> authFilter() {
         return Optional.ofNullable(authFilter);
     }
-
-    enum AssetSourceType {
-        CLASSPATH, FILESYSTEM
-    }
 }
-

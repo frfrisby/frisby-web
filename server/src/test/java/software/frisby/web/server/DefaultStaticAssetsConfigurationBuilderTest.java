@@ -63,11 +63,8 @@ class DefaultStaticAssetsConfigurationBuilderTest {
 
             StaticAssetsConfiguration config = builder.build();
 
-            assertEquals("/web", ((DefaultStaticAssetsConfiguration) config).classpathResourcePath());
-            assertEquals(
-                    DefaultStaticAssetsConfiguration.AssetSourceType.CLASSPATH,
-                    ((DefaultStaticAssetsConfiguration) config).sourceType()
-            );
+            assertEquals(Optional.of("/web"), config.classpathResourcePath());
+            assertEquals(Optional.empty(), config.filesystemDirectory());
         }
     }
 
@@ -114,11 +111,8 @@ class DefaultStaticAssetsConfigurationBuilderTest {
 
             StaticAssetsConfiguration config = builder.build();
 
-            assertEquals(tempDir, ((DefaultStaticAssetsConfiguration) config).filesystemDirectory());
-            assertEquals(
-                    DefaultStaticAssetsConfiguration.AssetSourceType.FILESYSTEM,
-                    ((DefaultStaticAssetsConfiguration) config).sourceType()
-            );
+            assertEquals(Optional.of(tempDir), config.filesystemDirectory());
+            assertEquals(Optional.empty(), config.classpathResourcePath());
         }
     }
 
