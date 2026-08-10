@@ -9,6 +9,7 @@ import software.frisby.core.validation.DurationOutsideRangeException;
 import software.frisby.core.validation.NullMapKeyException;
 import software.frisby.core.validation.NullMapValueException;
 import software.frisby.core.validation.NullValueException;
+import software.frisby.core.validation.NumericValueOutsideRangeException;
 import software.frisby.core.validation.PatternMismatchException;
 
 import java.io.IOException;
@@ -269,16 +270,16 @@ class DefaultStaticAssetsConfigurationBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // notFoundPage()
+    // errorPage()
     // -------------------------------------------------------------------------
 
     @Nested
-    class NotFoundPage {
+    class ErrorPage {
         @Test
         void nullPath_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> StaticAssetsConfiguration.classpath("/web").notFoundPage(null)
+                    () -> StaticAssetsConfiguration.classpath("/web").errorPage(404, null)
             );
         }
 
@@ -286,17 +287,74 @@ class DefaultStaticAssetsConfigurationBuilderTest {
         void blankPath_throwsBlankValueException() {
             assertThrows(
                     BlankValueException.class,
-                    () -> StaticAssetsConfiguration.classpath("/web").notFoundPage("   ")
+                    () -> StaticAssetsConfiguration.classpath("/web").errorPage(404, "   ")
             );
         }
 
         @Test
-        void validPath_stored() {
+        void statusCodeTooLow_throwsNumericValueOutsideRangeException() {
+            assertThrows(
+                    NumericValueOutsideRangeException.class,
+                    () -> StaticAssetsConfiguration.classpath("/web").errorPage(200, "200.html")
+            );
+        }
+
+        @Test
+        void statusCodeTooHigh_throwsNumericValueOutsideRangeException() {
+            assertThrows(
+                    NumericValueOutsideRangeException.class,
+                    () -> StaticAssetsConfiguration.classpath("/web").errorPage(600, "600.html")
+            );
+        }
+
+        @Test
+        void boundaryStatus400_accepted() {
             StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
-                    .notFoundPage("404.html")
+                    .errorPage(400, "400.html")
                     .build();
 
-            assertEquals(Optional.of("404.html"), config.notFoundPage());
+            assertEquals("400.html", config.errorPages().get(400));
+        }
+
+        @Test
+        void boundaryStatus599_accepted() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .errorPage(599, "599.html")
+                    .build();
+
+            assertEquals("599.html", config.errorPages().get(599));
+        }
+
+        @Test
+        void validEntry_stored() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .errorPage(404, "404.html")
+                    .build();
+
+            assertEquals("404.html", config.errorPages().get(404));
+        }
+
+        @Test
+        void multipleStatuses_allStored() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .errorPage(404, "404.html")
+                    .errorPage(500, "500.html")
+                    .build();
+
+            assertEquals("404.html", config.errorPages().get(404));
+            assertEquals("500.html", config.errorPages().get(500));
+            assertEquals(2, config.errorPages().size());
+        }
+
+        @Test
+        void duplicateStatusCode_lastValueWins() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .errorPage(404, "first-404.html")
+                    .errorPage(404, "second-404.html")
+                    .build();
+
+            assertEquals("second-404.html", config.errorPages().get(404));
+            assertEquals(1, config.errorPages().size());
         }
     }
 
@@ -341,7 +399,7 @@ class DefaultStaticAssetsConfigurationBuilderTest {
             assertTrue(config.cacheMaxAge().isEmpty());
             assertEquals(Map.of(), config.responseHeaders());
             assertFalse(config.spaFallback());
-            assertTrue(config.notFoundPage().isEmpty());
+            assertEquals(Map.of(), config.errorPages());
             assertTrue(config.authFilter().isEmpty());
         }
 
@@ -353,7 +411,7 @@ class DefaultStaticAssetsConfigurationBuilderTest {
             assertTrue(config.cacheMaxAge().isEmpty());
             assertEquals(Map.of(), config.responseHeaders());
             assertFalse(config.spaFallback());
-            assertTrue(config.notFoundPage().isEmpty());
+            assertEquals(Map.of(), config.errorPages());
             assertTrue(config.authFilter().isEmpty());
         }
     }

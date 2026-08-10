@@ -9,10 +9,10 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final String classpathPath; // non-null for classpath sources
     private final Path filesystemPath;  // non-null for filesystem sources
     private final String urlPrefix;
-    private final Duration cacheMaxAge;         // null = not configured
+    private final Duration cacheMaxAge;              // null = not configured
     private final Map<String, String> responseHeaders;
     private final boolean spaFallback;
-    private final String notFoundPage;          // null = not configured
+    private final Map<Integer, String> errorPages;   // empty = not configured
     private final StaticAssetsAuthFilter authFilter; // null = not configured
 
     DefaultStaticAssetsConfiguration(
@@ -22,7 +22,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
             Duration cacheMaxAge,
             Map<String, String> responseHeaders,
             boolean spaFallback,
-            String notFoundPage,
+            Map<Integer, String> errorPages,
             StaticAssetsAuthFilter authFilter) {
         this.classpathPath = classpathPath;
         this.filesystemPath = filesystemPath;
@@ -30,7 +30,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
         this.cacheMaxAge = cacheMaxAge;
         this.responseHeaders = responseHeaders;
         this.spaFallback = spaFallback;
-        this.notFoundPage = notFoundPage;
+        this.errorPages = errorPages;
         this.authFilter = authFilter;
     }
 
@@ -65,8 +65,8 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     }
 
     @Override
-    public Optional<String> notFoundPage() {
-        return Optional.ofNullable(notFoundPage);
+    public Map<Integer, String> errorPages() {
+        return errorPages;
     }
 
     @Override

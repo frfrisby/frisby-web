@@ -42,6 +42,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -274,8 +275,16 @@ final class DefaultServer implements Server {
         for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
             sb.append("\n  staticAssets: ").append(config.describeSource())
               .append(" → ").append(config.urlPrefix());
+
             if (config.spaFallback()) {
                 sb.append(" (SPA fallback)");
+            }
+
+            if (!config.errorPages().isEmpty()) {
+                for (Map.Entry<Integer, String> entry : config.errorPages().entrySet()) {
+                    sb.append("\n    errorPage: ").append(entry.getKey())
+                      .append(" → ").append(entry.getValue());
+                }
             }
         }
 

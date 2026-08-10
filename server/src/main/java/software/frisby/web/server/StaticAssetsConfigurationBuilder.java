@@ -16,7 +16,8 @@ import java.util.Map;
  * StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
  *         .urlPrefix("/ui")
  *         .spaFallback(true)
- *         .notFoundPage("404.html")
+ *         .errorPage(404, "404.html")
+ *         .errorPage(500, "500.html")
  *         .cacheMaxAge(Duration.ofDays(7))
  *         .responseHeaders(Map.of(
  *                 "Content-Security-Policy", "default-src 'self'",
@@ -113,30 +114,51 @@ public interface StaticAssetsConfigurationBuilder {
     StaticAssetsConfigurationBuilder spaFallback(boolean enabled);
 
     /**
-     * Sets a custom 404 response body served whenever a requested resource is not
-     * found by this handler.
+     * Maps an HTTP error status code to a custom response page served from the asset root.
      *
-     * <p>{@code path} is relative to the asset root.  For example, {@code "404.html"}
-     * resolves to {@code {assetRoot}/404.html}.  The HTTP status code remains
-     * {@code 404}; only the body and {@code Content-Type} are taken from the file.
-     * If the configured file itself is not found in the asset root, a plain
-     * {@code 404} with no custom body is returned.
+     * <p>{@code path} is relative to the asset root.  For example,
+     * {@code errorPage(404, "404.html")} serves {@code {assetRoot}/404.html} whenever a
+     * requested resource is not found.  {@code errorPage(500, "500.html")} serves
+     * {@code {assetRoot}/500.html} when the auth filter throws an unexpected exception.
+     * The HTTP response status is always the supplied {@code statusCode}; only the body
+     * and {@code Content-Type} are taken from the file.
      *
-     * @param path the path to the custom 404 page, relative to the asset root;
-     *             must not be {@code null} or blank
+     * <p>Calling this method multiple times with the same {@code statusCode} overwrites
+     * the earlier mapping — last call wins, consistent with
+     * {@link #responseHeaders(java.util.Map)} merging behavior.
+     *
+     * <p>Each configured path is validated for readability against the asset root at
+     * server startup.  If the file does not exist at that point the server will refuse
+     * to start with a clear error message.
+     *
+     * @param statusCode the HTTP error status code to handle; must be between 400 and 599
+     *                   (inclusive)
+     * @param path       the path to the error page, relative to the asset root; must not
+     *                   be {@code null} or blank
      * @return this builder
-     * @throws software.frisby.core.validation.NullValueException  if {@code path} is {@code null}
-     * @throws software.frisby.core.validation.BlankValueException if {@code path} is blank
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code statusCode}
+     *                                                                           is outside the range
+     *                                                                           400–599
+     * @throws software.frisby.core.validation.NullValueException       if {@code path} is
+     *                                                                  {@code null}
+     * @throws software.frisby.core.validation.BlankValueException      if {@code path} is blank
      */
-    StaticAssetsConfigurationBuilder notFoundPage(String path);
+    StaticAssetsConfigurationBuilder errorPage(int statusCode, String path);
 
     /**
      * Registers an auth filter that is invoked before each asset request is served.
      *
      * <p>The filter receives the raw Jetty request and response.  If the filter
-     * returns {@code false}, the asset is not served; the filter is responsible
-     * for having written an appropriate error response (e.g.
-     * {@code 401 Unauthorized}) before returning.
+     * returns {@code false}, the asset is not served.  The handler then checks whether
+     * a custom error page has been configured for the current response status code via
+     * {@link #errorPage(int, String)}: if one is found and the response has not already
+     * been committed, the handler serves it automatically.  If no error page is configured
+     * for that status, or if the filter already committed the response, the response is
+     * left as-is and the handler completes normally.
+     *
+     * <p>If the filter throws an exception, the handler catches it, logs it, and serves
+     * the error page configured for status {@code 500} (if any); otherwise it returns a
+     * plain {@code 500 Internal Server Error}.
      *
      * <p>Use this to add authentication or authorization to static asset serving
      * without coupling the configuration to a specific security module.

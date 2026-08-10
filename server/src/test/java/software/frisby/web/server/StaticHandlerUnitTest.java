@@ -286,13 +286,13 @@ class StaticHandlerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // serveNotFoundPage
+    // serveErrorPage
     // -------------------------------------------------------------------------
 
     /**
-     * Tests for {@link StaticHandler#serveNotFoundPage}.
+     * Tests for {@link StaticHandler#serveErrorPage}.
      *
-     * <p>The normal happy path (readable file served with 404 status) is covered by
+     * <p>The normal happy path (readable file served with the configured status) is covered by
      * the {@link ServerStaticAssetsTest} integration tests.  The {@code catch} block —
      * triggered when {@code response.write()} throws — can only be reached in a live
      * server if the I/O layer fails mid-response.  It is exercised here by calling the
@@ -304,12 +304,12 @@ class StaticHandlerUnitTest {
      * {@code response.write()} before the simulated failure.
      */
     @Nested
-    class ServeNotFoundPage {
+    class ServeErrorPage {
         @Test
         void writeThrows_callsCallbackFailed() throws Exception {
             StaticAssetsConfiguration config = StaticAssetsConfiguration
                     .classpath("/static-test-assets")
-                    .notFoundPage("404.html")
+                    .errorPage(404, "404.html")
                     .build();
 
             StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
@@ -345,7 +345,7 @@ class StaticHandlerUnitTest {
                 }
             };
 
-            handler.serveNotFoundPage("/missing", null, mockResponse, callback);
+            handler.serveErrorPage(404, "/missing", null, mockResponse, callback);
 
             assertSame(writeError, capturedFailure.get(),
                     "callback.failed() must receive the exception thrown by response.write()");
@@ -580,8 +580,171 @@ class StaticHandlerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // Helpers
+    // Auth filter — exception + committed response
     // -------------------------------------------------------------------------
+
+    /**
+     * Tests the branch in the auth filter {@code catch} block where
+     * {@code response.isCommitted()} is {@code true} at the time the exception is
+     * caught.
+     *
+     * <p>This represents the edge case where the auth filter managed to start writing a
+     * response before throwing — e.g. it wrote headers then encountered an I/O error.
+     * In that scenario the handler must not attempt to write another response; it should
+     * just call {@code eventCallback.succeeded()} and return {@code true}.
+     *
+     * <p>The test drives {@link StaticHandler#handle} directly with proxy
+     * {@link Request} and {@link Response} objects, skipping the embedded-server stack.
+     * The proxy {@link Request} satisfies the minimum contract required by
+     * {@code handle()}: {@code getHttpURI()} (prefix check + EventFiringCallback path),
+     * and {@code getMethod()} (EventFiringCallback).  The proxy {@link Response} returns
+     * {@code true} from {@code isCommitted()} and a stable {@code 500} from
+     * {@code getStatus()} so the {@link software.frisby.web.server.event.RequestCompletedEvent}
+     * can be constructed.
+     */
+    @Nested
+    class AuthFilterExceptionCommittedResponse {
+        @Test
+        void filterThrows_responseAlreadyCommitted_callsSucceededWithoutWriting() throws Exception {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration
+                    .classpath("/static-test-assets")
+                    .authFilter((req, res) -> {
+                        throw new RuntimeException("backend unreachable");
+                    })
+                    .build();
+
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+
+            HttpURI uri = HttpURI.from("http://localhost/index.html");
+
+            Request mockRequest = (Request) Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class[]{Request.class},
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "getHttpURI" -> uri;
+                        case "getMethod" -> "GET";
+                        case "consumeAvailable" -> false;
+                        default -> null;
+                    }
+            );
+
+            AtomicBoolean writeCalled = new AtomicBoolean(false);
+            AtomicBoolean succeededCalled = new AtomicBoolean(false);
+
+            Response mockResponse = (Response) Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class[]{Response.class},
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "isCommitted" -> true;
+                        case "getStatus" -> 500;
+                        case "write" -> {
+                            writeCalled.set(true);
+                            yield null;
+                        }
+                        default -> null;
+                    }
+            );
+
+            Callback delegate = new Callback() {
+                @Override
+                public void succeeded() {
+                    succeededCalled.set(true);
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    fail("failed() must not be called when response is already committed: " + t);
+                }
+            };
+
+            boolean handled = handler.handle(mockRequest, mockResponse, delegate);
+
+            assertTrue(handled, "handle() must return true — the handler claimed the request");
+            assertTrue(succeededCalled.get(), "delegate.succeeded() must be called");
+            assertFalse(writeCalled.get(), "response.write() must not be called on a committed response");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Auth filter — rejection + no matching error page
+    // -------------------------------------------------------------------------
+
+    /**
+     * Tests the branch in the auth filter rejection block where the filter returns
+     * {@code false}, the response is <em>not</em> committed, but no error page has been
+     * configured for the response status code — so
+     * {@code configuration.errorPages().containsKey(status)} is {@code false}.
+     *
+     * <p>In this case the handler must complete the response lifecycle by calling
+     * {@code eventCallback.succeeded()} without writing anything, leaving whatever
+     * the filter wrote to the response intact (typically just a status code).
+     */
+    @Nested
+    class AuthFilterRejectionNoErrorPage {
+        @Test
+        void filterReturnsFalse_notCommitted_noErrorPage_callsSucceededWithoutWriting() throws Exception {
+            // No error pages configured — containsKey(401) will be false.
+            StaticAssetsConfiguration config = StaticAssetsConfiguration
+                    .classpath("/static-test-assets")
+                    .authFilter((req, res) -> {
+                        res.setStatus(401);
+                        return false;
+                    })
+                    .build();
+
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+
+            HttpURI uri = HttpURI.from("http://localhost/index.html");
+
+            Request mockRequest = (Request) Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class[]{Request.class},
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "getHttpURI" -> uri;
+                        case "getMethod" -> "GET";
+                        default -> null;
+                    }
+            );
+
+            AtomicBoolean writeCalled = new AtomicBoolean(false);
+            AtomicBoolean succeededCalled = new AtomicBoolean(false);
+
+            Response mockResponse = (Response) Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class[]{Response.class},
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "isCommitted" -> false;
+                        case "getStatus" -> 401;
+                        case "setStatus" -> null;
+                        case "write" -> {
+                            writeCalled.set(true);
+                            yield null;
+                        }
+                        default -> null;
+                    }
+            );
+
+            Callback delegate = new Callback() {
+                @Override
+                public void succeeded() {
+                    succeededCalled.set(true);
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    fail("failed() must not be called: " + t);
+                }
+            };
+
+            boolean handled = handler.handle(mockRequest, mockResponse, delegate);
+
+            assertTrue(handled, "handle() must return true — the handler claimed the request");
+            assertTrue(succeededCalled.get(), "delegate.succeeded() must be called");
+            assertFalse(writeCalled.get(), "response.write() must not be called — no error page is configured for 401");
+        }
+    }
+
+
 
     private static Method resolveMethod(String name, Class<?>... paramTypes) {
         try {

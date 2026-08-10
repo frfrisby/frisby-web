@@ -15,7 +15,8 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private static final String URL_PREFIX_ARGUMENT_NAME = "urlPrefix";
     private static final String CACHE_MAX_AGE_ARGUMENT_NAME = "cacheMaxAge";
     private static final String RESPONSE_HEADERS_ARGUMENT_NAME = "responseHeaders";
-    private static final String NOT_FOUND_PAGE_ARGUMENT_NAME = "notFoundPage";
+    private static final String ERROR_PAGE_STATUS_ARGUMENT_NAME = "statusCode";
+    private static final String ERROR_PAGE_PATH_ARGUMENT_NAME = "path";
     private static final String AUTH_FILTER_ARGUMENT_NAME = "authFilter";
 
     private static final String DEFAULT_URL_PREFIX = "/";
@@ -24,10 +25,10 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private final String classpathResourcePath;
     private final Path filesystemDirectory;
     private final Map<String, String> responseHeaders;
+    private final Map<Integer, String> errorPages;
     private String urlPrefix;
     private Duration cacheMaxAge;
     private boolean spaFallback;
-    private String notFoundPage;
     private StaticAssetsAuthFilter authFilter;
 
     DefaultStaticAssetsConfigurationBuilder(String resourcePath) {
@@ -37,7 +38,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
         this.cacheMaxAge = null;
         this.responseHeaders = new HashMap<>();
         this.spaFallback = false;
-        this.notFoundPage = null;
+        this.errorPages = new HashMap<>();
         this.authFilter = null;
     }
 
@@ -56,7 +57,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
         this.cacheMaxAge = null;
         this.responseHeaders = new HashMap<>();
         this.spaFallback = false;
-        this.notFoundPage = null;
+        this.errorPages = new HashMap<>();
         this.authFilter = null;
     }
 
@@ -101,8 +102,11 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     }
 
     @Override
-    public StaticAssetsConfigurationBuilder notFoundPage(String path) {
-        this.notFoundPage = Strings.notBlank(NOT_FOUND_PAGE_ARGUMENT_NAME, path);
+    public StaticAssetsConfigurationBuilder errorPage(int statusCode, String path) {
+        Numbers.range(ERROR_PAGE_STATUS_ARGUMENT_NAME, statusCode, 400, 599);
+        Strings.notBlank(ERROR_PAGE_PATH_ARGUMENT_NAME, path);
+
+        this.errorPages.put(statusCode, path);
         return this;
     }
 
@@ -121,7 +125,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
                 cacheMaxAge,
                 Map.copyOf(responseHeaders),
                 spaFallback,
-                notFoundPage,
+                Map.copyOf(errorPages),
                 authFilter
         );
     }

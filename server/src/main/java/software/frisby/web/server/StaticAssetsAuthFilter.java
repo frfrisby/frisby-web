@@ -7,33 +7,42 @@ import org.eclipse.jetty.server.Response;
  * A filter invoked before each static asset request is served.
  *
  * <p>Implement to add authentication or authorization to static asset serving.
- * If the filter returns {@code false}, the static file will not be served.
- * The filter <strong>must</strong> write a complete error response — status
- * code and any relevant headers such as {@code WWW-Authenticate} — to
- * {@code response} before returning {@code false}.  Failing to write a response
- * before returning {@code false} will leave the client with an empty reply.
+ * When the filter returns {@code false} the static file is not served; the handler
+ * then checks whether a custom error page has been configured (via
+ * {@link StaticAssetsConfigurationBuilder#errorPage(int, String)}) for the current
+ * response status code.  If a page is configured and the response has not already
+ * been committed, the handler serves it automatically.  If no page is configured for
+ * that status, or if the filter already committed the response, the response is left
+ * as-is and the handler completes normally.
+ *
+ * <p>Practical patterns:
+ * <ul>
+ *   <li><strong>Delegate body to error page</strong> — set the status on the response and
+ *       return {@code false}; the handler will serve the configured error page for that
+ *       status code automatically:
+ *       <pre>{@code
+ *       (req, res) -> {
+ *           if (!isValid(token(req))) {
+ *               res.setStatus(401);
+ *               return false;
+ *           }
+ *           return true;
+ *       }
+ *       }</pre>
+ *   <li><strong>Write a full response directly</strong> — write the complete response
+ *       (status, headers, and body) and return {@code false}; the handler will not
+ *       interfere because the response is already committed.
+ * </ul>
+ *
+ * <p>If the filter throws an exception, the handler catches it, logs it at
+ * {@code ERROR} level, and serves the error page configured for status {@code 500}
+ * (if any); otherwise it writes a plain {@code 500 Internal Server Error}.
  *
  * <p><strong>Jersey exception mappers do not apply here.</strong>  This filter
- * runs at the Jetty handler layer, ahead of Jersey.  Write all rejection
- * responses directly to the provided {@link Response}; do not throw exceptions
- * as a rejection signal.  Implementations that call checked-exception-throwing
- * code (JWT parsers, database lookups, etc.) should catch those exceptions,
- * write an appropriate error response, and return {@code false}.
+ * runs at the Jetty handler layer, ahead of Jersey.
  *
  * <p>Filters must be thread-safe; a single instance is shared across all
  * concurrent requests.
- *
- * <p>Example — Bearer token guard:
- * <pre>{@code
- * StaticAssetsAuthFilter guard = (request, response) -> {
- *     String token = extractBearerToken(request);
- *     if (null == token || !tokenStore.isValid(token)) {
- *         response.setStatus(401);
- *         return false;
- *     }
- *     return true;
- * };
- * }</pre>
  *
  * @see StaticAssetsConfigurationBuilder#authFilter(StaticAssetsAuthFilter)
  */
@@ -43,24 +52,13 @@ public interface StaticAssetsAuthFilter {
     /**
      * Evaluates whether the request should be allowed to proceed.
      *
-     * <p>When this method returns {@code false}, the static file is not served.
-     * The filter <strong>must</strong> write a complete error response — status
-     * code and any relevant headers such as {@code WWW-Authenticate} — to
-     * {@code response} before returning {@code false}.  Failing to write a response
-     * before returning {@code false} will leave the client with an empty reply.
-     *
-     * <p>This filter runs at the Jetty handler layer, ahead of Jersey.  Jersey
-     * exception mappers and response filters are <strong>not</strong> applied to
-     * responses written here.  Implementations that call checked-exception-throwing
-     * code (JWT parsers, database lookups, etc.) should catch those exceptions,
-     * write an appropriate error response (e.g. {@code 500 Internal Server Error}),
-     * and return {@code false} rather than allowing exceptions to propagate.
-     *
      * @param request  the incoming Jetty request; never {@code null}
-     * @param response the outgoing Jetty response; write the error response to it
-     *                 before returning {@code false}
+     * @param response the outgoing Jetty response; set the status code here when
+     *                 delegating the body to a configured error page, or write a
+     *                 full response before returning {@code false} if you need
+     *                 full control of the error body
      * @return {@code true} to allow the request to proceed and serve the file;
-     * {@code false} to block it — the filter must have written a response first
+     *         {@code false} to block it
      */
     boolean authorize(Request request, Response response);
 }

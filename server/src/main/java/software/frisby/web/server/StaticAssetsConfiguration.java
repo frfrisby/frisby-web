@@ -15,7 +15,8 @@ import java.util.Optional;
  * // Serve embedded classpath resources at /
  * StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
  *         .spaFallback(true)
- *         .notFoundPage("404.html")
+ *         .errorPage(404, "404.html")
+ *         .errorPage(500, "500.html")
  *         .responseHeaders(Map.of(
  *                 "Content-Security-Policy", "default-src 'self'",
  *                 "X-Frame-Options", "DENY",
@@ -156,20 +157,26 @@ public interface StaticAssetsConfiguration {
     boolean spaFallback();
 
     /**
-     * Returns the path, relative to the asset root, of the file to serve as the
-     * body of {@code 404} responses, or empty if no custom 404 page is configured.
+     * Returns a map of HTTP error status codes to the asset-root-relative path of the
+     * file to serve as the response body when that status code is produced by this
+     * handler.
      *
-     * <p>The HTTP response status is always {@code 404}; only the response body
-     * and {@code Content-Type} are taken from the configured file.  If the file
-     * itself is not found in the asset root, a plain {@code 404} with no body is
-     * returned.
+     * <p>For example, a mapping of {@code 404 → "404.html"} causes the handler to serve
+     * the body of {@code {assetRoot}/404.html} (with HTTP status {@code 404}) whenever a
+     * requested resource is not found.  A mapping of {@code 500 → "500.html"} causes the
+     * handler to serve {@code {assetRoot}/500.html} when the auth filter throws an
+     * unexpected exception.
      *
-     * <p>Example: {@code "404.html"} resolves to {@code {assetRoot}/404.html}.
+     * <p>The HTTP response status is always the configured status code; only the response
+     * body and {@code Content-Type} are taken from the configured file.  If the file itself
+     * is not found in the asset root at request time, a plain error response with no custom
+     * body is returned.
      *
-     * @return the relative path of the custom 404 page, or {@link Optional#empty()}
-     * if not set
+     * <p>Returns an empty map when no error pages have been configured.
+     *
+     * @return an unmodifiable map of HTTP status codes to relative file paths; never {@code null}
      */
-    Optional<String> notFoundPage();
+    Map<Integer, String> errorPages();
 
     /**
      * Returns the auth filter to invoke before serving each asset, or empty if no

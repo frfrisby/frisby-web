@@ -42,6 +42,8 @@ class ServerStaticAssetsTest {
     private static final String SUBDIR_INDEX_CONTENT = "static-test-subdir";
     private static final String OTHER_HTML_CONTENT = "static-test-other";
     private static final String CUSTOM_404_CONTENT = "static-test-404";
+    private static final String CUSTOM_429_CONTENT = "static-test-429";
+    private static final String CUSTOM_500_CONTENT = "static-test-500";
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -424,14 +426,14 @@ class ServerStaticAssetsTest {
 
         /**
          * SPA fallback is enabled, the asset root contains no {@code index.html}, and a
-         * custom not-found page is configured.  When an extensionless path misses and the
+         * custom 404 error page is configured.  When an extensionless path misses and the
          * fallback attempt for {@code index.html} also misses, the request falls through to
-         * {@code serveNotFoundPage()} and the custom page body is returned with status
-         * {@code 404}.  This exercises the {@code served = false, notFoundPage present}
+         * {@code serveErrorPage()} and the custom page body is returned with status
+         * {@code 404}.  This exercises the {@code served = false, 404 errorPage present}
          * branch in {@link StaticHandler}'s SPA-fallback path.
          */
         @Nested
-        class EnabledNoIndexHtmlWithNotFoundPage {
+        class EnabledNoIndexHtmlWithErrorPage {
             private Server server;
             private URI baseUri;
 
@@ -449,7 +451,7 @@ class ServerStaticAssetsTest {
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ALT_ASSET_ROOT)
                                         .spaFallback(true)
-                                        .notFoundPage("other.html")
+                                        .errorPage(404, "other.html")
                                         .build()
                         )
                         .build();
@@ -463,7 +465,7 @@ class ServerStaticAssetsTest {
             }
 
             @Test
-            void extensionlessPath_indexHtmlMissing_servesNotFoundPage() throws Exception {
+            void extensionlessPath_indexHtmlMissing_servesErrorPage() throws Exception {
                 HttpResponse<String> response = httpClient.send(
                         HttpRequest.newBuilder(baseUri.resolve("/some/deep/route"))
                                 .GET()
@@ -478,11 +480,11 @@ class ServerStaticAssetsTest {
     }
 
     // -------------------------------------------------------------------------
-    // Custom 404 page
+    // Error pages
     // -------------------------------------------------------------------------
 
     @Nested
-    class NotFoundPage {
+    class ErrorPage {
         @Nested
         class Configured {
             private Server server;
@@ -501,7 +503,7 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
-                                        .notFoundPage("404.html")
+                                        .errorPage(404, "404.html")
                                         .build()
                         )
                         .build();
@@ -573,16 +575,13 @@ class ServerStaticAssetsTest {
         }
 
         /**
-         * The configured {@code notFoundPage} has an unrecognized file extension, so
+         * The configured error-page path has an unrecognized file extension, so
          * {@code MimeTypes.DEFAULTS.getMimeByExtension()} returns {@code null} and the
          * handler must fall back to {@code "text/html; charset=utf-8"}.  This exercises
-         * the {@code null != contentType} false branch in {@code serveNotFoundPage()}.
-         * <p>
-         * The {@code .404} extension is project-specific and deliberately absent
-         * from Jetty's MIME type registry.
+         * the {@code null != contentType} false branch in {@code serveErrorPage()}.
          */
         @Nested
-        class NotFoundPageUnknownExtension {
+        class UnknownExtension {
             private Server server;
             private URI baseUri;
 
@@ -599,7 +598,7 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
-                                        .notFoundPage("custom-404.404")
+                                        .errorPage(404, "custom-404.404")
                                         .build()
                         )
                         .build();
@@ -633,14 +632,14 @@ class ServerStaticAssetsTest {
         }
 
         /**
-         * The configured {@code notFoundPage} file exists at startup (so validation passes)
-         * but is deleted before the first request arrives.  The handler must fall back to a
-         * plain {@code 404} rather than throwing, covering the
-         * {@code !Resources.isReadableFile(notFoundResource)} guard in
-         * {@code serveNotFoundPage()}.
+         * The configured error-page file exists at startup (so validation passes) but is
+         * deleted before the first request arrives.  The handler must fall back to a plain
+         * error response rather than throwing, covering the
+         * {@code !Resources.isReadableFile(errorPageResource)} guard in
+         * {@code serveErrorPage()}.
          */
         @Nested
-        class NotFoundPageDeletedAfterStartup {
+        class DeletedAfterStartup {
             @TempDir
             Path tmpDir;
 
@@ -649,7 +648,6 @@ class ServerStaticAssetsTest {
 
             @BeforeEach
             void setUp() throws Exception {
-                // Write the minimum files required for startup validation to pass.
                 Files.writeString(tmpDir.resolve("index.html"), INDEX_HTML_CONTENT);
                 Files.writeString(tmpDir.resolve("404.html"), CUSTOM_404_CONTENT);
 
@@ -664,14 +662,13 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.filesystem(tmpDir)
-                                        .notFoundPage("404.html")
+                                        .errorPage(404, "404.html")
                                         .build()
                         )
                         .build();
                 server.start();
                 baseUri = server.uri();
 
-                // Delete the custom 404 page after the server has started.
                 Files.delete(tmpDir.resolve("404.html"));
             }
 
@@ -681,7 +678,7 @@ class ServerStaticAssetsTest {
             }
 
             @Test
-            void missingPath_notFoundPageGone_returnsPlain404() throws Exception {
+            void missingPath_errorPageGone_returnsPlain404() throws Exception {
                 HttpResponse<String> response = httpClient.send(
                         HttpRequest.newBuilder(baseUri.resolve("/missing"))
                                 .GET()
@@ -691,6 +688,56 @@ class ServerStaticAssetsTest {
 
                 assertEquals(404, response.statusCode());
                 assertFalse(response.body().contains(CUSTOM_404_CONTENT));
+            }
+        }
+
+        /**
+         * Multiple error page codes configured: 404 and 500.  Verifies that both
+         * are served correctly for their respective scenarios.
+         */
+        @Nested
+        class MultipleStatusCodes {
+            private Server server;
+            private URI baseUri;
+
+            @BeforeEach
+            void setUp() throws Exception {
+                server = Server.builder()
+                        .configuration(
+                                ServerConfiguration.builder()
+                                        .port(0)
+                                        .serializer(new TestJsonSerializer())
+                                        .build()
+                        )
+                        .resources(new PingResource())
+                        .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                        .staticAssets(
+                                StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
+                                        .errorPage(404, "404.html")
+                                        .errorPage(500, "500.html")
+                                        .build()
+                        )
+                        .build();
+                server.start();
+                baseUri = server.uri();
+            }
+
+            @AfterEach
+            void tearDown() {
+                server.stop();
+            }
+
+            @Test
+            void missingPath_returns404WithCustomPage() throws Exception {
+                HttpResponse<String> response = httpClient.send(
+                        HttpRequest.newBuilder(baseUri.resolve("/missing"))
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertEquals(404, response.statusCode());
+                assertTrue(response.body().contains(CUSTOM_404_CONTENT));
             }
         }
     }
@@ -1053,6 +1100,162 @@ class ServerStaticAssetsTest {
                 assertEquals(401, response.statusCode());
             }
         }
+
+        /**
+         * Filter sets status 429 and returns false without writing a body.
+         * A custom 429 error page is configured — the handler must serve it.
+         */
+        @Nested
+        class RejectsWithErrorPage {
+            private Server server;
+            private URI baseUri;
+
+            @BeforeEach
+            void setUp() throws Exception {
+                server = Server.builder()
+                        .configuration(
+                                ServerConfiguration.builder()
+                                        .port(0)
+                                        .serializer(new TestJsonSerializer())
+                                        .build()
+                        )
+                        .resources(new PingResource())
+                        .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                        .staticAssets(
+                                StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
+                                        .errorPage(429, "429.html")
+                                        .authFilter((req, res) -> {
+                                            res.setStatus(429);
+                                            return false;
+                                        })
+                                        .build()
+                        )
+                        .build();
+                server.start();
+                baseUri = server.uri();
+            }
+
+            @AfterEach
+            void tearDown() {
+                server.stop();
+            }
+
+            @Test
+            void filterSets429WithoutBody_servesCustom429Page() throws Exception {
+                HttpResponse<String> response = httpClient.send(
+                        HttpRequest.newBuilder(baseUri.resolve("/index.html"))
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertEquals(429, response.statusCode());
+                assertTrue(response.body().contains(CUSTOM_429_CONTENT));
+            }
+        }
+
+        /**
+         * Filter throws a RuntimeException.  A custom 500 error page is configured —
+         * the handler must catch the exception and serve it.
+         */
+        @Nested
+        class ThrowsWithErrorPage {
+            private Server server;
+            private URI baseUri;
+
+            @BeforeEach
+            void setUp() throws Exception {
+                server = Server.builder()
+                        .configuration(
+                                ServerConfiguration.builder()
+                                        .port(0)
+                                        .serializer(new TestJsonSerializer())
+                                        .build()
+                        )
+                        .resources(new PingResource())
+                        .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                        .staticAssets(
+                                StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
+                                        .errorPage(500, "500.html")
+                                        .authFilter((req, res) -> {
+                                            throw new RuntimeException("simulated auth backend failure");
+                                        })
+                                        .build()
+                        )
+                        .build();
+                server.start();
+                baseUri = server.uri();
+            }
+
+            @AfterEach
+            void tearDown() {
+                server.stop();
+            }
+
+            @Test
+            void filterThrows_servesCustom500Page() throws Exception {
+                HttpResponse<String> response = httpClient.send(
+                        HttpRequest.newBuilder(baseUri.resolve("/index.html"))
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertEquals(500, response.statusCode());
+                assertTrue(response.body().contains(CUSTOM_500_CONTENT));
+            }
+        }
+
+        /**
+         * Filter throws a RuntimeException but no 500 error page is configured.
+         * The handler must still return a 500 response via the plain error mechanism.
+         */
+        @Nested
+        class ThrowsWithoutErrorPage {
+            private Server server;
+            private URI baseUri;
+
+            @BeforeEach
+            void setUp() throws Exception {
+                server = Server.builder()
+                        .configuration(
+                                ServerConfiguration.builder()
+                                        .port(0)
+                                        .serializer(new TestJsonSerializer())
+                                        .build()
+                        )
+                        .resources(new PingResource())
+                        .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                        .staticAssets(
+                                StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
+                                        .authFilter((req, res) -> {
+                                            throw new RuntimeException("simulated auth backend failure");
+                                        })
+                                        .build()
+                        )
+                        .build();
+                server.start();
+                baseUri = server.uri();
+            }
+
+            @AfterEach
+            void tearDown() {
+                server.stop();
+            }
+
+            @Test
+            void filterThrows_returnsPlain500() throws Exception {
+                HttpResponse<String> response = httpClient.send(
+                        HttpRequest.newBuilder(baseUri.resolve("/index.html"))
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertEquals(500, response.statusCode());
+                assertFalse(response.body().contains(CUSTOM_500_CONTENT));
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1208,7 +1411,7 @@ class ServerStaticAssetsTest {
                 + "The resource does not exist or is not a directory.";
 
         private static final String NOT_FOUND_PAGE_MISSING_MESSAGE =
-                "The 'notFoundPage' value of 'missing-404.html' is invalid.  "
+                "The 'errorPage[404]' value of 'missing-404.html' is invalid.  "
                 + "The file does not exist in the configured asset root.";
 
         @Test
@@ -1287,7 +1490,7 @@ class ServerStaticAssetsTest {
         }
 
         @Test
-        void notFoundPageNotInAssetRoot_throwsOnStart() {
+        void errorPageNotInAssetRoot_throwsOnStart() {
             // missing-404.html does not exist in /static-test-assets —
             // the server must reject it during startup validation.
             Server server = Server.builder()
@@ -1301,7 +1504,7 @@ class ServerStaticAssetsTest {
                     .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                     .staticAssets(
                             StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
-                                    .notFoundPage("missing-404.html")
+                                    .errorPage(404, "missing-404.html")
                                     .build()
                     )
                     .build();

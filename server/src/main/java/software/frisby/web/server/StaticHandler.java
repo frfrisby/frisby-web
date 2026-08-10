@@ -79,16 +79,17 @@ final class StaticHandler extends Handler.Wrapper {
         resourceHandler.setEtags(true);
         resourceHandler.setWelcomeFiles("index.html");
 
-        configuration.notFoundPage().ifPresent(notFoundPath -> {
-            Resource notFoundResource = baseResource.resolve(notFoundPath);
+        for (Map.Entry<Integer, String> entry : configuration.errorPages().entrySet()) {
+            String errorPagePath = entry.getValue();
+            Resource errorPageResource = baseResource.resolve(errorPagePath);
 
-            if (!Resources.isReadableFile(notFoundResource)) {
+            if (!Resources.isReadableFile(errorPageResource)) {
                 throw new IllegalStateException(
-                        "The 'notFoundPage' value of '" + notFoundPath + "' is invalid.  "
-                                + "The file does not exist in the configured asset root."
+                        "The 'errorPage[" + entry.getKey() + "]' value of '" + errorPagePath
+                                + "' is invalid.  The file does not exist in the configured asset root."
                 );
             }
-        });
+        }
 
         configuration.cacheMaxAge().ifPresent(duration -> {
             String cacheControl = duration.isZero()
@@ -96,7 +97,6 @@ final class StaticHandler extends Handler.Wrapper {
                     : "max-age=" + duration.getSeconds() + ", public";
             resourceHandler.setCacheControl(cacheControl);
         });
-
 
         super.doStart();
     }
@@ -154,10 +154,37 @@ final class StaticHandler extends Handler.Wrapper {
             return true;
         }
 
-        // 3. Auth filter — if present and rejects the request, the filter is responsible
-        //    for writing the response before returning false.
+        // 3. Auth filter — if present, invoke it.  When the filter returns false and has
+        //    not committed a response, check whether a configured error page applies to the
+        //    current response status and serve it automatically.  When the filter throws,
+        //    catch the exception and serve the configured 500 error page (if any).
         if (configuration.authFilter().isPresent()) {
-            boolean allowed = configuration.authFilter().get().authorize(request, response);
+            boolean allowed;
+
+            try {
+                allowed = configuration.authFilter().get().authorize(request, response);
+            } catch (Exception ex) {
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
+                        "Auth filter threw an exception for path: {0}",
+                        path,
+                        ex
+                );
+
+                if (!response.isCommitted()) {
+                    int status = HttpStatus.INTERNAL_SERVER_ERROR_500;
+
+                    if (configuration.errorPages().containsKey(status)) {
+                        serveErrorPage(status, path, request, response, eventCallback);
+                    } else {
+                        Response.writeError(request, response, eventCallback, status);
+                    }
+                } else {
+                    eventCallback.succeeded();
+                }
+
+                return true;
+            }
 
             if (!allowed) {
                 LOGGER.log(
@@ -165,6 +192,16 @@ final class StaticHandler extends Handler.Wrapper {
                         "→ GET {0} rejected by auth filter",
                         path
                 );
+
+                if (!response.isCommitted()) {
+                    int status = response.getStatus();
+
+                    if (configuration.errorPages().containsKey(status)) {
+                        serveErrorPage(status, path, request, response, eventCallback);
+                        return true;
+                    }
+                }
+
                 eventCallback.succeeded();
                 return true;
             }
@@ -180,11 +217,11 @@ final class StaticHandler extends Handler.Wrapper {
         boolean willUseSpaFallback = !resourceExists
                 && configuration.spaFallback()
                 && !hasFileExtension(path);
-        boolean willUseNotFoundPage = !resourceExists
+        boolean willUseErrorPage = !resourceExists
                 && !willUseSpaFallback
-                && configuration.notFoundPage().isPresent();
+                && configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404);
 
-        if (!resourceExists && !willUseSpaFallback && !willUseNotFoundPage) {
+        if (!resourceExists && !willUseSpaFallback && !willUseErrorPage) {
             return false;
         }
 
@@ -218,16 +255,16 @@ final class StaticHandler extends Handler.Wrapper {
                 return true;
             }
 
-            // index.html itself is missing — fall through to custom 404 or plain 404.
-            if (configuration.notFoundPage().isEmpty()) {
+            // index.html itself is missing — fall through to custom error page or plain 404.
+            if (!configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404)) {
                 LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404 (index.html missing)", path);
                 Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
                 return true;
             }
         }
 
-        // 8. Custom 404 page.
-        serveNotFoundPage(path, request, response, eventCallback);
+        // 8. Custom error page.
+        serveErrorPage(HttpStatus.NOT_FOUND_404, path, request, response, eventCallback);
         return true;
     }
 
@@ -365,26 +402,27 @@ final class StaticHandler extends Handler.Wrapper {
     }
 
     /**
-     * Serves the configured {@link StaticAssetsConfiguration#notFoundPage()} with
-     * HTTP status {@code 404}.  If the custom 404 file itself cannot be found in
-     * the asset root, falls back to a plain {@code 404} with no body.
+     * Serves the configured error page for {@code statusCode} with that HTTP status.
+     * If the custom page file cannot be found in the asset root at request time, falls
+     * back to a plain error response with no body.
      */
-    void serveNotFoundPage(String originalPath,
-                                   Request request,
-                                   Response response,
-                                   Callback callback) {
-        String notFoundPath = configuration.notFoundPage().orElseThrow();
-        Resource notFoundResource = baseResource.resolve(notFoundPath);
+    void serveErrorPage(int statusCode,
+                        String originalPath,
+                        Request request,
+                        Response response,
+                        Callback callback) {
+        String errorPagePath = configuration.errorPages().get(statusCode);
+        Resource errorPageResource = baseResource.resolve(errorPagePath);
 
-        if (!Resources.isReadableFile(notFoundResource)) {
-            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", originalPath);
-            Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
+        if (!Resources.isReadableFile(errorPageResource)) {
+            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} {1}", originalPath, statusCode);
+            Response.writeError(request, response, callback, statusCode);
             return;
         }
 
-        response.setStatus(HttpStatus.NOT_FOUND_404);
+        response.setStatus(statusCode);
 
-        String contentType = MimeTypes.DEFAULTS.getMimeByExtension(notFoundPath);
+        String contentType = MimeTypes.DEFAULTS.getMimeByExtension(errorPagePath);
         response.getHeaders().put(
                 HttpHeader.CONTENT_TYPE,
                 null != contentType ? contentType : "text/html; charset=utf-8"
@@ -392,11 +430,12 @@ final class StaticHandler extends Handler.Wrapper {
 
         LOGGER.log(
                 System.Logger.Level.WARNING,
-                "→ GET {0} 404 (custom page)",
-                originalPath
+                "→ GET {0} {1} (custom page)",
+                originalPath,
+                statusCode
         );
 
-        try (var in = notFoundResource.newInputStream()) {
+        try (var in = errorPageResource.newInputStream()) {
             byte[] content = in.readAllBytes();
             response.write(true, ByteBuffer.wrap(content), callback);
         } catch (Exception e) {
@@ -475,4 +514,3 @@ final class StaticHandler extends Handler.Wrapper {
         }
     }
 }
-
