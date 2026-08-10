@@ -98,7 +98,8 @@ final class JsonErrorHandler extends ErrorHandler {
                     Duration.ofMillis(latencyMs),
                     requestBytes,
                     jsonBytes.length,
-                    Optional.empty()
+                    Optional.empty(),
+                    false
             ));
         } catch (Exception ex) {
             if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {

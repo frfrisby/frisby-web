@@ -16,7 +16,8 @@ class NoOpServerEventListenerTest {
                 Duration.ofMillis(5),
                 0L,
                 32L,
-                Optional.empty()
+                Optional.empty(),
+                false
         );
 
         NoOpServerEventListener.INSTANCE.onRequestCompleted(event);

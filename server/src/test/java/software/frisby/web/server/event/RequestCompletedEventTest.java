@@ -65,7 +65,8 @@ class RequestCompletedEventTest {
                 Duration.ofMillis(14),
                 0L,
                 128L,
-                Optional.empty()
+                Optional.empty(),
+                false
         );
 
         String result = event.toString();
@@ -99,12 +100,41 @@ class RequestCompletedEventTest {
                     Duration.ofMillis(5),
                     0L,
                     0L,
-                    Optional.of(endpoint)
+                    Optional.of(endpoint),
+                    false
             );
 
             assertTrue(event.endpoint().isPresent());
             assertSame(SampleResource.class, event.endpoint().get().resourceClass());
             assertEquals(method, event.endpoint().get().method());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // staticAsset()
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class StaticAssetField {
+        @Test
+        void staticAssetFalse_returnsFalse() {
+            assertFalse(event(200).staticAsset());
+        }
+
+        @Test
+        void staticAssetTrue_returnsTrue() {
+            RequestCompletedEvent event = new RequestCompletedEvent(
+                    "GET",
+                    "/app.js",
+                    200,
+                    Duration.ofMillis(3),
+                    0L,
+                    0L,
+                    Optional.empty(),
+                    true
+            );
+
+            assertTrue(event.staticAsset());
         }
     }
 
@@ -158,7 +188,8 @@ class RequestCompletedEventTest {
                 Duration.ofMillis(1),
                 0L,
                 0L,
-                Optional.empty()
+                Optional.empty(),
+                false
         );
     }
 

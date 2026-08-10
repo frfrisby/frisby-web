@@ -22,9 +22,15 @@ import java.util.Optional;
  * <p>
  * The {@code endpoint} field identifies the matched JAX-RS resource class and method
  * when available.  It is empty for requests that did not match any resource (e.g.
- * {@code 404} responses to unregistered paths).  Use {@code endpoint} rather than
- * {@code path} for metrics labels — path-based labels cause a cardinality explosion
- * when paths contain variable segments (e.g. {@code /orders/42}, {@code /orders/43}).
+ * {@code 404} responses to unregistered paths) and is always empty for static asset
+ * requests.  Use {@code endpoint} rather than {@code path} for metrics labels —
+ * path-based labels cause a cardinality explosion when paths contain variable segments
+ * (e.g. {@code /orders/42}, {@code /orders/43}).
+ * <p>
+ * The {@code staticAsset} flag is {@code true} when the request was served by a
+ * static asset handler (configured via {@code ServerBuilder.staticAssets()}) rather
+ * than a JAX-RS resource.  Use this flag to filter static asset traffic out of metrics
+ * or logs when high-volume asset serving would otherwise distort API-level signals.
  *
  * @param method        The HTTP method of the request (e.g. {@code "GET"}, {@code "POST"}).
  * @param path          The decoded request path (e.g. {@code "/orders/123"}), without
@@ -37,7 +43,11 @@ import java.util.Optional;
  * @param responseBytes The number of bytes in the response body, or {@code 0} if the
  *                      response carried no body or the size could not be determined.
  * @param endpoint      The matched JAX-RS resource class and method, or empty if the
- *                      request did not match any resource.
+ *                      request did not match any resource.  Always empty for static
+ *                      asset requests.
+ * @param staticAsset   {@code true} if the request was served by a static asset handler;
+ *                      {@code false} for all other request types (JAX-RS, error responses,
+ *                      capacity rejections).
  * @see ServerEventListener#onRequestCompleted(RequestCompletedEvent)
  * @see Endpoint
  */
@@ -47,7 +57,8 @@ public record RequestCompletedEvent(String method,
                                     Duration latency,
                                     long requestBytes,
                                     long responseBytes,
-                                    Optional<Endpoint> endpoint) {
+                                    Optional<Endpoint> endpoint,
+                                    boolean staticAsset) {
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
@@ -58,6 +69,7 @@ public record RequestCompletedEvent(String method,
      * @param requestBytes  the request body byte count; must not be negative
      * @param responseBytes the response body byte count; must not be negative
      * @param endpoint      the matched endpoint; must not be {@code null} (may be empty)
+     * @param staticAsset   {@code true} if the request was served by a static asset handler
      * @throws software.frisby.core.validation.BlankValueException               if {@code method}
      *                                                                           or {@code path} is
      *                                                                           blank.

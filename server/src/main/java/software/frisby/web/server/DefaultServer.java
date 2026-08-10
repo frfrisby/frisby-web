@@ -361,7 +361,22 @@ final class DefaultServer implements Server {
         connector.setPort(uri.getPort());
 
         server.addConnector(connector);
-        server.setHandler(jerseyHandler);
+
+        // If static assets are configured, prepend one StaticHandler per configuration
+        // in a Handler.Sequence ahead of the Jersey servlet.  When no static assets are
+        // configured the handler chain is unchanged from the pre-static-assets behavior.
+        if (staticAssetsConfigurations.isEmpty()) {
+            server.setHandler(jerseyHandler);
+        } else {
+            Handler.Sequence sequence = new Handler.Sequence();
+
+            for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
+                sequence.addHandler(new StaticHandler((DefaultStaticAssetsConfiguration) config, eventListener));
+            }
+
+            sequence.addHandler(jerseyHandler);
+            server.setHandler(sequence);
+        }
 
         return server;
     }
@@ -750,7 +765,8 @@ final class DefaultServer implements Server {
                         latency,
                         0L,
                         BODY_503.length,
-                        java.util.Optional.empty()
+                        java.util.Optional.empty(),
+                        false
                 ));
             } catch (Exception ex) {
                 if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {

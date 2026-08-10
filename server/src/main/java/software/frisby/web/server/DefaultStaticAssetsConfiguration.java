@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Optional;
 
 final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguration {
-
     private final AssetSourceType sourceType;
     private final String classpathResourcePath; // non-null when sourceType == CLASSPATH
     private final Path filesystemDirectory;     // non-null when sourceType == FILESYSTEM
@@ -16,6 +15,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final boolean spaFallback;
     private final String notFoundPage;          // null = not configured
     private final StaticAssetsAuthFilter authFilter; // null = not configured
+
     DefaultStaticAssetsConfiguration(
             AssetSourceType sourceType,
             String classpathResourcePath,
