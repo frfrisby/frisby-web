@@ -7,10 +7,6 @@ import java.util.Optional;
 
 final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguration {
 
-    enum AssetSourceType {
-        CLASSPATH, FILESYSTEM
-    }
-
     private final AssetSourceType sourceType;
     private final String classpathResourcePath; // non-null when sourceType == CLASSPATH
     private final Path filesystemDirectory;     // non-null when sourceType == FILESYSTEM
@@ -20,7 +16,6 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final boolean spaFallback;
     private final String notFoundPage;          // null = not configured
     private final StaticAssetsAuthFilter authFilter; // null = not configured
-
     DefaultStaticAssetsConfiguration(
             AssetSourceType sourceType,
             String classpathResourcePath,
@@ -82,6 +77,10 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     @Override
     public Optional<StaticAssetsAuthFilter> authFilter() {
         return Optional.ofNullable(authFilter);
+    }
+
+    enum AssetSourceType {
+        CLASSPATH, FILESYSTEM
     }
 }
 

@@ -47,7 +47,6 @@ import java.util.Optional;
  * @see ServerBuilder
  */
 public interface StaticAssetsConfiguration {
-
     /**
      * Returns a builder pre-configured to serve assets from a classpath resource
      * path embedded in any JAR on the classpath.
@@ -67,8 +66,8 @@ public interface StaticAssetsConfiguration {
      * @param resourcePath the classpath resource path to serve from; must not be
      *                     {@code null} or blank, and must start with {@code /}
      * @return a new {@link StaticAssetsConfigurationBuilder}; never {@code null}
-     * @throws software.frisby.core.validation.NullValueException      if {@code resourcePath} is {@code null}
-     * @throws software.frisby.core.validation.BlankValueException     if {@code resourcePath} is blank
+     * @throws software.frisby.core.validation.NullValueException       if {@code resourcePath} is {@code null}
+     * @throws software.frisby.core.validation.BlankValueException      if {@code resourcePath} is blank
      * @throws software.frisby.core.validation.PatternMismatchException if {@code resourcePath} does not
      *                                                                  start with {@code /}
      */

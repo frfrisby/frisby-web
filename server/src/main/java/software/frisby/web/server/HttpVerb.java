@@ -16,31 +16,49 @@ package software.frisby.web.server;
  * @see HttpErrors#methodNotAllowed(HttpVerb...)
  */
 public enum HttpVerb {
-    /** RFC 7231 — retrieve a representation of the target resource. */
+    /**
+     * RFC 7231 — retrieve a representation of the target resource.
+     */
     GET,
 
-    /** RFC 7231 — same as GET but transfers only the status line and headers. */
+    /**
+     * RFC 7231 — same as GET but transfers only the status line and headers.
+     */
     HEAD,
 
-    /** RFC 7231 — perform resource-specific processing on the request payload. */
+    /**
+     * RFC 7231 — perform resource-specific processing on the request payload.
+     */
     POST,
 
-    /** RFC 7231 — replace the target resource with the request payload. */
+    /**
+     * RFC 7231 — replace the target resource with the request payload.
+     */
     PUT,
 
-    /** RFC 7231 — remove the target resource. */
+    /**
+     * RFC 7231 — remove the target resource.
+     */
     DELETE,
 
-    /** RFC 7231 — describe the communication options for the target resource. */
+    /**
+     * RFC 7231 — describe the communication options for the target resource.
+     */
     OPTIONS,
 
-    /** RFC 5789 — apply partial modifications to the target resource. */
+    /**
+     * RFC 5789 — apply partial modifications to the target resource.
+     */
     PATCH,
 
-    /** RFC 7231 — perform a message loop-back test to the target resource. */
+    /**
+     * RFC 7231 — perform a message loop-back test to the target resource.
+     */
     TRACE,
 
-    /** RFC 7231 — establish a tunnel to the server for the target resource. */
+    /**
+     * RFC 7231 — establish a tunnel to the server for the target resource.
+     */
     CONNECT
 }
 

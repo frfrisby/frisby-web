@@ -1,12 +1,6 @@
 package software.frisby.web.server;
 
-import software.frisby.core.validation.DisallowedValueException;
-import software.frisby.core.validation.Durations;
-import software.frisby.core.validation.Maps;
-import software.frisby.core.validation.NullMapKeyException;
-import software.frisby.core.validation.NullMapValueException;
-import software.frisby.core.validation.Strings;
-import software.frisby.core.validation.Values;
+import software.frisby.core.validation.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +24,9 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private final DefaultStaticAssetsConfiguration.AssetSourceType sourceType;
     private final String classpathResourcePath;
     private final Path filesystemDirectory;
+    private final Map<String, String> responseHeaders;
     private String urlPrefix;
     private Duration cacheMaxAge;
-    private final Map<String, String> responseHeaders;
     private boolean spaFallback;
     private String notFoundPage;
     private StaticAssetsAuthFilter authFilter;
