@@ -52,15 +52,23 @@ public interface StaticAssetsConfiguration {
      * Returns a builder pre-configured to serve assets from a classpath resource
      * path embedded in any JAR on the classpath.
      *
-     * <p>The {@code resourcePath} must start with {@code /} and the path must exist
-     * on the classpath at server startup time.  Example: {@code "/web"} serves the
-     * contents of {@code src/main/resources/web/} from the calling module's JAR.
+     * <p>The {@code resourcePath} must start with {@code /}.  Example: {@code "/web"}
+     * serves the contents of {@code src/main/resources/web/} from the calling
+     * module's JAR.
+     *
+     * <p><strong>Existence is not validated at configuration time.</strong>  Classpath
+     * resource lookup is classloader-relative; checking here would use the library's
+     * own classloader, which cannot see resources embedded in the application's JAR.
+     * The path is resolved against the runtime classloader at server startup, and the
+     * server will fail to start with a clear error if the path does not exist at that
+     * point.  Contrast with {@link #filesystem(Path)}, where directory existence is
+     * validated eagerly at configuration time.
      *
      * @param resourcePath the classpath resource path to serve from; must not be
      *                     {@code null} or blank, and must start with {@code /}
      * @return a new {@link StaticAssetsConfigurationBuilder}; never {@code null}
-     * @throws software.frisby.core.validation.NullValueException       if {@code resourcePath} is {@code null}
-     * @throws software.frisby.core.validation.BlankValueException      if {@code resourcePath} is blank
+     * @throws software.frisby.core.validation.NullValueException      if {@code resourcePath} is {@code null}
+     * @throws software.frisby.core.validation.BlankValueException     if {@code resourcePath} is blank
      * @throws software.frisby.core.validation.PatternMismatchException if {@code resourcePath} does not
      *                                                                  start with {@code /}
      */
@@ -172,8 +180,4 @@ public interface StaticAssetsConfiguration {
      */
     Optional<StaticAssetsAuthFilter> authFilter();
 }
-
-
-
-
 
