@@ -469,7 +469,7 @@ class ServerFailureLoggingTest {
 
     @Test
     void multiValueRequestHeader_allValuesJoinedOnOneLine() throws Exception {
-        // Accept is sent with two values — both must appear on a single line joined by ", ".
+        // Accept is sent with two values — both must appear on a single line joined by a comma (", ").
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                 .expect(LogExpectation.builder()
                         .logger(RequestLogger.class)

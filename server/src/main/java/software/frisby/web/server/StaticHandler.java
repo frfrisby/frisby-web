@@ -45,7 +45,7 @@ final class StaticHandler extends Handler.Wrapper {
 
     /**
      * Set during {@link #doStart()}; used for resource existence checks,
-     * SPA fallback resolution, and custom 404 page resolution.
+     * SPA fallback resolution, and custom 404-page resolution.
      */
     private Resource baseResource;
 
@@ -247,7 +247,7 @@ final class StaticHandler extends Handler.Wrapper {
         String method = request.getMethod();
         Callback eventCallback = new EventFiringCallback(callback, watch, method, path, response, eventListener);
 
-        // 2. Dotfile protection — unconditional 404 for any path segment starting with ".".
+        // 2. Dotfile protection — unconditional 404 for any path segment starting with period (".").
         if (isDotfilePath(path)) {
             LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} blocked (dotfile)", path);
             Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);

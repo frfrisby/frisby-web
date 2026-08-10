@@ -273,7 +273,7 @@ class ServerHealthCheckTest {
     }
 
     /**
-     * Verifies the liveness-under-load behaviour: when the server is at capacity but
+     * Verifies the liveness-under-load behavior: when the server is at capacity but
      * healthy (not shutting down), the health check endpoint bypasses the concurrency
      * gate and returns 200.  Without the bypass, a fully-loaded server would return 503
      * and trick the load balancer into recycling a live instance.

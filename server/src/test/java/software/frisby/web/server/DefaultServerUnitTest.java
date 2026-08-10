@@ -375,7 +375,7 @@ class DefaultServerUnitTest {
         }
 
         /**
-         * The downstream handler returns {@code false}, signalling that no handler
+         * The downstream handler returns {@code false}, signaling that no handler
          * claimed the request.
          * <p>
          * When {@code super.handle()} returns {@code false} the {@code releasing} wrapper

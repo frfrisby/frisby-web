@@ -13,9 +13,9 @@ import java.security.KeyStore;
  * <p>
  * The same self-signed certificate is used for both roles:
  * <ul>
- *   <li>{@link #serverSslContext()} — initialised with a {@link KeyManagerFactory}
+ *   <li>{@link #serverSslContext()} — initialized with a {@link KeyManagerFactory}
  *       so the server presents the certificate during TLS negotiation.</li>
- *   <li>{@link #clientSslContext()} — initialised with a {@link TrustManagerFactory}
+ *   <li>{@link #clientSslContext()} — initialized with a {@link TrustManagerFactory}
  *       that trusts the self-signed certificate, so the JDK {@code HttpClient} accepts
  *       the handshake without requiring the cert to be in the system trust store.</li>
  * </ul>
@@ -33,7 +33,7 @@ final class SslTestSupport {
 
     /**
      * Returns an {@link SSLContext} suitable for the server side of an HTTPS connection.
-     * The context is initialised with a {@link KeyManagerFactory} that holds the test
+     * The context is initialized with a {@link KeyManagerFactory} that holds the test
      * certificate's private key, allowing the server to complete TLS negotiation.
      */
     static SSLContext serverSslContext() throws Exception {
@@ -50,7 +50,7 @@ final class SslTestSupport {
 
     /**
      * Returns an {@link SSLContext} suitable for the client side of an HTTPS connection.
-     * The context is initialised with a {@link TrustManagerFactory} that trusts the
+     * The context is initialized with a {@link TrustManagerFactory} that trusts the
      * self-signed test certificate, so connections to {@code https://localhost:…} succeed
      * without the certificate being in the JVM's default trust store.
      */

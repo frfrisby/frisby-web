@@ -85,7 +85,7 @@ class ServerExceptionMappingTest {
         );
     }
 
-    // POST variants — request body must not influence the stripping behaviour
+    // POST variants — request body must not influence the stripping behavior
 
     @Test
     void forbidden_bodyIsStripped() throws Exception {

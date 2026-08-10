@@ -121,6 +121,25 @@ The alternative (an unbounded queue) lets the JVM OOM under sustained overload w
 clear rejection signal to upstream callers. Immediate 503 with `Retry-After: 1` is better
 operational behavior.
 
+### Static asset serving — no new dependencies
+
+Jetty's `ResourceHandler` is already a transitive dependency of the `server` module —
+Jetty bundles it.  Static file serving is therefore implemented directly in `server` rather
+than in a new artifact.  Consumers who want it pay nothing extra in their POM; consumers
+who don't want it pay no classpath overhead (handlers are only wired into Jetty's chain
+when `ServerBuilder.staticAssets()` is called).
+
+The feature targets the common "API + thin SPA" deployment pattern: React, Vue, or plain
+HTML/CSS/JS assets served from the same process as the API they call.  This eliminates the
+Nginx sidecar for internal tools, admin UIs, and developer-facing services where CDN-level
+throughput is not required.  For high-traffic, externally-facing production web apps, a CDN
+or dedicated static server remains the correct choice.
+
+JAX-RS endpoints always take priority.  `StaticHandler` instances are inserted ahead of
+the Jersey servlet in a `Handler.Sequence`; a request is only considered for static serving
+if no JAX-RS endpoint matched it first.  When no `staticAssets()` calls are made, the
+handler chain is identical to the pre-feature implementation.
+
 ### `GzipHandler` is intentionally not registered
 
 Jetty 12.0.x has a memory leak in `GzipHandler` (CVE-2026-1605, patched in 12.0.32).
@@ -232,6 +251,7 @@ placeholder appears instead. The limit is configurable on both client and server
 | JSON serialization                    | `JsonSerializer` (3-method interface in `serial`)            |
 | Request authentication (client)       | `SecurityProvider` in `client.security`                      |
 | Request authentication (server)       | `AuthenticationProvider` in `server`                         |
+| Static asset authentication           | `StaticAssetsAuthFilter` in `server`                         |
 | Metrics / observability (client)      | `ClientEventListener` in `client.event`                      |
 | Metrics / observability (server)      | `ServerEventListener` in `server.event`                      |
 | Request/response compression (client) | `ContentCompressor` / `ContentDecompressor`                  |

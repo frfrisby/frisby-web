@@ -309,6 +309,117 @@ throw HttpErrors.notFound();
 
 ---
 
+## Static Assets
+
+Register one or more static asset handlers via `ServerBuilder.staticAssets()`.  Static
+handlers sit ahead of the JAX-RS servlet in Jetty's handler chain — JAX-RS endpoints
+always take priority over static files.
+
+### `ServerBuilder.staticAssets()`
+
+| Method | Notes |
+|---|---|
+| `staticAssets(StaticAssetsConfiguration...)` | Registers one or more handlers. Calls are cumulative. Each configuration must have a unique, non-overlapping URL prefix — duplicates or overlap throw `IllegalStateException` at server startup. |
+
+### `StaticAssetsConfiguration` — factory methods
+
+| Factory | Validates at |
+|---|---|
+| `StaticAssetsConfiguration.classpath(String resourcePath)` — `resourcePath` must start with `/`; must not be null or blank | Builder time |
+| `StaticAssetsConfiguration.filesystem(Path directory)` — `directory` must exist and be a readable directory | Builder time |
+
+Classpath source existence is **not** checked at builder time (the builder's classloader
+cannot see resources in the application JAR).  The server fails fast at startup with a
+clear error if the path is missing.
+
+### `StaticAssetsConfigurationBuilder` — all methods
+
+| Method | Default | Constraints |
+|---|---|---|
+| `urlPrefix(String)` | `"/"` | Must start with `/`; not null or blank. Serves all unmatched paths when `"/"`. |
+| `cacheMaxAge(Duration)` | none | Emits `Cache-Control: max-age=<s>, public`. `Duration.ZERO` emits `max-age=0, no-cache`. Omitting emits no header. Not null, not negative. |
+| `responseHeaders(Map<String,String>)` | empty | Headers added to every asset response. Cumulative — later calls merge into earlier; duplicate keys take the later value. Map and all keys/values must not be null. |
+| `spaFallback(boolean)` | `false` | When `true`, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404. |
+| `errorPage(int statusCode, String path)` | none | Maps an HTTP error status (400–599) to a file in the asset root. Status code preserved; only body and `Content-Type` come from the file. Multiple calls allowed (different codes); duplicate codes are last-write-wins. Each path is validated for readability at server startup. |
+| `authFilter(StaticAssetsAuthFilter)` | none | Invoked before every asset request. See below. |
+| `build()` | — | Returns a `StaticAssetsConfiguration`. |
+
+### `StaticAssetsAuthFilter` — `@FunctionalInterface`
+
+```java
+boolean authorize(Request request, Response response) throws Exception
+```
+
+- `true` — allow; asset is served normally.
+- `false` — block.  If the response is not yet committed, the handler checks
+  `errorPages()` for the response status and serves a configured page automatically.
+  If no page is configured for that status, the response completes as-is (with whatever
+  status the filter set).
+- Throw — signals a backend failure (e.g. `IOException`).  The handler catches it, logs
+  at `ERROR`, and serves the configured `errorPage(500, ...)` if present, or returns a
+  plain `500`.
+
+**Critical:** JAX-RS `AuthenticationProvider` implementations do **not** apply to static
+assets — they run inside Jersey, which static handlers bypass entirely.  Use `authFilter()`
+to gate static asset access.
+
+### Built-in behaviours
+
+| Behaviour | Detail |
+|---|---|
+| **Dotfile protection** | Final path segment starting with `.` (e.g. `/.env`) → unconditional `404`. Cannot be disabled. |
+| **Directory index** | `GET /` and `GET /subdir/` serve the `index.html` within that directory. |
+| **ETags / Last-Modified** | Emitted automatically; `If-None-Match` returns `304 Not Modified`. |
+| **JAX-RS priority** | Static handlers only receive requests that no JAX-RS endpoint matched. |
+| **Startup validation** | Asset source and all `errorPage` paths validated when the server starts; missing resources → `IllegalStateException` with a clear message. |
+| **URL prefix conflict detection** | Exact duplicates or proper-prefix overlaps (e.g. `/admin` + `/admin/reports`) → `IllegalStateException` at startup. |
+
+### Usage examples
+
+**Minimal SPA from classpath:**
+```java
+Server.builder()
+        ...
+        .staticAssets(
+                StaticAssetsConfiguration.classpath("/web")
+                        .spaFallback(true)
+                        .errorPage(404, "404.html")
+                        .responseHeaders(Map.of(
+                                "Content-Security-Policy", "default-src 'self'",
+                                "X-Frame-Options", "DENY",
+                                "X-Content-Type-Options", "nosniff"
+                        ))
+                        .build()
+        )
+```
+
+**Multiple roots — auth-gated admin SPA + public docs:**
+```java
+Server.builder()
+        ...
+        .staticAssets(
+                StaticAssetsConfiguration.classpath("/admin-web")
+                        .urlPrefix("/admin")
+                        .spaFallback(true)
+                        .errorPage(401, "401.html")
+                        .errorPage(500, "500.html")
+                        .authFilter((req, res) -> {
+                            if (!tokenStore.isValid(extractToken(req))) {
+                                res.setStatus(401);
+                                return false;
+                            }
+                            return true;
+                        })
+                        .build(),
+                StaticAssetsConfiguration.filesystem(Path.of("/var/docs"))
+                        .urlPrefix("/docs")
+                        .cacheMaxAge(Duration.ofHours(1))
+                        .build()
+        )
+```
+
+---
+
 ## Complete example — production-grade server
 
 ```java

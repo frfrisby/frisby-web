@@ -28,8 +28,9 @@ support — with zero framework magic and a minimal, explicit API.
 16. [Failure-detail logging and redaction](#16-failure-detail-logging-and-redaction)
 17. [Observability — ServerEventListener](#17-observability--servereventlistener)
 18. [Advanced: custom JAX-RS components](#18-advanced-custom-jax-rs-components)
-19. [Comparison with alternatives](#19-comparison-with-alternatives)
-20. [Complete examples](#20-complete-examples)
+19. [Static assets](#19-static-assets)
+20. [Comparison with alternatives](#20-comparison-with-alternatives)
+21. [Complete examples](#21-complete-examples)
 
 ---
 
@@ -884,7 +885,215 @@ software.frisby.web.server.RequestLogger.level = WARNING
 
 ---
 
-## 19. Comparison with alternatives
+## 19. Static assets
+
+The `server` module can serve static files — classpath resources embedded in a JAR, or
+files from a local filesystem directory — alongside your JAX-RS API endpoints.  No
+additional Maven dependency is required; Jetty's `ResourceHandler` is already on the
+classpath as a transitive dependency.
+
+**When to use this:**  internal tools, admin dashboards, self-hosted Swagger UI, service
+status pages, and any "API + thin SPA" deployment where eliminating a separate Nginx
+sidecar reduces operational complexity.
+
+**When to keep the Nginx sidecar:**  high-traffic, externally-facing production web apps
+where CDN integration, edge caching, and advanced proxy features justify the extra
+infrastructure.
+
+JAX-RS endpoints **always** take priority.  Static handlers are only reached by requests
+that no JAX-RS resource matched.
+
+### Quick setup
+
+```java
+Server.builder()
+        .configuration(c -> c.port(8080).serializer(serializer))
+        .resources(new ApiResource())
+        .staticAssets(
+                StaticAssetsConfiguration.classpath("/web")
+                        .spaFallback(true)
+                        .errorPage(404, "404.html")
+                        .responseHeaders(Map.of(
+                                "Content-Security-Policy", "default-src 'self'",
+                                "X-Frame-Options", "DENY",
+                                "X-Content-Type-Options", "nosniff"
+                        ))
+                        .build()
+        )
+        .build();
+```
+
+Place your front-end build output under `src/main/resources/web/`; the files are embedded
+in the JAR and served at `GET /`.
+
+### Asset sources
+
+#### Classpath
+
+```java
+StaticAssetsConfiguration.classpath("/web")   // serves src/main/resources/web/
+```
+
+`resourcePath` must start with `/`.  The path is resolved against the runtime classloader
+at server startup — existence is **not** validated at build time (the builder's classloader
+cannot see resources in the application JAR).  The server fails fast with a clear message
+if the path is missing.
+
+#### Filesystem
+
+```java
+StaticAssetsConfiguration.filesystem(Path.of("/var/app/docs"))
+```
+
+The directory must exist at builder time.  Suitable for containerized deployments where
+assets are mounted into the filesystem.  For local development, point at the output
+directory of your front-end bundler (e.g. `frontend/dist`):
+
+```java
+StaticAssetsConfiguration.filesystem(Path.of("frontend/dist")).spaFallback(true).build()
+```
+
+### URL prefix
+
+Use `urlPrefix(String)` to scope assets to a URL namespace:
+
+```java
+StaticAssetsConfiguration.classpath("/admin-web")
+        .urlPrefix("/admin")   // serves at /admin/*, leaves / for JAX-RS
+        .build()
+```
+
+Defaults to `"/"`, which serves any path not matched by a JAX-RS endpoint.
+
+### Multiple asset roots
+
+`staticAssets()` may be called multiple times.  Each call registers an independent handler:
+
+```java
+Server.builder()
+        ...
+        .staticAssets(
+                StaticAssetsConfiguration.classpath("/admin-web").urlPrefix("/admin").build(),
+                StaticAssetsConfiguration.filesystem(Path.of("/var/docs")).urlPrefix("/docs").build()
+        )
+```
+
+URL prefixes must not overlap — exact duplicates and proper-prefix relationships (e.g.
+`/admin` and `/admin/reports`) throw `IllegalStateException` at server startup.
+
+### SPA fallback
+
+Enable `spaFallback(true)` for single-page applications using client-side routing (React
+Router, Vue Router, etc.):
+
+```java
+StaticAssetsConfiguration.classpath("/web").spaFallback(true).build()
+```
+
+When enabled, an extensionless path (e.g. `GET /orders/123`) that resolves to a missing
+file is re-served as `index.html` with status `200`.  The SPA's router then handles the
+path in the browser.
+
+Paths with a file extension (e.g. `GET /logo.png`) that are missing still return `404` —
+this prevents silently serving HTML in place of a genuinely missing image or script.
+
+### Error pages
+
+Map HTTP error status codes to custom HTML files in the asset root:
+
+```java
+StaticAssetsConfiguration.classpath("/web")
+        .errorPage(404, "404.html")    // served when a static resource is not found
+        .errorPage(500, "500.html")    // served when the auth filter throws an exception
+        .errorPage(429, "429.html")    // served when the auth filter sets 429 and returns false
+        .build()
+```
+
+The HTTP status code is preserved; only the response body and `Content-Type` come from the
+configured file.  Each path is validated for readability at server startup.  If a file is
+subsequently deleted, the server falls back to a plain error response for that request.
+
+### Security headers
+
+```java
+StaticAssetsConfiguration.classpath("/web")
+        .responseHeaders(Map.of(
+                "Content-Security-Policy", "default-src 'self'; script-src 'self'",
+                "X-Frame-Options", "DENY",
+                "X-Content-Type-Options", "nosniff",
+                "Referrer-Policy", "strict-origin-when-cross-origin"
+        ))
+        .build()
+```
+
+Headers are added to every asset response from this handler only — JAX-RS API responses
+are unaffected.  Calling `responseHeaders()` multiple times merges the maps; duplicate
+keys take the later value.
+
+### Cache-Control
+
+```java
+.cacheMaxAge(Duration.ofDays(7))    // Cache-Control: max-age=604800, public
+.cacheMaxAge(Duration.ZERO)          // Cache-Control: max-age=0, no-cache
+// omitting → no Cache-Control header emitted
+```
+
+### Dotfile protection
+
+Files whose final path segment starts with `.` (e.g. `GET /.env`, `GET /.htpasswd`) are
+**always** blocked with `404`.  This is unconditional and cannot be disabled.  It protects
+against accidentally serving sensitive files that may have ended up in a classpath resource
+directory or mounted volume.
+
+### Auth filter
+
+Static assets bypass the Jersey filter chain — `AuthenticationProvider` implementations
+from `server-basic-security` and `server-oauth2-security` are **not** applied to static
+asset requests.  Use `authFilter()` to gate asset access:
+
+```java
+StaticAssetsConfiguration.classpath("/admin-web")
+        .urlPrefix("/admin")
+        .errorPage(401, "401.html")
+        .authFilter((request, response) -> {
+            String token = extractBearerToken(request);
+            if (null == token || !tokenStore.isValid(token)) {
+                response.setStatus(401);
+                return false;  // handler serves 401.html automatically
+            }
+            return true;
+        })
+        .build()
+```
+
+**Auth filter contract:**
+
+- Return `true` to allow the request.
+- Return `false` to block it.  Set the response status first; if an `errorPage()` is
+  configured for that status code and the response is not yet committed, the handler serves
+  the configured page automatically.
+- Throw an exception (e.g. `IOException` if your auth backend is unreachable); the handler
+  catches it, logs it at `ERROR`, and serves the configured `errorPage(500, ...)` if
+  present, or returns a plain `500`.
+
+`StaticAssetsAuthFilter` receives the raw Jetty `Request` and `Response` objects — not the
+JAX-RS `ContainerRequestContext`.
+
+### Builder reference
+
+| Method                                | Default | Description                                                   |
+|---------------------------------------|---------|---------------------------------------------------------------|
+| `urlPrefix(String)`                   | `"/"`   | URL prefix for this handler. Must start with `/`.             |
+| `cacheMaxAge(Duration)`               | none    | `Cache-Control` header value. Not negative.                   |
+| `responseHeaders(Map<String,String>)` | empty   | Response headers added to every asset response.               |
+| `spaFallback(boolean)`                | `false` | Serve `index.html` for extensionless missing paths.           |
+| `errorPage(int, String)`              | none    | Custom response body for a given HTTP error status (400–599). |
+| `authFilter(StaticAssetsAuthFilter)`  | none    | Pre-request authorization hook.                               |
+| `build()`                             | —       | Returns the `StaticAssetsConfiguration`.                      |
+
+---
+
+## 20. Comparison with alternatives
 
 ### vs. Spring Boot (embedded Tomcat / Netty)
 
@@ -954,20 +1163,21 @@ that scales well via virtual threads.
 
 ### Summary
 
-| | Spring Boot | Quarkus | Dropwizard | Vert.x | **frisby-web:server** |
-|---|---|---|---|---|---|
-| Mandatory DI container | ✓ | ✓ | partial | | **✗** |
-| Build-time processing | | ✓ | | | **✗** |
-| Classpath scanning | ✓ | ✓ | ✓ | | **✗** |
-| Bundled config format | ✓ | ✓ | ✓ (YAML) | | **✗** |
-| Virtual thread support | ✓ (3.2+) | ✓ | partial | | **✓** |
-| Standard JAX-RS API | ✓ | ✓ | ✓ | | **✓** |
-| Pluggable serializer | | | | ✓ | **✓** |
-| Zero mandatory extras | | | | | **✓** |
+|                               | Spring Boot | Quarkus | Dropwizard | Vert.x | **frisby-web:server** |
+|-------------------------------|-------------|---------|------------|--------|-----------------------|
+| Mandatory DI container        | ✓          | ✓      | partial    |        | **✗**                |
+| Build-time processing         |             | ✓      |            |        | **✗**                |
+| Classpath scanning            | ✓          | ✓      | ✓         |        | **✗**                |
+| Bundled config format         | ✓          | ✓      | ✓ (YAML)  |        | **✗**                |
+| Virtual thread support        | ✓ (3.2+)   | ✓      | partial    |        | **✓**                |
+| Standard JAX-RS API           | ✓          | ✓      | ✓         |        | **✓**                |
+| Pluggable serializer          |             |         |            | ✓     | **✓**                |
+| Built-in static asset serving | ✓          | ✓      |            |        | **✓**                |
+| Zero mandatory extras         |             |         |            |        | **✓**                |
 
 ---
 
-## 20. Complete examples
+## 21. Complete examples
 
 ### Minimal HTTP server
 

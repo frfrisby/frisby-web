@@ -183,7 +183,7 @@ public interface StaticAssetsConfiguration {
      * filter has been configured.
      *
      * <p>When empty, all requests are served without any authentication or
-     * authorisation check.
+     * authorization check.
      *
      * @return the configured {@link StaticAssetsAuthFilter}, or
      * {@link Optional#empty()} if not set
