@@ -322,6 +322,49 @@ public interface ServerBuilder {
     ServerBuilder eventListener(ServerEventListener eventListener);
 
     /**
+     * Configures one or more static asset handlers alongside JAX-RS endpoints.
+     *
+     * <p>Each configuration registers an independent handler at its own URL prefix.
+     * All handlers are inserted into the Jetty handler chain ahead of the JAX-RS
+     * servlet, so JAX-RS endpoints always take priority over static files.
+     *
+     * <p>Calls are cumulative — invoking this method more than once adds to the
+     * previously registered set.
+     *
+     * <p>Duplicate URL prefixes and prefixes where one is an ancestor path of another
+     * are detected at {@link #build()} time and cause an {@link IllegalStateException}.
+     *
+     * <p>When this method is never called, no static file handler is registered and
+     * all requests are handled exclusively by JAX-RS.
+     *
+     * @param configurations one or more static assets configurations; must not be
+     *                       {@code null} or empty
+     * @return This builder.
+     * @throws software.frisby.core.validation.NullValueException       if {@code configurations}
+     *                                                                   is {@code null}
+     * @throws software.frisby.core.validation.MissingElementsException if {@code configurations}
+     *                                                                   is empty
+     * @throws software.frisby.core.validation.NullElementException     if any element is {@code null}
+     */
+    ServerBuilder staticAssets(StaticAssetsConfiguration... configurations);
+
+    /**
+     * Configures one or more static asset handlers alongside JAX-RS endpoints.
+     * <p>
+     * Convenience overload that accepts a {@link List}.  Calls are cumulative.
+     *
+     * @param configurations a list of static assets configurations; must not be
+     *                       {@code null} or empty
+     * @return This builder.
+     * @throws software.frisby.core.validation.NullValueException       if {@code configurations}
+     *                                                                   is {@code null}
+     * @throws software.frisby.core.validation.MissingElementsException if {@code configurations}
+     *                                                                   is empty
+     * @throws software.frisby.core.validation.NullElementException     if any element is {@code null}
+     */
+    ServerBuilder staticAssets(List<StaticAssetsConfiguration> configurations);
+
+    /**
      * Returns a new {@link Server} instance configured from the options supplied to
      * this builder.
      *

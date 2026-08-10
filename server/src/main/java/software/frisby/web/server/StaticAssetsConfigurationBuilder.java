@@ -78,6 +78,11 @@ public interface StaticAssetsConfigurationBuilder {
      * name appears in more than one call, the value from the later call overwrites
      * the earlier one.
      *
+     * <p><strong>One value per header name.</strong>  Headers that require multiple
+     * separate field lines — most notably {@code Set-Cookie} — are not supported by
+     * this method.  Use {@link #authFilter(StaticAssetsAuthFilter)} to write such
+     * headers directly via the raw Jetty {@link org.eclipse.jetty.server.Response}.
+     *
      * @param headers a map of header names to values; must not be {@code null};
      *                no key or value in the map may be {@code null}
      * @return this builder

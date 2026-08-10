@@ -88,6 +88,7 @@ final class DefaultServer implements Server {
     private final List<Object> resources;
     private final List<Object> components;
     private final List<AuthenticationProvider> authenticationProviders;
+    private final List<StaticAssetsConfiguration> staticAssetsConfigurations;
     private final ServerEventListener eventListener;
     private final RequestLogger requestLogger;
     private final String healthCheckPath;
@@ -108,11 +109,13 @@ final class DefaultServer implements Server {
                   List<Object> components,
                   List<AuthenticationProvider> authenticationProviders,
                   ServerEventListener eventListener,
-                  String healthCheckPath) {
+                  String healthCheckPath,
+                  List<StaticAssetsConfiguration> staticAssetsConfigurations) {
         this.configuration = Values.notNull("configuration", configuration);
         this.resources = Sequences.notEmpty("resources", resources);
         this.components = Sequences.notNull("components", components);
         this.authenticationProviders = Sequences.notNull("authenticationProviders", authenticationProviders);
+        this.staticAssetsConfigurations = Sequences.notNull("staticAssetsConfigurations", staticAssetsConfigurations);
         this.eventListener = Values.notNull("eventListener", eventListener);
         this.healthCheckPath = Strings.optionalNotBlank("healthCheckPath", healthCheckPath);
 
