@@ -341,9 +341,9 @@ public interface ServerBuilder {
      *                       {@code null} or empty
      * @return This builder.
      * @throws software.frisby.core.validation.NullValueException       if {@code configurations}
-     *                                                                   is {@code null}
+     *                                                                  is {@code null}
      * @throws software.frisby.core.validation.MissingElementsException if {@code configurations}
-     *                                                                   is empty
+     *                                                                  is empty
      * @throws software.frisby.core.validation.NullElementException     if any element is {@code null}
      */
     ServerBuilder staticAssets(StaticAssetsConfiguration... configurations);
@@ -357,9 +357,9 @@ public interface ServerBuilder {
      *                       {@code null} or empty
      * @return This builder.
      * @throws software.frisby.core.validation.NullValueException       if {@code configurations}
-     *                                                                   is {@code null}
+     *                                                                  is {@code null}
      * @throws software.frisby.core.validation.MissingElementsException if {@code configurations}
-     *                                                                   is empty
+     *                                                                  is empty
      * @throws software.frisby.core.validation.NullElementException     if any element is {@code null}
      */
     ServerBuilder staticAssets(List<StaticAssetsConfiguration> configurations);

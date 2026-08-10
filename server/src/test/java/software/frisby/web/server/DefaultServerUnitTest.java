@@ -1,5 +1,6 @@
 package software.frisby.web.server;
 
+import jakarta.ws.rs.core.MediaType;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.server.Handler;
@@ -8,16 +9,11 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import jakarta.ws.rs.core.MediaType;
 import software.frisby.web.serial.GenericType;
 import software.frisby.web.serial.JsonSerializer;
 
 import java.io.ByteArrayInputStream;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
+import java.lang.reflect.*;
 import java.util.Arrays;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
@@ -36,6 +32,63 @@ class DefaultServerUnitTest {
 
     // -------------------------------------------------------------------------
     // serializeEntityForLog
+    // -------------------------------------------------------------------------
+
+    private static Method resolveMethod(String name, Class<?>... paramTypes) {
+        return resolveMethod(DefaultServer.class, name, paramTypes);
+    }
+
+    // -------------------------------------------------------------------------
+    // unwrapJerseyException
+    // -------------------------------------------------------------------------
+
+    private static Method resolveMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
+        try {
+            Method m = clazz.getDeclaredMethod(name, paramTypes);
+            m.setAccessible(true);
+            return m;
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException("Could not find " + clazz.getSimpleName() + "." + name, e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // isTextBody
+    // -------------------------------------------------------------------------
+
+    private static Class<?> resolveNestedClass(String simpleName) {
+        return Arrays.stream(DefaultServer.class.getDeclaredClasses())
+                .filter(c -> c.getSimpleName().equals(simpleName))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Could not find nested class: " + simpleName));
+    }
+
+    // -------------------------------------------------------------------------
+    // ConcurrencyLimitHandler — handle() edge paths
+    // -------------------------------------------------------------------------
+
+    /**
+     * A {@link JsonSerializer} whose {@code serialize()} always throws.
+     */
+    private static final class ThrowingSerializer implements JsonSerializer {
+        @Override
+        public byte[] serialize(Object value) {
+            throw new RuntimeException("Simulated serialization failure");
+        }
+
+        @Override
+        public <T> T deserialize(byte[] content, Class<T> type) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public <T> T deserialize(byte[] content, GenericType<T> genericType) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ConcurrencyLimitHandler — 503-write Callback.failed() path
     // -------------------------------------------------------------------------
 
     /**
@@ -84,7 +137,7 @@ class DefaultServerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // unwrapJerseyException
+    // Helpers
     // -------------------------------------------------------------------------
 
     /**
@@ -119,10 +172,6 @@ class DefaultServerUnitTest {
             assertNull(invoke(null));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // isTextBody
-    // -------------------------------------------------------------------------
 
     /**
      * Unit tests for the {@code isTextBody} private static utility.
@@ -179,10 +228,6 @@ class DefaultServerUnitTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // ConcurrencyLimitHandler — handle() edge paths
-    // -------------------------------------------------------------------------
-
     /**
      * Unit tests for {@code ConcurrencyLimitHandler.handle()} paths that require
      * a controlled downstream handler rather than a live HTTP server.
@@ -201,6 +246,40 @@ class DefaultServerUnitTest {
      */
     @Nested
     class ConcurrencyLimitHandlerHandle {
+        private static Handler.Wrapper buildLimitHandler(int maxConcurrent) throws Exception {
+            Class<?> handlerClass = Arrays.stream(DefaultServer.class.getDeclaredClasses())
+                    .filter(c -> c.getSimpleName().equals("ConcurrencyLimitHandler"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("ConcurrencyLimitHandler not found"));
+
+            Constructor<?> ctor = handlerClass.getDeclaredConstructor(
+                    java.util.concurrent.Semaphore.class,
+                    java.util.concurrent.atomic.AtomicBoolean.class,
+                    RequestLogger.class,
+                    software.frisby.web.server.event.ServerEventListener.class,
+                    String.class
+            );
+            ctor.setAccessible(true);
+
+            return (Handler.Wrapper) ctor.newInstance(
+                    new java.util.concurrent.Semaphore(maxConcurrent),
+                    new java.util.concurrent.atomic.AtomicBoolean(false),
+                    new RequestLogger(),
+                    NoOpServerEventListener.INSTANCE,
+                    null
+            );
+        }
+
+        private static void assertPermitCount(Handler.Wrapper limitHandler,
+                                              int expected,
+                                              String message) throws Exception {
+            Class<?> handlerClass = limitHandler.getClass();
+            Field semaphoreField = handlerClass.getDeclaredField("semaphore");
+            semaphoreField.setAccessible(true);
+            Semaphore semaphore = (Semaphore) semaphoreField.get(limitHandler);
+            assertEquals(expected, semaphore.availablePermits(), message);
+        }
+
         @Test
         void downstreamCallsFailed_releasesSemaphoreAndForwardsThrowable() throws Exception {
             Handler.Wrapper limitHandler = buildLimitHandler(1);
@@ -243,6 +322,10 @@ class DefaultServerUnitTest {
             assertPermitCount(limitHandler, 1,
                     "releasing.failed() must release the semaphore permit");
         }
+
+        // -------------------------------------------------------------------------
+        // Shared helpers
+        // -------------------------------------------------------------------------
 
         /**
          * The downstream handler throws synchronously from {@code handle()}.
@@ -331,11 +414,30 @@ class DefaultServerUnitTest {
             assertPermitCount(limitHandler, 1,
                     "if (!handled) block must release the semaphore permit");
         }
+    }
 
-        // -------------------------------------------------------------------------
-        // Shared helpers
-        // -------------------------------------------------------------------------
-
+    /**
+     * Covers the {@code failed()} method of the anonymous {@code Callback} passed to
+     * {@code response.write()} in the capacity-rejection (503) path.
+     * <p>
+     * In normal operation this callback's {@code succeeded()} fires after the 503 body
+     * is written successfully; the {@code failed()} path fires only if the write itself
+     * fails (e.g. the client disconnects before the 97-byte response is delivered).
+     * Writing a 97-byte response completes in a single TCP segment, so there is no
+     * reliable timing window to interrupt it in a real HTTP test.
+     * <p>
+     * Instead, a {@link Proxy} implementation of {@link Response} is used: when
+     * {@code response.write()} is called, the proxy immediately calls
+     * {@code callback.failed(t)} on the provided {@code Callback}.  This drives the
+     * code path without requiring a real server or a network fault.
+     * <p>
+     * Note: both {@code succeeded()} and {@code failed()} call the same
+     * {@code logAndFire()} method — there is no additional error-specific log entry.
+     * The throwable is forwarded to the original {@code Callback.failed(t)} for Jetty
+     * to handle at the connection layer.
+     */
+    @Nested
+    class WriteCallbackFailed {
         private static Handler.Wrapper buildLimitHandler(int maxConcurrent) throws Exception {
             Class<?> handlerClass = Arrays.stream(DefaultServer.class.getDeclaredClasses())
                     .filter(c -> c.getSimpleName().equals("ConcurrencyLimitHandler"))
@@ -360,43 +462,6 @@ class DefaultServerUnitTest {
             );
         }
 
-        private static void assertPermitCount(Handler.Wrapper limitHandler,
-                                              int expected,
-                                              String message) throws Exception {
-            Class<?> handlerClass = limitHandler.getClass();
-            Field semaphoreField = handlerClass.getDeclaredField("semaphore");
-            semaphoreField.setAccessible(true);
-            Semaphore semaphore = (Semaphore) semaphoreField.get(limitHandler);
-            assertEquals(expected, semaphore.availablePermits(), message);
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // ConcurrencyLimitHandler — 503-write Callback.failed() path
-    // -------------------------------------------------------------------------
-
-    /**
-     * Covers the {@code failed()} method of the anonymous {@code Callback} passed to
-     * {@code response.write()} in the capacity-rejection (503) path.
-     * <p>
-     * In normal operation this callback's {@code succeeded()} fires after the 503 body
-     * is written successfully; the {@code failed()} path fires only if the write itself
-     * fails (e.g. the client disconnects before the 97-byte response is delivered).
-     * Writing a 97-byte response completes in a single TCP segment, so there is no
-     * reliable timing window to interrupt it in a real HTTP test.
-     * <p>
-     * Instead, a {@link Proxy} implementation of {@link Response} is used: when
-     * {@code response.write()} is called, the proxy immediately calls
-     * {@code callback.failed(t)} on the provided {@code Callback}.  This drives the
-     * code path without requiring a real server or a network fault.
-     * <p>
-     * Note: both {@code succeeded()} and {@code failed()} call the same
-     * {@code logAndFire()} method — there is no additional error-specific log entry.
-     * The throwable is forwarded to the original {@code Callback.failed(t)} for Jetty
-     * to handle at the connection layer.
-     */
-    @Nested
-    class WriteCallbackFailed {
         @Test
         void writeFailure_logsCapacityRejectionAndForwardsThrowable() throws Exception {
             // maxConcurrent=0 means tryAcquire() always returns false — every request
@@ -466,73 +531,6 @@ class DefaultServerUnitTest {
             assertSame(writeError, capturedFailure.get(),
                     "write Callback.failed() must forward the throwable to the original callback");
         }
-
-        private static Handler.Wrapper buildLimitHandler(int maxConcurrent) throws Exception {
-            Class<?> handlerClass = Arrays.stream(DefaultServer.class.getDeclaredClasses())
-                    .filter(c -> c.getSimpleName().equals("ConcurrencyLimitHandler"))
-                    .findFirst()
-                    .orElseThrow(() -> new AssertionError("ConcurrencyLimitHandler not found"));
-
-            Constructor<?> ctor = handlerClass.getDeclaredConstructor(
-                    java.util.concurrent.Semaphore.class,
-                    java.util.concurrent.atomic.AtomicBoolean.class,
-                    RequestLogger.class,
-                    software.frisby.web.server.event.ServerEventListener.class,
-                    String.class
-            );
-            ctor.setAccessible(true);
-
-            return (Handler.Wrapper) ctor.newInstance(
-                    new java.util.concurrent.Semaphore(maxConcurrent),
-                    new java.util.concurrent.atomic.AtomicBoolean(false),
-                    new RequestLogger(),
-                    NoOpServerEventListener.INSTANCE,
-                    null
-            );
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /** A {@link JsonSerializer} whose {@code serialize()} always throws. */
-    private static final class ThrowingSerializer implements JsonSerializer {
-        @Override
-        public byte[] serialize(Object value) {
-            throw new RuntimeException("Simulated serialization failure");
-        }
-
-        @Override
-        public <T> T deserialize(byte[] content, Class<T> type) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> T deserialize(byte[] content, GenericType<T> genericType) {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    private static Method resolveMethod(String name, Class<?>... paramTypes) {
-        return resolveMethod(DefaultServer.class, name, paramTypes);
-    }
-
-    private static Method resolveMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
-        try {
-            Method m = clazz.getDeclaredMethod(name, paramTypes);
-            m.setAccessible(true);
-            return m;
-        } catch (NoSuchMethodException e) {
-            throw new RuntimeException("Could not find " + clazz.getSimpleName() + "." + name, e);
-        }
-    }
-
-    private static Class<?> resolveNestedClass(String simpleName) {
-        return Arrays.stream(DefaultServer.class.getDeclaredClasses())
-                .filter(c -> c.getSimpleName().equals(simpleName))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Could not find nested class: " + simpleName));
     }
 }
 

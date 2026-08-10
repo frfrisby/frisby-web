@@ -1,11 +1,6 @@
 package software.frisby.web.server;
 
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
@@ -21,14 +16,6 @@ import java.util.Map;
 @Path("/ping")
 @Produces(MediaType.APPLICATION_JSON)
 public final class PingResource {
-    /**
-     * A fully concrete, non-generic request/response POJO used to exercise
-     * the {@code readFrom} and {@code writeTo} paths in {@link JsonMessageBodyProvider}
-     * without any parameterized generic types.
-     */
-    public record PingRequest(String message) {
-    }
-
     @GET
     public Map<String, String> ping() {
         return Map.of("message", "pong");
@@ -60,7 +47,9 @@ public final class PingResource {
         return request;
     }
 
-    /** Returns a binary octet-stream entity — exercises the InputStream branch in GZipResponseFilter. */
+    /**
+     * Returns a binary octet-stream entity — exercises the InputStream branch in GZipResponseFilter.
+     */
     @GET
     @Path("/bytes")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
@@ -71,7 +60,9 @@ public final class PingResource {
                 .build();
     }
 
-    /** Returns a plain-text response — exercises the non-JSON branch in GZipResponseFilter. */
+    /**
+     * Returns a plain-text response — exercises the non-JSON branch in GZipResponseFilter.
+     */
     @GET
     @Path("/text")
     @Produces(MediaType.TEXT_PLAIN)
@@ -96,7 +87,9 @@ public final class PingResource {
                 .build();
     }
 
-    /** Throws an unhandled exception — used to trigger the event-listener failure path. */
+    /**
+     * Throws an unhandled exception — used to trigger the event-listener failure path.
+     */
     @GET
     @Path("/fail")
     public Response fail() {
@@ -128,7 +121,9 @@ public final class PingResource {
         throw new jakarta.ws.rs.InternalServerErrorException("Deliberate WAE 500");
     }
 
-    /** Returns a 400 with a JSON error body — used to verify response body appears in failure logs. */
+    /**
+     * Returns a 400 with a JSON error body — used to verify response body appears in failure logs.
+     */
     @GET
     @Path("/bad-request")
     public Response badRequest() {
@@ -187,7 +182,9 @@ public final class PingResource {
                 .build();
     }
 
-    /** Returns a 401 with a body — used to verify the body is stripped by the exception mapper. */
+    /**
+     * Returns a 401 with a body — used to verify the body is stripped by the exception mapper.
+     */
     @GET
     @Path("/unauthorized")
     public Response unauthorized() {
@@ -199,7 +196,9 @@ public final class PingResource {
         );
     }
 
-    /** Returns a 403 with a body — used to verify the body is stripped by the exception mapper. */
+    /**
+     * Returns a 403 with a body — used to verify the body is stripped by the exception mapper.
+     */
     @GET
     @Path("/forbidden")
     public Response forbidden() {
@@ -211,7 +210,9 @@ public final class PingResource {
         );
     }
 
-    /** Throws an unhandled exception on POST — exercises the request-body capture + failure-log path. */
+    /**
+     * Throws an unhandled exception on POST — exercises the request-body capture + failure-log path.
+     */
     @POST
     @Path("/fail")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -219,7 +220,9 @@ public final class PingResource {
         throw new RuntimeException("Intentional POST test failure");
     }
 
-    /** Returns a 401 on POST — verifies the request body appears in the log while the response is stripped. */
+    /**
+     * Returns a 401 on POST — verifies the request body appears in the log while the response is stripped.
+     */
     @POST
     @Path("/unauthorized")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -232,7 +235,9 @@ public final class PingResource {
         );
     }
 
-    /** Returns a 403 on POST — verifies the request body appears in the log while the response is stripped. */
+    /**
+     * Returns a 403 on POST — verifies the request body appears in the log while the response is stripped.
+     */
     @POST
     @Path("/forbidden")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -365,6 +370,14 @@ public final class PingResource {
                 .type(MediaType.APPLICATION_JSON)
                 .entity(Map.of("error", "bad-request"))
                 .build();
+    }
+
+    /**
+     * A fully concrete, non-generic request/response POJO used to exercise
+     * the {@code readFrom} and {@code writeTo} paths in {@link JsonMessageBodyProvider}
+     * without any parameterized generic types.
+     */
+    public record PingRequest(String message) {
     }
 }
 

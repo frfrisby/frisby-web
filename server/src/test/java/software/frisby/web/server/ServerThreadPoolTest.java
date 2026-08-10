@@ -37,6 +37,67 @@ class ServerThreadPoolTest {
     // maxConcurrentRequests — bounded concurrency + 503 on overflow
     // -------------------------------------------------------------------------
 
+    /**
+     * A JAX-RS resource with two endpoints:
+     * <ul>
+     *   <li>{@code GET /block} — signals one of two progress latches then blocks
+     *       until {@code requestsCanProceed} is released, allowing tests to hold request
+     *       threads while probing the rejection path.  An {@link AtomicBoolean} CAS gate
+     *       eliminates the TOCTOU race that would occur if both concurrent requests read
+     *       the first latch count before either has decremented it.</li>
+     *   <li>{@code GET /ping-simple} — returns 200 immediately.</li>
+     * </ul>
+     */
+    @Path("/")
+    @Produces(MediaType.APPLICATION_JSON)
+    public static final class BlockingResource {
+        private final CountDownLatch server1HasRequest;
+        private final CountDownLatch server2HasRequest;
+        private final CountDownLatch requestsCanProceed;
+        private final AtomicBoolean firstSignalled = new AtomicBoolean(false);
+
+        private BlockingResource(CountDownLatch server1HasRequest,
+                                 CountDownLatch server2HasRequest,
+                                 CountDownLatch requestsCanProceed) {
+            this.server1HasRequest = server1HasRequest;
+            this.server2HasRequest = server2HasRequest;
+            this.requestsCanProceed = requestsCanProceed;
+        }
+
+        @GET
+        @Path("/block")
+        public Response block() throws InterruptedException {
+            if (firstSignalled.compareAndSet(false, true)) {
+                server1HasRequest.countDown();
+            } else {
+                server2HasRequest.countDown();
+            }
+
+            requestsCanProceed.await(10, TimeUnit.SECONDS);
+
+            return Response.ok("{\"status\":\"done\"}").build();
+        }
+
+        @GET
+        @Path("/ping-simple")
+        public Response ping() {
+            return Response.ok("{\"status\":\"ok\"}").build();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Graceful shutdown drain — 503 during drain window
+    // -------------------------------------------------------------------------
+
+    @Path("/ping")
+    @Produces(MediaType.APPLICATION_JSON)
+    public static final class PingResource {
+        @GET
+        public Response ping() {
+            return Response.ok("{\"status\":\"ok\"}").build();
+        }
+    }
+
     @Nested
     class MaxConcurrentRequests {
         /**
@@ -395,7 +456,7 @@ class ServerThreadPoolTest {
     }
 
     // -------------------------------------------------------------------------
-    // Graceful shutdown drain — 503 during drain window
+    // Combined maxConcurrentRequests + executor
     // -------------------------------------------------------------------------
 
     @Nested
@@ -574,6 +635,10 @@ class ServerThreadPoolTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Helper resources
+    // -------------------------------------------------------------------------
+
     @Nested
     class ExecutorTests {
         @Test
@@ -611,10 +676,6 @@ class ServerThreadPoolTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Combined maxConcurrentRequests + executor
-    // -------------------------------------------------------------------------
-
     @Nested
     class Combined {
         @Test
@@ -649,67 +710,6 @@ class ServerThreadPoolTest {
                 server.stop();
                 customExecutor.shutdown();
             }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helper resources
-    // -------------------------------------------------------------------------
-
-    /**
-     * A JAX-RS resource with two endpoints:
-     * <ul>
-     *   <li>{@code GET /block} — signals one of two progress latches then blocks
-     *       until {@code requestsCanProceed} is released, allowing tests to hold request
-     *       threads while probing the rejection path.  An {@link AtomicBoolean} CAS gate
-     *       eliminates the TOCTOU race that would occur if both concurrent requests read
-     *       the first latch count before either has decremented it.</li>
-     *   <li>{@code GET /ping-simple} — returns 200 immediately.</li>
-     * </ul>
-     */
-    @Path("/")
-    @Produces(MediaType.APPLICATION_JSON)
-    public static final class BlockingResource {
-        private final CountDownLatch server1HasRequest;
-        private final CountDownLatch server2HasRequest;
-        private final CountDownLatch requestsCanProceed;
-        private final AtomicBoolean firstSignalled = new AtomicBoolean(false);
-
-        private BlockingResource(CountDownLatch server1HasRequest,
-                                 CountDownLatch server2HasRequest,
-                                 CountDownLatch requestsCanProceed) {
-            this.server1HasRequest = server1HasRequest;
-            this.server2HasRequest = server2HasRequest;
-            this.requestsCanProceed = requestsCanProceed;
-        }
-
-        @GET
-        @Path("/block")
-        public Response block() throws InterruptedException {
-            if (firstSignalled.compareAndSet(false, true)) {
-                server1HasRequest.countDown();
-            } else {
-                server2HasRequest.countDown();
-            }
-
-            requestsCanProceed.await(10, TimeUnit.SECONDS);
-
-            return Response.ok("{\"status\":\"done\"}").build();
-        }
-
-        @GET
-        @Path("/ping-simple")
-        public Response ping() {
-            return Response.ok("{\"status\":\"ok\"}").build();
-        }
-    }
-
-    @Path("/ping")
-    @Produces(MediaType.APPLICATION_JSON)
-    public static final class PingResource {
-        @GET
-        public Response ping() {
-            return Response.ok("{\"status\":\"ok\"}").build();
         }
     }
 }

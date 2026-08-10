@@ -14,6 +14,16 @@ class StaticAssetsPrefixValidatorTest {
     // No conflict cases
     // -------------------------------------------------------------------------
 
+    private static StaticAssetsConfiguration config(String urlPrefix) {
+        return StaticAssetsConfiguration.classpath("/web")
+                .urlPrefix(urlPrefix)
+                .build();
+    }
+
+    // -------------------------------------------------------------------------
+    // Duplicate prefix
+    // -------------------------------------------------------------------------
+
     @Nested
     class NoConflict {
         @Test
@@ -56,7 +66,7 @@ class StaticAssetsPrefixValidatorTest {
     }
 
     // -------------------------------------------------------------------------
-    // Duplicate prefix
+    // Overlapping prefixes (ancestor path relationship)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -85,7 +95,7 @@ class StaticAssetsPrefixValidatorTest {
     }
 
     // -------------------------------------------------------------------------
-    // Overlapping prefixes (ancestor path relationship)
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Nested
@@ -144,16 +154,6 @@ class StaticAssetsPrefixValidatorTest {
                     ))
             );
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static StaticAssetsConfiguration config(String urlPrefix) {
-        return StaticAssetsConfiguration.classpath("/web")
-                .urlPrefix(urlPrefix)
-                .build();
     }
 }
 

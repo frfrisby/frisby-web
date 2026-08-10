@@ -58,7 +58,7 @@ public interface StaticAssetsAuthFilter {
      *                 full response before returning {@code false} if you need
      *                 full control of the error body
      * @return {@code true} to allow the request to proceed and serve the file;
-     *         {@code false} to block it
+     * {@code false} to block it
      */
     boolean authorize(Request request, Response response);
 }

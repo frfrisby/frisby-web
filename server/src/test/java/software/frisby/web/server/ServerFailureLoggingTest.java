@@ -71,6 +71,97 @@ class ServerFailureLoggingTest {
     // 4xx → WARNING with detail
     // -------------------------------------------------------------------------
 
+    private static URI uri(String path) {
+        return URI.create("http://localhost:" + port + path);
+    }
+
+    private static HttpResponse<String> get(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 5xx → ERROR with detail (uncaught non-WAE exception)
+    // -------------------------------------------------------------------------
+
+    private static HttpResponse<String> getWithAuth(String path, String authorization) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Authorization", authorization)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 5xx → WARNING when caused by a WebApplicationException (deliberate failure)
+    // -------------------------------------------------------------------------
+
+    private static HttpResponse<String> getWithHeader(String path, String name, String value) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header(name, value)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    private static HttpResponse<String> post(String path, String jsonBody) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Deliberate 5xx response with no exception — null cause → WARNING
+    // -------------------------------------------------------------------------
+
+    private static HttpResponse<String> postForm(String path, String formBody) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .POST(HttpRequest.BodyPublishers.ofString(formBody))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    private static HttpResponse<String> postMultipart(String path) throws Exception {
+        String boundary = "boundary123";
+        String body = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n"
+                + "Content-Type: text/plain\r\n"
+                + "\r\n"
+                + "Hello, World!\r\n"
+                + "--" + boundary + "--";
+
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    private static HttpResponse<String> postBinary(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Content-Type", "application/octet-stream")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{1, 2, 3, 4, 5}))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
     @Test
     void notFoundRequest_logsAtWarning() throws Exception {
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
@@ -89,6 +180,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Header masking
+    // -------------------------------------------------------------------------
+
     @Test
     void notFoundRequest_doesNotLogAtInfo() throws Exception {
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
@@ -101,10 +196,6 @@ class ServerFailureLoggingTest {
             assertEquals(0, verifier.infoCount());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // 5xx → ERROR with detail (uncaught non-WAE exception)
-    // -------------------------------------------------------------------------
 
     @Test
     void failingRequest_logsAtError() throws Exception {
@@ -124,10 +215,6 @@ class ServerFailureLoggingTest {
             verifier.assertExpectations(Duration.ofSeconds(2));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // 5xx → WARNING when caused by a WebApplicationException (deliberate failure)
-    // -------------------------------------------------------------------------
 
     @Test
     void waeInternalServerError_logsAtWarningNotError() throws Exception {
@@ -162,10 +249,6 @@ class ServerFailureLoggingTest {
             assertEquals(0, verifier.errorCount());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Deliberate 5xx response with no exception — null cause → WARNING
-    // -------------------------------------------------------------------------
 
     @Test
     void deliberate5xxResponse_withNullCause_logsAtWarning() throws Exception {
@@ -246,7 +329,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Header masking
+    // Body field redaction
     // -------------------------------------------------------------------------
 
     @Test
@@ -266,6 +349,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Response body included in failure detail
+    // -------------------------------------------------------------------------
+
     @Test
     void cookieRequestHeader_isMasked() throws Exception {
         // Cookie is in the hard-coded redacted-header defaults — value must never appear in logs.
@@ -274,7 +361,7 @@ class ServerFailureLoggingTest {
                         .logger(RequestLogger.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message().contains("Cookie: session=[redacted]")
-                                && !e.message().contains("secret-session-id"))                        .build()
+                                && !e.message().contains("secret-session-id")).build()
                 )
                 .build()) {
             getWithHeader("/does-not-exist", "Cookie", "session=secret-session-id");
@@ -282,6 +369,10 @@ class ServerFailureLoggingTest {
             verifier.assertExpectations(Duration.ofSeconds(2));
         }
     }
+
+    // -------------------------------------------------------------------------
+    // 2xx → TRACE with full detail; INFO one-liner when TRACE is off
+    // -------------------------------------------------------------------------
 
     @Test
     void setCookieResponseHeader_isMasked() throws Exception {
@@ -337,11 +428,11 @@ class ServerFailureLoggingTest {
                         .logger(RequestLogger.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message().contains(
-                                        "Set-Cookie: session=[redacted]; Path=/; HttpOnly; Secure")
+                                "Set-Cookie: session=[redacted]; Path=/; HttpOnly; Secure")
                                 && e.message().contains(
-                                        "Set-Cookie: token=[redacted]; Path=/api; Secure; Max-Age=3600")
+                                "Set-Cookie: token=[redacted]; Path=/api; Secure; Max-Age=3600")
                                 && e.message().contains(
-                                        "Set-Cookie: pref=[redacted]; Path=/; Max-Age=86400")
+                                "Set-Cookie: pref=[redacted]; Path=/; Max-Age=86400")
                                 && !e.message().contains("secret-session-id")
                                 && !e.message().contains("secret-token-value")
                                 && !e.message().contains("dark-mode-setting"))
@@ -372,6 +463,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // POST body appears in failure log
+    // -------------------------------------------------------------------------
+
     @Test
     void multiValueRequestHeader_allValuesJoinedOnOneLine() throws Exception {
         // Accept is sent with two values — both must appear on a single line joined by ", ".
@@ -400,6 +495,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // URL-encoded form body redaction
+    // -------------------------------------------------------------------------
+
     @Test
     void multiValueResponseHeader_allValuesJoinedOnOneLine() throws Exception {
         // Vary is returned with two values — both must appear joined on a single line.
@@ -419,7 +518,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Body field redaction
+    // Multipart body — placeholder, no binary noise
     // -------------------------------------------------------------------------
 
     @Test
@@ -440,10 +539,6 @@ class ServerFailureLoggingTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Response body included in failure detail
-    // -------------------------------------------------------------------------
-
     @Test
     void failureResponse_includesResponseBodyInLog() throws Exception {
         // GET /ping/bad-request returns 400 with a JSON body containing "invalid-input".
@@ -463,7 +558,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // 2xx → TRACE with full detail; INFO one-liner when TRACE is off
+    // Body truncation
     // -------------------------------------------------------------------------
 
     @Test
@@ -506,6 +601,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Body logging disabled (maxBodySize = 0)
+    // -------------------------------------------------------------------------
+
     @Test
     void successfulRequest_atInfoOnly_logsOneLineAtInfo() throws Exception {
         // With TRACE suppressed and INFO enabled, the compact one-liner fires at INFO.
@@ -546,7 +645,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // POST body appears in failure log
+    // isTextBody coverage — text/* and non-text/non-application types
     // -------------------------------------------------------------------------
 
     @Test
@@ -569,10 +668,6 @@ class ServerFailureLoggingTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // URL-encoded form body redaction
-    // -------------------------------------------------------------------------
-
     @Test
     void formEncodedBodyField_isRedacted() throws Exception {
         // POST a form-encoded body with a 'password' field to a 404 path.
@@ -594,7 +689,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Multipart body — placeholder, no binary noise
+    // Response header masking — non-Set-Cookie masked header
     // -------------------------------------------------------------------------
 
     @Test
@@ -616,6 +711,10 @@ class ServerFailureLoggingTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // serializeEntityForLog branches
+    // -------------------------------------------------------------------------
+
     @Test
     void binaryBody_showsPlaceholderInLog() throws Exception {
         // POST an application/octet-stream body to a 404 path.
@@ -634,10 +733,6 @@ class ServerFailureLoggingTest {
             verifier.assertExpectations(Duration.ofSeconds(2));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Body truncation
-    // -------------------------------------------------------------------------
 
     @Test
     void requestBodyLargerThanMaxBodySize_isTruncatedInLog() throws Exception {
@@ -731,7 +826,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Body logging disabled (maxBodySize = 0)
+    // Log-level gating — detail skipped when WARNING is disabled
     // -------------------------------------------------------------------------
 
     @Test
@@ -781,6 +876,10 @@ class ServerFailureLoggingTest {
             noBodyServer.stop();
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Binary request body — isBinaryBody=true path in buildDetail
+    // -------------------------------------------------------------------------
 
     @Test
     void bodyLoggingDisabled_binaryBodyPlaceholderAlsoSuppressed() throws Exception {
@@ -833,7 +932,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // isTextBody coverage — text/* and non-text/non-application types
+    // Body truncation — maxBodySize exceeded for both request and response
     // -------------------------------------------------------------------------
 
     @Test
@@ -889,7 +988,7 @@ class ServerFailureLoggingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Response header masking — non-Set-Cookie masked header
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Test
@@ -910,10 +1009,6 @@ class ServerFailureLoggingTest {
             verifier.assertExpectations(Duration.ofSeconds(2));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // serializeEntityForLog branches
-    // -------------------------------------------------------------------------
 
     @Test
     void stringEntityResponse_isLoggedDirectlyAsBody() throws Exception {
@@ -974,10 +1069,6 @@ class ServerFailureLoggingTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Log-level gating — detail skipped when WARNING is disabled
-    // -------------------------------------------------------------------------
-
     @Test
     void warningLevelDisabled_noDetailBuiltForFailingRequest() throws Exception {
         // When WARNING is disabled for RequestLogger, isDetailLoggable(4xx, null) returns false
@@ -990,10 +1081,6 @@ class ServerFailureLoggingTest {
             assertEquals(0, verifier.warningCount());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Binary request body — isBinaryBody=true path in buildDetail
-    // -------------------------------------------------------------------------
 
     @Test
     void binaryRequestBody_showsMediaTypePlaceholderInLog() throws Exception {
@@ -1014,10 +1101,6 @@ class ServerFailureLoggingTest {
             verifier.assertExpectations(Duration.ofSeconds(2));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Body truncation — maxBodySize exceeded for both request and response
-    // -------------------------------------------------------------------------
 
     @Test
     void requestBodyExceedsMaxBodySize_truncationMarkerAppearsInLog() throws Exception {
@@ -1098,89 +1181,6 @@ class ServerFailureLoggingTest {
         } finally {
             truncServer.stop();
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static URI uri(String path) {
-        return URI.create("http://localhost:" + port + path);
-    }
-
-    private static HttpResponse<String> get(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path)).GET().build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> getWithAuth(String path, String authorization) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Authorization", authorization)
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> getWithHeader(String path, String name, String value) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header(name, value)
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> post(String path, String jsonBody) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> postForm(String path, String formBody) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Content-Type", "application/x-www-form-urlencoded")
-                        .POST(HttpRequest.BodyPublishers.ofString(formBody))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> postMultipart(String path) throws Exception {
-        String boundary = "boundary123";
-        String body = "--" + boundary + "\r\n"
-                + "Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n"
-                + "Content-Type: text/plain\r\n"
-                + "\r\n"
-                + "Hello, World!\r\n"
-                + "--" + boundary + "--";
-
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                        .POST(HttpRequest.BodyPublishers.ofString(body))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> postBinary(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Content-Type", "application/octet-stream")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{1, 2, 3, 4, 5}))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
     }
 }
 

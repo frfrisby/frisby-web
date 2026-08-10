@@ -274,7 +274,7 @@ final class DefaultServer implements Server {
 
         for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
             sb.append("\n  staticAssets: ").append(config.describeSource())
-              .append(" → ").append(config.urlPrefix());
+                    .append(" → ").append(config.urlPrefix());
 
             if (config.spaFallback()) {
                 sb.append(" (SPA fallback)");
@@ -283,7 +283,7 @@ final class DefaultServer implements Server {
             if (!config.errorPages().isEmpty()) {
                 for (Map.Entry<Integer, String> entry : config.errorPages().entrySet()) {
                     sb.append("\n    errorPage: ").append(entry.getKey())
-                      .append(" → ").append(entry.getValue());
+                            .append(" → ").append(entry.getValue());
                 }
             }
         }

@@ -9,9 +9,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests confirming that the built-in exception mappers prevent
@@ -53,6 +51,25 @@ class ServerExceptionMappingTest {
     // Body stripping — security-sensitive status codes
     // -------------------------------------------------------------------------
 
+    private static HttpResponse<String> get(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    private static HttpResponse<String> postJson(String path, String jsonBody) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
     @Test
     void unauthorized_bodyIsStripped() throws Exception {
         HttpResponse<String> response = get("/ping/unauthorized");
@@ -67,6 +84,8 @@ class ServerExceptionMappingTest {
                 "401 response must have no Content-Type header"
         );
     }
+
+    // POST variants — request body must not influence the stripping behaviour
 
     @Test
     void forbidden_bodyIsStripped() throws Exception {
@@ -98,8 +117,6 @@ class ServerExceptionMappingTest {
         );
     }
 
-    // POST variants — request body must not influence the stripping behaviour
-
     @Test
     void unauthorizedPost_bodyIsStripped() throws Exception {
         HttpResponse<String> response = postJson(
@@ -117,6 +134,8 @@ class ServerExceptionMappingTest {
                 "401 POST response must have no Content-Type header"
         );
     }
+
+    // Message-only exceptions — WebApplicationExceptionMapper IS invoked (no embedded entity)
 
     @Test
     void forbiddenPost_bodyIsStripped() throws Exception {
@@ -154,7 +173,9 @@ class ServerExceptionMappingTest {
         );
     }
 
-    // Message-only exceptions — WebApplicationExceptionMapper IS invoked (no embedded entity)
+    // -------------------------------------------------------------------------
+    // Body pass-through — safe status codes
+    // -------------------------------------------------------------------------
 
     @Test
     void unauthorizedMessageOnly_returns401WithNoBody() throws Exception {
@@ -179,7 +200,7 @@ class ServerExceptionMappingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Body pass-through — safe status codes
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Test
@@ -199,29 +220,6 @@ class ServerExceptionMappingTest {
         HttpResponse<String> response = get("/does-not-exist");
 
         assertEquals(404, response.statusCode());
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static HttpResponse<String> get(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> postJson(String path, String jsonBody) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
     }
 }
 

@@ -61,6 +61,107 @@ final class StaticHandler extends Handler.Wrapper {
     // Lifecycle
     // -------------------------------------------------------------------------
 
+    /**
+     * Writes a {@code 404 Not Found} error response if the {@link ResourceHandler} did not
+     * serve the request.
+     *
+     * <p>The {@code served = false} path handles a narrow race condition: the file existed
+     * when {@link #resourceExists} checked above, but was deleted before
+     * {@link ResourceHandler#handle} ran.  Returning {@code false} at that point is not safe
+     * because response headers (e.g. CSP / security headers) were already written in step 5 —
+     * passing a header-decorated response to Jersey would be worse than a plain 404.
+     *
+     * @param served   {@code true} if {@link ResourceHandler} claimed the request; {@code false}
+     *                 if it returned without writing a response (file-disappeared race condition)
+     * @param path     the original request path, used for the warning log entry
+     * @param request  the Jetty request, forwarded to {@link Response#writeError}
+     * @param response the Jetty response, forwarded to {@link Response#writeError}
+     * @param callback the response-completion callback, forwarded to {@link Response#writeError}
+     */
+    static void writeErrorIfNotServed(boolean served,
+                                      String path,
+                                      Request request,
+                                      Response response,
+                                      Callback callback) {
+        if (!served) {
+            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", path);
+            Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
+        }
+    }
+
+    /**
+     * Returns {@code true} if {@code path} starts with {@code urlPrefix}.
+     *
+     * <p>The root prefix {@code "/"} matches all paths.  Any other prefix
+     * requires the path to be either exactly equal to the prefix or to start
+     * with {@code prefix + "/"} — preventing {@code /admin} from matching
+     * {@code /administrator}.
+     */
+    private static boolean matchesPrefix(String path, String urlPrefix) {
+        if (urlPrefix.equals("/")) {
+            return true;
+        }
+
+        return path.equals(urlPrefix) || path.startsWith(urlPrefix + "/");
+    }
+
+    /**
+     * Returns {@code true} if any path segment in {@code path} starts with {@code .}.
+     *
+     * <p>Only the final segment (after the last {@code /}) is checked, matching
+     * the typical dotfile case ({@code /.env}, {@code /.git/config}).  Directory
+     * components that start with a dot (e.g. {@code /.well-known/}) do not trigger
+     * this guard — only the actual file name does.
+     */
+    private static boolean isDotfilePath(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        String lastSegment = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
+        return lastSegment.startsWith(".");
+    }
+
+    /**
+     * Returns a request whose URI path has the URL prefix stripped, so that the
+     * {@link ResourceHandler} looks up files relative to the asset root rather than
+     * the full request path.
+     *
+     * <p>For the root prefix {@code "/"} no stripping is needed.
+     */
+    private static Request stripUrlPrefix(Request request, String path, String urlPrefix) {
+        if (urlPrefix.equals("/")) {
+            return request;
+        }
+
+        String stripped = path.substring(urlPrefix.length());
+
+        if (stripped.isEmpty()) {
+            stripped = "/";
+        }
+
+        HttpURI strippedUri = HttpURI.build(request.getHttpURI()).pathQuery(stripped);
+
+        return Request.serveAs(request, strippedUri);
+    }
+
+    // -------------------------------------------------------------------------
+    // Request handling
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns {@code true} if {@code path}'s final segment contains a non-empty
+     * file extension — i.e. a {@code .} that is not the first character and not
+     * the last character of the segment.
+     *
+     * <p>Used by SPA fallback to protect against silently serving {@code index.html}
+     * in place of a genuinely missing image, script, or stylesheet.
+     */
+    private static boolean hasFileExtension(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        String lastSegment = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
+        int lastDot = lastSegment.lastIndexOf('.');
+
+        return lastDot > 0 && lastDot < lastSegment.length() - 1;
+    }
+
     @Override
     protected void doStart() throws Exception {
         ResourceHandler resourceHandler = resourceHandler();
@@ -101,6 +202,10 @@ final class StaticHandler extends Handler.Wrapper {
         super.doStart();
     }
 
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
     private Resource createBaseResource() {
         String classpathPath = configuration.classpathResourcePath().orElse(null);
         Path filesystemPath = configuration.filesystemDirectory().orElse(null);
@@ -118,7 +223,6 @@ final class StaticHandler extends Handler.Wrapper {
         return ResourceFactory.of(this).newResource(filesystemPath);
     }
 
-
     private String describeSource() {
         return configuration.describeSource();
     }
@@ -126,10 +230,6 @@ final class StaticHandler extends Handler.Wrapper {
     private String sourceArgumentName() {
         return configuration.classpathResourcePath().isPresent() ? "resourcePath" : "directory";
     }
-
-    // -------------------------------------------------------------------------
-    // Request handling
-    // -------------------------------------------------------------------------
 
     @Override
     public boolean handle(Request request, Response response, Callback callback) throws Exception {
@@ -268,109 +368,8 @@ final class StaticHandler extends Handler.Wrapper {
         return true;
     }
 
-    /**
-     * Writes a {@code 404 Not Found} error response if the {@link ResourceHandler} did not
-     * serve the request.
-     *
-     * <p>The {@code served = false} path handles a narrow race condition: the file existed
-     * when {@link #resourceExists} checked above, but was deleted before
-     * {@link ResourceHandler#handle} ran.  Returning {@code false} at that point is not safe
-     * because response headers (e.g. CSP / security headers) were already written in step 5 —
-     * passing a header-decorated response to Jersey would be worse than a plain 404.
-     *
-     * @param served   {@code true} if {@link ResourceHandler} claimed the request; {@code false}
-     *                 if it returned without writing a response (file-disappeared race condition)
-     * @param path     the original request path, used for the warning log entry
-     * @param request  the Jetty request, forwarded to {@link Response#writeError}
-     * @param response the Jetty response, forwarded to {@link Response#writeError}
-     * @param callback the response-completion callback, forwarded to {@link Response#writeError}
-     */
-    static void writeErrorIfNotServed(boolean served,
-                                      String path,
-                                      Request request,
-                                      Response response,
-                                      Callback callback) {
-        if (!served) {
-            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", path);
-            Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     private ResourceHandler resourceHandler() {
         return (ResourceHandler) getHandler();
-    }
-
-    /**
-     * Returns {@code true} if {@code path} starts with {@code urlPrefix}.
-     *
-     * <p>The root prefix {@code "/"} matches all paths.  Any other prefix
-     * requires the path to be either exactly equal to the prefix or to start
-     * with {@code prefix + "/"} — preventing {@code /admin} from matching
-     * {@code /administrator}.
-     */
-    private static boolean matchesPrefix(String path, String urlPrefix) {
-        if (urlPrefix.equals("/")) {
-            return true;
-        }
-
-        return path.equals(urlPrefix) || path.startsWith(urlPrefix + "/");
-    }
-
-    /**
-     * Returns {@code true} if any path segment in {@code path} starts with {@code .}.
-     *
-     * <p>Only the final segment (after the last {@code /}) is checked, matching
-     * the typical dotfile case ({@code /.env}, {@code /.git/config}).  Directory
-     * components that start with a dot (e.g. {@code /.well-known/}) do not trigger
-     * this guard — only the actual file name does.
-     */
-    private static boolean isDotfilePath(String path) {
-        int lastSlash = path.lastIndexOf('/');
-        String lastSegment = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
-        return lastSegment.startsWith(".");
-    }
-
-    /**
-     * Returns a request whose URI path has the URL prefix stripped, so that the
-     * {@link ResourceHandler} looks up files relative to the asset root rather than
-     * the full request path.
-     *
-     * <p>For the root prefix {@code "/"} no stripping is needed.
-     */
-    private static Request stripUrlPrefix(Request request, String path, String urlPrefix) {
-        if (urlPrefix.equals("/")) {
-            return request;
-        }
-
-        String stripped = path.substring(urlPrefix.length());
-
-        if (stripped.isEmpty()) {
-            stripped = "/";
-        }
-
-        HttpURI strippedUri = HttpURI.build(request.getHttpURI()).pathQuery(stripped);
-
-        return Request.serveAs(request, strippedUri);
-    }
-
-    /**
-     * Returns {@code true} if {@code path}'s final segment contains a non-empty
-     * file extension — i.e. a {@code .} that is not the first character and not
-     * the last character of the segment.
-     *
-     * <p>Used by SPA fallback to protect against silently serving {@code index.html}
-     * in place of a genuinely missing image, script, or stylesheet.
-     */
-    private static boolean hasFileExtension(String path) {
-        int lastSlash = path.lastIndexOf('/');
-        String lastSegment = (lastSlash >= 0) ? path.substring(lastSlash + 1) : path;
-        int lastDot = lastSegment.lastIndexOf('.');
-
-        return lastDot > 0 && lastDot < lastSegment.length() - 1;
     }
 
     /**

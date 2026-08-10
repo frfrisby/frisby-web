@@ -41,6 +41,203 @@ class StaticHandlerUnitTest {
     // writeErrorIfNotServed
     // -------------------------------------------------------------------------
 
+    private static Method resolveMethod(String name, Class<?>... paramTypes) {
+        try {
+            Method m = StaticHandler.class.getDeclaredMethod(name, paramTypes);
+            m.setAccessible(true);
+            return m;
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException("Could not find StaticHandler." + name, e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // resourceExists
+    // -------------------------------------------------------------------------
+
+    /**
+     * Minimal concrete {@link Resource} subclass whose {@link #resolve} always returns
+     * {@code null}.  Used to cover the {@code null == resource} defensive guard in
+     * {@code StaticHandler.resourceExists()}.
+     */
+    private static final class NullResolvingResource extends Resource {
+        @Override
+        public Path getPath() {
+            return null;
+        }
+
+        @Override
+        public boolean isDirectory() {
+            return true;
+        }
+
+        @Override
+        public boolean isReadable() {
+            return false;
+        }
+
+        @Override
+        public URI getURI() {
+            return null;
+        }
+
+        @Override
+        public String getName() {
+            return "";
+        }
+
+        @Override
+        public String getFileName() {
+            return "";
+        }
+
+        @Override
+        public Resource resolve(String subUriPath) {
+            return null;
+        }
+
+        @Override
+        public Iterator<Resource> iterator() {
+            return Collections.emptyIterator();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // serveErrorPage
+    // -------------------------------------------------------------------------
+
+    /**
+     * Minimal concrete {@link Resource} subclass that reports itself as an existing,
+     * non-readable, non-directory resource (e.g. a broken symlink or special file).
+     * {@link #resolve} returns {@code this}, so {@code baseResource.resolve(path)}
+     * produces the same stub.  Used to cover the {@code return false} branch at the
+     * end of {@code StaticHandler.resourceExists()} when {@code isDirectory()} is
+     * {@code false}.
+     */
+    private static final class ExistingNonDirectoryResource extends Resource {
+        @Override
+        public boolean exists() {
+            return true;
+        }
+
+        @Override
+        public Path getPath() {
+            return null;
+        }
+
+        @Override
+        public boolean isDirectory() {
+            return false;
+        }
+
+        @Override
+        public boolean isReadable() {
+            return false;
+        }
+
+        @Override
+        public URI getURI() {
+            return null;
+        }
+
+        @Override
+        public String getName() {
+            return "";
+        }
+
+        @Override
+        public String getFileName() {
+            return "";
+        }
+
+        @Override
+        public Resource resolve(String subUriPath) {
+            return this;
+        }
+
+        @Override
+        public Iterator<Resource> iterator() {
+            return Collections.emptyIterator();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // isDotfilePath
+    // -------------------------------------------------------------------------
+
+    /**
+     * Minimal concrete {@link Resource} subclass that reports itself as an existing,
+     * readable, non-directory resource and returns an in-memory stream from
+     * {@link #newInputStream()}.  {@link #resolve} returns {@code this}, so
+     * {@code baseResource.resolve(notFoundPath)} yields the same stub.
+     * <p>
+     * Used to drive {@code StaticHandler.serveNotFoundPage()} past the
+     * {@code Resources.isReadableFile()} guard and into the
+     * {@code response.write()} call, where a proxy {@link Response} can then
+     * throw to trigger the {@code catch} block.
+     */
+    private static final class ReadableInMemoryResource extends Resource {
+        private final byte[] content;
+
+        private ReadableInMemoryResource(String content) {
+            this.content = content.getBytes();
+        }
+
+        @Override
+        public boolean exists() {
+            return true;
+        }
+
+        @Override
+        public Path getPath() {
+            return null;
+        }
+
+        @Override
+        public boolean isDirectory() {
+            return false;
+        }
+
+        @Override
+        public boolean isReadable() {
+            return true;
+        }
+
+        @Override
+        public URI getURI() {
+            return null;
+        }
+
+        @Override
+        public String getName() {
+            return "";
+        }
+
+        @Override
+        public String getFileName() {
+            return "";
+        }
+
+        @Override
+        public InputStream newInputStream() {
+            return new ByteArrayInputStream(content);
+        }
+
+        @Override
+        public Resource resolve(String subUriPath) {
+            return this;
+        }
+
+        @Override
+        public Iterator<Resource> iterator() {
+            return Collections.emptyIterator();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // hasFileExtension
+    // -------------------------------------------------------------------------
+
     /**
      * Tests for {@link StaticHandler#writeErrorIfNotServed}.
      *
@@ -202,7 +399,7 @@ class StaticHandlerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // resourceExists
+    // EventFiringCallback — failed() path
     // -------------------------------------------------------------------------
 
     /**
@@ -286,7 +483,7 @@ class StaticHandlerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // serveErrorPage
+    // Auth filter — exception + committed response
     // -------------------------------------------------------------------------
 
     /**
@@ -353,7 +550,7 @@ class StaticHandlerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // isDotfilePath
+    // Auth filter — rejection + no matching error page
     // -------------------------------------------------------------------------
 
     /**
@@ -389,10 +586,6 @@ class StaticHandlerUnitTest {
             assertFalse(invoke("file.txt"));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // hasFileExtension
-    // -------------------------------------------------------------------------
 
     /**
      * Tests for the {@code hasFileExtension} private static utility.
@@ -434,10 +627,6 @@ class StaticHandlerUnitTest {
             assertFalse(invoke("file."));
         }
     }
-
-    // -------------------------------------------------------------------------
-    // EventFiringCallback — failed() path
-    // -------------------------------------------------------------------------
 
     /**
      * Tests for the {@code failed()} method of {@link StaticHandler}'s private
@@ -579,10 +768,6 @@ class StaticHandlerUnitTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Auth filter — exception + committed response
-    // -------------------------------------------------------------------------
-
     /**
      * Tests the branch in the auth filter {@code catch} block where
      * {@code response.isCommitted()} is {@code true} at the time the exception is
@@ -665,10 +850,6 @@ class StaticHandlerUnitTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Auth filter — rejection + no matching error page
-    // -------------------------------------------------------------------------
-
     /**
      * Tests the branch in the auth filter rejection block where the filter returns
      * {@code false}, the response is <em>not</em> committed, but no error page has been
@@ -741,189 +922,6 @@ class StaticHandlerUnitTest {
             assertTrue(handled, "handle() must return true — the handler claimed the request");
             assertTrue(succeededCalled.get(), "delegate.succeeded() must be called");
             assertFalse(writeCalled.get(), "response.write() must not be called — no error page is configured for 401");
-        }
-    }
-
-
-
-    private static Method resolveMethod(String name, Class<?>... paramTypes) {
-        try {
-            Method m = StaticHandler.class.getDeclaredMethod(name, paramTypes);
-            m.setAccessible(true);
-            return m;
-        } catch (NoSuchMethodException e) {
-            throw new RuntimeException("Could not find StaticHandler." + name, e);
-        }
-    }
-
-    /**
-     * Minimal concrete {@link Resource} subclass whose {@link #resolve} always returns
-     * {@code null}.  Used to cover the {@code null == resource} defensive guard in
-     * {@code StaticHandler.resourceExists()}.
-     */
-    private static final class NullResolvingResource extends Resource {
-        @Override
-        public Path getPath() {
-            return null;
-        }
-
-        @Override
-        public boolean isDirectory() {
-            return true;
-        }
-
-        @Override
-        public boolean isReadable() {
-            return false;
-        }
-
-        @Override
-        public URI getURI() {
-            return null;
-        }
-
-        @Override
-        public String getName() {
-            return "";
-        }
-
-        @Override
-        public String getFileName() {
-            return "";
-        }
-
-        @Override
-        public Resource resolve(String subUriPath) {
-            return null;
-        }
-
-        @Override
-        public Iterator<Resource> iterator() {
-            return Collections.emptyIterator();
-        }
-    }
-
-    /**
-     * Minimal concrete {@link Resource} subclass that reports itself as an existing,
-     * non-readable, non-directory resource (e.g. a broken symlink or special file).
-     * {@link #resolve} returns {@code this}, so {@code baseResource.resolve(path)}
-     * produces the same stub.  Used to cover the {@code return false} branch at the
-     * end of {@code StaticHandler.resourceExists()} when {@code isDirectory()} is
-     * {@code false}.
-     */
-    private static final class ExistingNonDirectoryResource extends Resource {
-        @Override
-        public boolean exists() {
-            return true;
-        }
-
-        @Override
-        public Path getPath() {
-            return null;
-        }
-
-        @Override
-        public boolean isDirectory() {
-            return false;
-        }
-
-        @Override
-        public boolean isReadable() {
-            return false;
-        }
-
-        @Override
-        public URI getURI() {
-            return null;
-        }
-
-        @Override
-        public String getName() {
-            return "";
-        }
-
-        @Override
-        public String getFileName() {
-            return "";
-        }
-
-        @Override
-        public Resource resolve(String subUriPath) {
-            return this;
-        }
-
-        @Override
-        public Iterator<Resource> iterator() {
-            return Collections.emptyIterator();
-        }
-    }
-
-    /**
-     * Minimal concrete {@link Resource} subclass that reports itself as an existing,
-     * readable, non-directory resource and returns an in-memory stream from
-     * {@link #newInputStream()}.  {@link #resolve} returns {@code this}, so
-     * {@code baseResource.resolve(notFoundPath)} yields the same stub.
-     * <p>
-     * Used to drive {@code StaticHandler.serveNotFoundPage()} past the
-     * {@code Resources.isReadableFile()} guard and into the
-     * {@code response.write()} call, where a proxy {@link Response} can then
-     * throw to trigger the {@code catch} block.
-     */
-    private static final class ReadableInMemoryResource extends Resource {
-        private final byte[] content;
-
-        private ReadableInMemoryResource(String content) {
-            this.content = content.getBytes();
-        }
-
-        @Override
-        public boolean exists() {
-            return true;
-        }
-
-        @Override
-        public Path getPath() {
-            return null;
-        }
-
-        @Override
-        public boolean isDirectory() {
-            return false;
-        }
-
-        @Override
-        public boolean isReadable() {
-            return true;
-        }
-
-        @Override
-        public URI getURI() {
-            return null;
-        }
-
-        @Override
-        public String getName() {
-            return "";
-        }
-
-        @Override
-        public String getFileName() {
-            return "";
-        }
-
-        @Override
-        public InputStream newInputStream() {
-            return new ByteArrayInputStream(content);
-        }
-
-        @Override
-        public Resource resolve(String subUriPath) {
-            return this;
-        }
-
-        @Override
-        public Iterator<Resource> iterator() {
-            return Collections.emptyIterator();
         }
     }
 }

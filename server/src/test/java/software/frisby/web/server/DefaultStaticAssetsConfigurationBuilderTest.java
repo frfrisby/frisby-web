@@ -3,14 +3,7 @@ package software.frisby.web.server;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import software.frisby.core.validation.BlankValueException;
-import software.frisby.core.validation.DisallowedValueException;
-import software.frisby.core.validation.DurationOutsideRangeException;
-import software.frisby.core.validation.NullMapKeyException;
-import software.frisby.core.validation.NullMapValueException;
-import software.frisby.core.validation.NullValueException;
-import software.frisby.core.validation.NumericValueOutsideRangeException;
-import software.frisby.core.validation.PatternMismatchException;
+import software.frisby.core.validation.*;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,11 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultStaticAssetsConfigurationBuilderTest {
 

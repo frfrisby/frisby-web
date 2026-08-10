@@ -1,10 +1,6 @@
 package software.frisby.web.server;
 
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.NotAuthorizedException;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.ServiceUnavailableException;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -39,6 +35,145 @@ class ServerSecurityFilterTest {
     // -------------------------------------------------------------------------
     // Single provider — token-based scheme
     // -------------------------------------------------------------------------
+
+    private static HttpResponse<String> get(int port, String path, String token) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder()
+                        .GET()
+                        .uri(URI.create("http://localhost:" + port + path))
+                        .header(HEADER_X_TOKEN, token)
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-provider — first-accepts-wins chain
+    // -------------------------------------------------------------------------
+
+    private static HttpResponse<String> getNoToken(int port, String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder()
+                        .GET()
+                        .uri(URI.create("http://localhost:" + port + path))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Provider returns null SecurityContext
+    // -------------------------------------------------------------------------
+
+    @Path("/secured")
+    @Produces(MediaType.APPLICATION_JSON)
+    public static final class SecuredResource {
+        @GET
+        public Response get() {
+            return Response.ok("{\"message\":\"ok\"}").build();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Provider throws — exception wrapping
+    // -------------------------------------------------------------------------
+
+    @Path("/whoami")
+    @Produces(MediaType.APPLICATION_JSON)
+    public static final class WhoAmIResource {
+        @GET
+        public Response get(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.SecurityContext sc) {
+            String name = sc.getUserPrincipal().getName();
+
+            return Response.ok("\"" + name + "\"").build();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Provider throws WebApplicationException — propagates unchanged
+    // -------------------------------------------------------------------------
+
+    private static final class TokenAuthProvider implements AuthenticationProvider {
+        private static final Principal ALICE = () -> "alice";
+
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return null != context.getHeaderString(HEADER_X_TOKEN);
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            String token = context.getHeaderString(HEADER_X_TOKEN);
+
+            if (!VALID_TOKEN.equals(token)) {
+                throw new NotAuthorizedException(
+                        Response.status(Response.Status.UNAUTHORIZED).build()
+                );
+            }
+
+            return ServerSecurityContext.of(ALICE, Set.of("USER"));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SecurityContext propagation — principal and roles
+    // -------------------------------------------------------------------------
+
+    private static final class NullReturningProvider implements AuthenticationProvider {
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return true;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers — HTTP
+    // -------------------------------------------------------------------------
+
+    private static final class NeverAcceptProvider implements AuthenticationProvider {
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return false;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            throw new IllegalStateException("accepts() returned false — authenticate() must not be called");
+        }
+    }
+
+    private static final class ThrowingProvider implements AuthenticationProvider {
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return true;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            throw new RuntimeException("Unexpected provider failure");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test resources
+    // -------------------------------------------------------------------------
+
+    private static final class ServiceUnavailableProvider implements AuthenticationProvider {
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return true;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            throw new ServiceUnavailableException("Upstream key service unavailable");
+        }
+    }
 
     @Nested
     class SingleProvider {
@@ -98,7 +233,7 @@ class ServerSecurityFilterTest {
     }
 
     // -------------------------------------------------------------------------
-    // Multi-provider — first-accepts-wins chain
+    // Test providers
     // -------------------------------------------------------------------------
 
     @Nested
@@ -146,10 +281,6 @@ class ServerSecurityFilterTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Provider returns null SecurityContext
-    // -------------------------------------------------------------------------
-
     @Nested
     class AuthenticateReturnsNull {
         private static Server server;
@@ -185,10 +316,6 @@ class ServerSecurityFilterTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Provider throws — exception wrapping
-    // -------------------------------------------------------------------------
-
     @Nested
     class ProviderThrows {
         private static Server server;
@@ -223,10 +350,6 @@ class ServerSecurityFilterTest {
             assertEquals(500, response.statusCode());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Provider throws WebApplicationException — propagates unchanged
-    // -------------------------------------------------------------------------
 
     @Nested
     class ProviderThrowsWebApplicationException {
@@ -281,10 +404,6 @@ class ServerSecurityFilterTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // SecurityContext propagation — principal and roles
-    // -------------------------------------------------------------------------
-
     @Nested
     class SecurityContextPropagation {
         private static Server server;
@@ -318,129 +437,6 @@ class ServerSecurityFilterTest {
 
             assertEquals(200, response.statusCode());
             assertEquals("\"alice\"", response.body());
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers — HTTP
-    // -------------------------------------------------------------------------
-
-    private static HttpResponse<String> get(int port, String path, String token) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder()
-                        .GET()
-                        .uri(URI.create("http://localhost:" + port + path))
-                        .header(HEADER_X_TOKEN, token)
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static HttpResponse<String> getNoToken(int port, String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder()
-                        .GET()
-                        .uri(URI.create("http://localhost:" + port + path))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    // -------------------------------------------------------------------------
-    // Test resources
-    // -------------------------------------------------------------------------
-
-    @Path("/secured")
-    @Produces(MediaType.APPLICATION_JSON)
-    public static final class SecuredResource {
-        @GET
-        public Response get() {
-            return Response.ok("{\"message\":\"ok\"}").build();
-        }
-    }
-
-    @Path("/whoami")
-    @Produces(MediaType.APPLICATION_JSON)
-    public static final class WhoAmIResource {
-        @GET
-        public Response get(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.SecurityContext sc) {
-            String name = sc.getUserPrincipal().getName();
-
-            return Response.ok("\"" + name + "\"").build();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Test providers
-    // -------------------------------------------------------------------------
-
-    private static final class TokenAuthProvider implements AuthenticationProvider {
-        private static final Principal ALICE = () -> "alice";
-
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return null != context.getHeaderString(HEADER_X_TOKEN);
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            String token = context.getHeaderString(HEADER_X_TOKEN);
-
-            if (!VALID_TOKEN.equals(token)) {
-                throw new NotAuthorizedException(
-                        Response.status(Response.Status.UNAUTHORIZED).build()
-                );
-            }
-
-            return ServerSecurityContext.of(ALICE, Set.of("USER"));
-        }
-    }
-
-    private static final class NullReturningProvider implements AuthenticationProvider {
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return true;
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            return null;
-        }
-    }
-
-    private static final class NeverAcceptProvider implements AuthenticationProvider {
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return false;
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            throw new IllegalStateException("accepts() returned false — authenticate() must not be called");
-        }
-    }
-
-    private static final class ThrowingProvider implements AuthenticationProvider {
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return true;
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            throw new RuntimeException("Unexpected provider failure");
-        }
-    }
-
-    private static final class ServiceUnavailableProvider implements AuthenticationProvider {
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return true;
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            throw new ServiceUnavailableException("Upstream key service unavailable");
         }
     }
 }

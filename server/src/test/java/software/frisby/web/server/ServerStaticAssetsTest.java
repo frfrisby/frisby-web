@@ -18,12 +18,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for static asset serving via {@link StaticAssetsConfiguration}.
@@ -1399,20 +1394,28 @@ class ServerStaticAssetsTest {
 
     @Nested
     class StartupValidation {
+        private static final String CLASSPATH_FILE_SOURCE_MESSAGE =
+                "The 'resourcePath' value of 'classpath:/static-test-assets/index.html' is invalid.  "
+                        + "The resource does not exist or is not a directory.";
+        private static final String CLASSPATH_MISSING_SOURCE_MESSAGE =
+                "The 'resourcePath' value of 'classpath:/does-not-exist' is invalid.  "
+                        + "The resource does not exist or is not a directory.";
+        private static final String NOT_FOUND_PAGE_MISSING_MESSAGE =
+                "The 'errorPage[404]' value of 'missing-404.html' is invalid.  "
+                        + "The file does not exist in the configured asset root.";
         @TempDir
         Path tempDir;
 
-        private static final String CLASSPATH_FILE_SOURCE_MESSAGE =
-                "The 'resourcePath' value of 'classpath:/static-test-assets/index.html' is invalid.  "
-                + "The resource does not exist or is not a directory.";
+        private static void assertStartupIllegalStateException(Server server, String expectedMessage) {
+            // Jetty may wrap the IllegalStateException in its lifecycle machinery.
+            Throwable cause = assertThrows(Throwable.class, server::start);
+            while (null != cause && !(cause instanceof IllegalStateException)) {
+                cause = cause.getCause();
+            }
 
-        private static final String CLASSPATH_MISSING_SOURCE_MESSAGE =
-                "The 'resourcePath' value of 'classpath:/does-not-exist' is invalid.  "
-                + "The resource does not exist or is not a directory.";
-
-        private static final String NOT_FOUND_PAGE_MISSING_MESSAGE =
-                "The 'errorPage[404]' value of 'missing-404.html' is invalid.  "
-                + "The file does not exist in the configured asset root.";
+            assertInstanceOf(IllegalStateException.class, cause);
+            assertEquals(expectedMessage, cause.getMessage());
+        }
 
         @Test
         void classpathSourcePointingToFile_throwsOnStart() {
@@ -1484,7 +1487,7 @@ class ServerStaticAssetsTest {
 
             String expectedMessage =
                     "The 'directory' value of '" + subDir + "' is invalid.  "
-                    + "The resource does not exist or is not a directory.";
+                            + "The resource does not exist or is not a directory.";
 
             assertStartupIllegalStateException(server, expectedMessage);
         }
@@ -1510,17 +1513,6 @@ class ServerStaticAssetsTest {
                     .build();
 
             assertStartupIllegalStateException(server, NOT_FOUND_PAGE_MISSING_MESSAGE);
-        }
-
-        private static void assertStartupIllegalStateException(Server server, String expectedMessage) {
-            // Jetty may wrap the IllegalStateException in its lifecycle machinery.
-            Throwable cause = assertThrows(Throwable.class, server::start);
-            while (null != cause && !(cause instanceof IllegalStateException)) {
-                cause = cause.getCause();
-            }
-
-            assertInstanceOf(IllegalStateException.class, cause);
-            assertEquals(expectedMessage, cause.getMessage());
         }
     }
 

@@ -139,9 +139,9 @@ public interface StaticAssetsConfigurationBuilder {
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code statusCode}
      *                                                                           is outside the range
      *                                                                           400–599
-     * @throws software.frisby.core.validation.NullValueException       if {@code path} is
-     *                                                                  {@code null}
-     * @throws software.frisby.core.validation.BlankValueException      if {@code path} is blank
+     * @throws software.frisby.core.validation.NullValueException                if {@code path} is
+     *                                                                           {@code null}
+     * @throws software.frisby.core.validation.BlankValueException               if {@code path} is blank
      */
     StaticAssetsConfigurationBuilder errorPage(int statusCode, String path);
 
