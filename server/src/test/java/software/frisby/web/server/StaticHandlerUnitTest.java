@@ -543,7 +543,7 @@ class StaticHandlerUnitTest {
                 }
             };
 
-            handler.serveErrorPage(404, "/missing", null, mockResponse, callback);
+            handler.serveErrorPage(404, null, mockResponse, callback);
 
             assertSame(writeError, capturedFailure.get(),
                     "callback.failed() must receive the exception thrown by response.write()");
