@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Jetty handler that serves static files from a classpath resource path or
@@ -163,36 +164,6 @@ final class StaticHandler extends Handler.Wrapper {
         return lastDot > 0 && lastDot < lastSegment.length() - 1;
     }
 
-    /**
-     * Builds a multi-line detail string for log entries, including masked request
-     * headers and response headers.  Used for both TRACE-level success entries and
-     * WARNING/ERROR failure entries.  Static assets carry no request or response
-     * bodies, so only headers are included.
-     *
-     * @param request         The Jetty request.
-     * @param response        The Jetty response (after completion).
-     * @param redactedHeaders The set of lower-cased header names to redact.
-     * @return A detail string (may start with {@code \n}); never {@code null}.
-     */
-    private static String buildDetail(Request request,
-                                      Response response,
-                                      Set<String> redactedHeaders) {
-        StringBuilder sb = new StringBuilder();
-
-        String reqHeaders = LogDetail.formatJettyRequestHeaders(request.getHeaders(), redactedHeaders);
-
-        sb.append("\n  Request Headers:").append(reqHeaders);
-
-        HttpFields responseFields = response.getHeaders();
-        String resHeaders = LogDetail.formatJettyResponseHeaders(responseFields, redactedHeaders);
-
-        if (!resHeaders.isEmpty()) {
-            sb.append("\n  Response Headers:").append(resHeaders);
-        }
-
-        return sb.toString();
-    }
-
     @Override
     protected void doStart() throws Exception {
         ResourceHandler resourceHandler = resourceHandler();
@@ -269,15 +240,11 @@ final class StaticHandler extends Handler.Wrapper {
     @Override
     public boolean handle(Request request, Response response, Callback callback) throws Exception {
         String path = request.getHttpURI().getPath();
-        String urlPrefix = configuration.urlPrefix();
 
-        // 1. Prefix check — only handle requests under our URL prefix.
-        if (!matchesPrefix(path, urlPrefix)) {
+        if (!matchesPrefix(path, configuration.urlPrefix())) {
             return false;
         }
 
-        // We are committed to handling this request.  Start timing and wrap the
-        // callback so we fire a RequestCompletedEvent when the response completes.
         StopWatch watch = StopWatch.start();
         String method = request.getMethod();
         EventFiringCallback eventCallback = new EventFiringCallback(
@@ -292,59 +259,90 @@ final class StaticHandler extends Handler.Wrapper {
                 redactedHeaders
         );
 
-        // 2. Dotfile protection — unconditional 404 for any path segment starting with period (".").
         if (isDotfilePath(path)) {
             Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
             return true;
         }
 
-        // 3. Auth filter — if present, invoke it.  When the filter returns false and has
-        //    not committed a response, check whether a configured error page applies to the
-        //    current response status and serve it automatically.  When the filter throws,
-        //    catch the exception, record it on the callback for structured logging, and serve
-        //    the configured 500 error page (if any).
-        if (configuration.authFilter().isPresent()) {
-            boolean allowed;
-
-            try {
-                allowed = configuration.authFilter().get().authorize(request, response);
-            } catch (Exception ex) {
-                eventCallback.setRequestException(ex);
-
-                if (!response.isCommitted()) {
-                    int status = HttpStatus.INTERNAL_SERVER_ERROR_500;
-
-                    if (configuration.errorPages().containsKey(status)) {
-                        serveErrorPage(status, path, request, response, eventCallback);
-                    } else {
-                        Response.writeError(request, response, eventCallback, status);
-                    }
-                } else {
-                    eventCallback.succeeded();
-                }
-
-                return true;
-            }
-
-            if (!allowed) {
-                if (!response.isCommitted()) {
-                    int status = response.getStatus();
-
-                    if (configuration.errorPages().containsKey(status)) {
-                        serveErrorPage(status, path, request, response, eventCallback);
-                        return true;
-                    }
-                }
-
-                eventCallback.succeeded();
-                return true;
-            }
+        if (handleAuthFilter(path, request, response, eventCallback)) {
+            return true;
         }
 
-        // 4. Determine what we will serve before adding response headers.
-        //    This prevents our CSP / security headers from leaking onto JAX-RS responses
-        //    when we return false (resource not found, no fallback applies).
-        Request strippedRequest = stripUrlPrefix(request, path, urlPrefix);
+        return serveMatchedRequest(path, request, response, eventCallback);
+    }
+
+    /**
+     * Invokes the auth filter if one is configured.
+     *
+     * @return {@code true} if the request was fully handled (blocked or exception path) and
+     * {@code handle()} should return immediately; {@code false} if the filter allowed
+     * the request or no filter is configured.
+     */
+    private boolean handleAuthFilter(String path,
+                                     Request request,
+                                     Response response,
+                                     EventFiringCallback eventCallback) {
+        StaticAssetsAuthFilter authFilter = configuration.authFilter().orElse(null);
+
+        if (null == authFilter) {
+            return false;
+        }
+
+        boolean allowed;
+
+        try {
+            allowed = authFilter.authorize(request, response);
+        } catch (RuntimeException ex) {
+            eventCallback.setRequestException(ex);
+
+            if (!response.isCommitted()) {
+                int status = HttpStatus.INTERNAL_SERVER_ERROR_500;
+
+                if (configuration.errorPages().containsKey(status)) {
+                    serveErrorPage(status, request, response, eventCallback);
+                } else {
+                    Response.writeError(request, response, eventCallback, status);
+                }
+            } else {
+                eventCallback.succeeded();
+            }
+
+            return true;
+        }
+
+        if (!allowed) {
+            if (!response.isCommitted()) {
+                int status = response.getStatus();
+
+                if (configuration.errorPages().containsKey(status)) {
+                    serveErrorPage(status, request, response, eventCallback);
+                    return true;
+                }
+            }
+
+            eventCallback.succeeded();
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolves and serves the resource at {@code path}, applying response headers,
+     * SPA fallback, and custom error pages as configured.
+     *
+     * <p>Called after prefix-matching, dotfile protection, and auth filtering have
+     * all passed.
+     *
+     * @return {@code true} if this handler claimed the request; {@code false} if the
+     * resource was not found and no fallback or error page applied (passes the
+     * request to the next handler in the chain).
+     */
+    private boolean serveMatchedRequest(String path,
+                                        Request request,
+                                        Response response,
+                                        EventFiringCallback eventCallback) throws Exception {
+        Request strippedRequest = stripUrlPrefix(request, path, configuration.urlPrefix());
         String strippedPath = strippedRequest.getHttpURI().getPath();
 
         boolean resourceExists = resourceExists(strippedPath);
@@ -359,22 +357,16 @@ final class StaticHandler extends Handler.Wrapper {
             return false;
         }
 
-        // 5. Add custom response headers now that we know we are handling this request.
-        if (!configuration.responseHeaders().isEmpty()) {
-            for (Map.Entry<String, String> entry : configuration.responseHeaders().entrySet()) {
-                response.getHeaders().put(entry.getKey(), entry.getValue());
-            }
+        for (Map.Entry<String, String> entry : configuration.responseHeaders().entrySet()) {
+            response.getHeaders().put(entry.getKey(), entry.getValue());
         }
 
-        // 6. Serve the resource.
         if (resourceExists) {
             boolean served = resourceHandler().handle(strippedRequest, response, eventCallback);
             writeErrorIfNotServed(served, request, response, eventCallback);
-
             return true;
         }
 
-        // 7. SPA fallback — serve index.html for extensionless paths.
         if (willUseSpaFallback) {
             HttpURI indexUri = HttpURI.build(strippedRequest.getHttpURI()).pathQuery("/index.html");
             Request indexRequest = Request.serveAs(strippedRequest, indexUri);
@@ -384,15 +376,13 @@ final class StaticHandler extends Handler.Wrapper {
                 return true;
             }
 
-            // index.html itself is missing — fall through to custom error page or plain 404.
             if (!configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404)) {
                 Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
                 return true;
             }
         }
 
-        // 8. Custom error page.
-        serveErrorPage(HttpStatus.NOT_FOUND_404, path, request, response, eventCallback);
+        serveErrorPage(HttpStatus.NOT_FOUND_404, request, response, eventCallback);
         return true;
     }
 
@@ -434,7 +424,6 @@ final class StaticHandler extends Handler.Wrapper {
      * back to a plain error response with no body.
      */
     void serveErrorPage(int statusCode,
-                        String originalPath,
                         Request request,
                         Response response,
                         Callback callback) {
@@ -501,8 +490,9 @@ final class StaticHandler extends Handler.Wrapper {
          * Captured when the auth filter throws — used to attach the exception to the
          * structured log entry so that ERROR-level records include the full stack trace.
          */
-        private volatile Throwable requestException;
+        private final AtomicReference<Throwable> requestException;
 
+        @SuppressWarnings("java:S107")
         private EventFiringCallback(Callback delegate,
                                     StopWatch watch,
                                     String method,
@@ -521,11 +511,37 @@ final class StaticHandler extends Handler.Wrapper {
             this.eventListener = eventListener;
             this.requestLogger = requestLogger;
             this.redactedHeaders = redactedHeaders;
-            this.requestException = null;
+            this.requestException = new AtomicReference<>(null);
+        }
+
+        /**
+         * Builds a multi-line detail string for log entries, including masked request
+         * headers and response headers.  Static assets carry no request or response
+         * bodies, so only headers are included.
+         *
+         * @return A detail string (may start with {@code \n}); never {@code null}.
+         */
+        private static String buildDetail(Request request,
+                                          Response response,
+                                          Set<String> redactedHeaders) {
+            StringBuilder sb = new StringBuilder();
+
+            String reqHeaders = LogDetail.formatJettyRequestHeaders(request.getHeaders(), redactedHeaders);
+
+            sb.append("\n  Request Headers:").append(reqHeaders);
+
+            HttpFields responseFields = response.getHeaders();
+            String resHeaders = LogDetail.formatJettyResponseHeaders(responseFields, redactedHeaders);
+
+            if (!resHeaders.isEmpty()) {
+                sb.append("\n  Response Headers:").append(resHeaders);
+            }
+
+            return sb.toString();
         }
 
         void setRequestException(Throwable ex) {
-            this.requestException = ex;
+            this.requestException.set(ex);
         }
 
         @Override
@@ -547,24 +563,12 @@ final class StaticHandler extends Handler.Wrapper {
         private void logCompletion() {
             int status = response.getStatus();
             long latencyMs = watch.duration().toMillis();
+            String detail = buildDetail(request, response, redactedHeaders);
 
             if (status < 400) {
-                requestLogger.logRequest(
-                        method,
-                        path,
-                        status,
-                        latencyMs,
-                        buildDetail(request, response, redactedHeaders)
-                );
+                requestLogger.logRequest(method, path, status, latencyMs, detail);
             } else {
-                requestLogger.logFailureDetail(
-                        method,
-                        path,
-                        status,
-                        latencyMs,
-                        buildDetail(request, response, redactedHeaders),
-                        requestException
-                );
+                requestLogger.logFailureDetail(method, path, status, latencyMs, detail, requestException.get());
             }
         }
 

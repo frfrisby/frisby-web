@@ -58,11 +58,12 @@ public interface StaticAssetsAuthFilter {
      *                 full control of the error body
      * @return {@code true} to allow the request to proceed and serve the file;
      * {@code false} to block it
-     * @throws Exception if an error occurs during the authorization check (e.g. an
-     *                   {@link java.io.IOException} from a remote auth service); the
-     *                   handler catches this, logs it, and serves the configured
-     *                   {@code 500} error page (if any), or returns a plain
-     *                   {@code 500 Internal Server Error}
+     * @throws RuntimeException if an error occurs during the authorization check (e.g. an
+     *                          {@link java.io.UncheckedIOException} wrapping an
+     *                          {@link java.io.IOException} from a remote auth service); the
+     *                          handler catches this, logs it, and serves the configured
+     *                          {@code 500} error page (if any), or returns a plain
+     *                          {@code 500 Internal Server Error}
      */
-    boolean authorize(Request request, Response response) throws Exception;
+    boolean authorize(Request request, Response response);
 }

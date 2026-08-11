@@ -19,6 +19,7 @@ import java.util.regex.Pattern;
  */
 final class LogDetail {
     private static final String REDACTED = "[redacted]";
+    private static final String HEADER_INDENT = "\n    ";
 
     private LogDetail() {
     }
@@ -67,11 +68,11 @@ final class LogDetail {
                         ? trimmed.substring(0, eq + 1) + REDACTED
                         : trimmed;
 
-                sb.append("\n    ").append(name).append(": ").append(formatted);
+                sb.append(HEADER_INDENT).append(name).append(": ").append(formatted);
             }
         } else {
             String v = masked.contains(lowerName) ? REDACTED : value;
-            sb.append("\n    ").append(name).append(": ").append(v);
+            sb.append(HEADER_INDENT).append(name).append(": ").append(v);
         }
     }
 
@@ -179,7 +180,7 @@ final class LogDetail {
                 value = field.getValue();
             }
 
-            sb.append("\n    ").append(name).append(": ").append(value);
+            sb.append(HEADER_INDENT).append(name).append(": ").append(value);
         }
 
         return sb.toString();

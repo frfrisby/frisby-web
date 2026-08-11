@@ -177,7 +177,8 @@ public interface StaticAssetsConfigurationBuilder {
      *
      * <p>If the filter throws an exception, the handler catches it, logs it, and serves
      * the error page configured for status {@code 500} (if any); otherwise it returns a
-     * plain {@code 500 Internal Server Error}.
+     * plain {@code 500 Internal Server Error}.  Checked exceptions must be wrapped in an
+     * unchecked exception (e.g. {@link java.io.UncheckedIOException}) before throwing.
      *
      * <p>Use this to add authentication or authorization to static asset serving
      * without coupling the configuration to a specific security module.

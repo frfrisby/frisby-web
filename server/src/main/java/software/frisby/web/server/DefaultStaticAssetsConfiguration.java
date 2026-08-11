@@ -16,6 +16,8 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final Map<Integer, String> errorPages;   // empty = not configured
     private final StaticAssetsAuthFilter authFilter; // null = not configured
 
+    @SuppressWarnings("java:S107") // 9-parameter constructor is justified: one parameter per immutable field;
+                                   // the builder pattern on the caller side prevents misuse.
     DefaultStaticAssetsConfiguration(
             String classpathPath,
             Path filesystemPath,
