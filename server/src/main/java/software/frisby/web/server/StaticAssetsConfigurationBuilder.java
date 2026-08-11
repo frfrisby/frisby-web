@@ -15,7 +15,7 @@ import java.util.Map;
  * <pre>{@code
  * StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
  *         .urlPrefix("/ui")
- *         .spaFallback(true)
+ *         .spaFallback()
  *         .errorPage(404, "404.html")
  *         .errorPage(500, "500.html")
  *         .cacheMaxAge(Duration.ofDays(7))
@@ -94,7 +94,7 @@ public interface StaticAssetsConfigurationBuilder {
     StaticAssetsConfigurationBuilder responseHeaders(Map<String, String> headers);
 
     /**
-     * Enables or disables the SPA index fallback.
+     * Enables the SPA index fallback.
      *
      * <p>When enabled, a {@code 404} response from the static handler for a path
      * with no file extension is replaced by a {@code 200} response serving
@@ -106,12 +106,11 @@ public interface StaticAssetsConfigurationBuilder {
      * missing file still return {@code 404} — the extension guard prevents silently
      * serving HTML in place of a missing image, script, or stylesheet.
      *
-     * <p>Defaults to {@code false}.
+     * <p>Defaults to {@code false} when not called.
      *
-     * @param enabled {@code true} to enable SPA fallback; {@code false} to disable it
      * @return this builder
      */
-    StaticAssetsConfigurationBuilder spaFallback(boolean enabled);
+    StaticAssetsConfigurationBuilder spaFallback();
 
     /**
      * Maps an HTTP error status code to a custom response page served from the asset root.

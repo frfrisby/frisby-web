@@ -99,8 +99,8 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     }
 
     @Override
-    public StaticAssetsConfigurationBuilder spaFallback(boolean enabled) {
-        this.spaFallback = enabled;
+    public StaticAssetsConfigurationBuilder spaFallback() {
+        this.spaFallback = true;
         return this;
     }
 

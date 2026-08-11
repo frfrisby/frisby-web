@@ -339,7 +339,7 @@ clear error if the path is missing.
 | `urlPrefix(String)` | `"/"` | Must start with `/`; not null or blank. Serves all unmatched paths when `"/"`. |
 | `cacheMaxAge(Duration)` | none | Emits `Cache-Control: max-age=<s>, public`. `Duration.ZERO` emits `max-age=0, no-cache`. Omitting emits no header. Not null, not negative. |
 | `responseHeaders(Map<String,String>)` | empty | Headers added to every asset response. Cumulative — later calls merge into earlier; duplicate keys take the later value. Map and all keys/values must not be null. |
-| `spaFallback(boolean)` | `false` | When `true`, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404. |
+| `spaFallback()` | `false` | When called, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404. |
 | `preCompressed()` | `false` | Enables serving of pre-compressed sibling files. When a client sends `Accept-Encoding: gzip` or `br`, Jetty looks for a `.gz` or `.br` sibling file and serves it directly with the appropriate `Content-Encoding` header. Brotli is preferred over gzip when both siblings exist. No-op when no siblings are present. Use with Vite/webpack pre-compression output. |
 | `errorPage(int statusCode, String path)` | none | Maps an HTTP error status (400–599) to a file in the asset root. Status code preserved; only body and `Content-Type` come from the file. Multiple calls allowed (different codes); duplicate codes are last-write-wins. Each path is validated for readability at server startup. |
 | `authFilter(StaticAssetsAuthFilter)` | none | Invoked before every asset request. See below. |
@@ -375,6 +375,7 @@ to gate static asset access.
 | **JAX-RS priority** | Static handlers only receive requests that no JAX-RS endpoint matched. |
 | **Startup validation** | Asset source and all `errorPage` paths validated when the server starts; missing resources → `IllegalStateException` with a clear message. |
 | **URL prefix conflict detection** | Exact duplicates or proper-prefix overlaps (e.g. `/admin` + `/admin/reports`) → `IllegalStateException` at startup. |
+| **Request logging** | All static asset requests are logged through `RequestLogger` (logger name `software.frisby.web.server.RequestLogger`) using the same level conventions as the JSON API: `TRACE` — full entry with request + response headers; `INFO` — compact one-liner for 2xx/3xx; `WARNING` — headers for 4xx and controlled 5xx; `ERROR` — headers + attached stack trace for unexpected 5xx (e.g. auth filter threw). Static assets carry no request or response bodies, so only headers appear in detail blocks. |
 
 ### Usage examples
 
@@ -384,7 +385,7 @@ Server.builder()
         ...
         .staticAssets(
                 StaticAssetsConfiguration.classpath("/web")
-                        .spaFallback(true)
+                        .spaFallback()
                         .errorPage(404, "404.html")
                         .responseHeaders(Map.of(
                                 "Content-Security-Policy", "default-src 'self'",
@@ -402,7 +403,7 @@ Server.builder()
         .staticAssets(
                 StaticAssetsConfiguration.classpath("/admin-web")
                         .urlPrefix("/admin")
-                        .spaFallback(true)
+                        .spaFallback()
                         .errorPage(401, "401.html")
                         .errorPage(500, "500.html")
                         .authFilter((req, res) -> {

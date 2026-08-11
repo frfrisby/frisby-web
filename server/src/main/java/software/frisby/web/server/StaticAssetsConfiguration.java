@@ -14,7 +14,7 @@ import java.util.Optional;
  * <pre>{@code
  * // Serve embedded classpath resources at /
  * StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
- *         .spaFallback(true)
+ *         .spaFallback()
  *         .errorPage(404, "404.html")
  *         .errorPage(500, "500.html")
  *         .responseHeaders(Map.of(

@@ -408,6 +408,29 @@ class DefaultStaticAssetsConfigurationBuilderTest {
     }
 
     // -------------------------------------------------------------------------
+    // spaFallback()
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class SpaFallback {
+        @Test
+        void notCalled_defaultsFalse() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web").build();
+
+            assertFalse(config.spaFallback());
+        }
+
+        @Test
+        void called_storesTrue() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .spaFallback()
+                    .build();
+
+            assertTrue(config.spaFallback());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // preCompressed()
     // -------------------------------------------------------------------------
 

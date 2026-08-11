@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -298,7 +299,7 @@ class StaticHandlerUnitTest {
                 }
             };
 
-            StaticHandler.writeErrorIfNotServed(true, "/test.txt", mockRequest, mockResponse, noOpCallback);
+            StaticHandler.writeErrorIfNotServed(true, mockRequest, mockResponse, noOpCallback);
 
             assertFalse(statusSet.get(), "setStatus() must not be called when served=true");
             assertFalse(callbackCalled.get(), "write() must not be called when served=true");
@@ -344,7 +345,7 @@ class StaticHandlerUnitTest {
                 }
             };
 
-            StaticHandler.writeErrorIfNotServed(false, "/gone.txt", mockRequest, mockResponse, noOpCallback);
+            StaticHandler.writeErrorIfNotServed(false, mockRequest, mockResponse, noOpCallback);
 
             assertEquals(HttpStatus.NOT_FOUND_404, capturedStatus.get(),
                     "response status must be 404 Not Found");
@@ -426,7 +427,7 @@ class StaticHandlerUnitTest {
                     .build();
 
             // Construct but do NOT start — baseResource stays null.
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             Method method = StaticHandler.class.getDeclaredMethod("resourceExists", String.class);
             method.setAccessible(true);
@@ -442,7 +443,7 @@ class StaticHandlerUnitTest {
                     .classpath("/static-test-assets")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             // Inject a NullResolvingResource as baseResource so that resolve() returns null.
             Field baseResourceField = StaticHandler.class.getDeclaredField("baseResource");
@@ -463,7 +464,7 @@ class StaticHandlerUnitTest {
                     .classpath("/static-test-assets")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             // ExistingNonDirectoryResource.resolve() returns itself: exists=true,
             // isReadable=false, isDirectory=false.  This exercises the final
@@ -509,7 +510,7 @@ class StaticHandlerUnitTest {
                     .errorPage(404, "404.html")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             Field baseResourceField = StaticHandler.class.getDeclaredField("baseResource");
             baseResourceField.setAccessible(true);
@@ -653,8 +654,11 @@ class StaticHandlerUnitTest {
                     StopWatch.class,
                     String.class,
                     String.class,
+                    Request.class,
                     Response.class,
-                    ServerEventListener.class
+                    ServerEventListener.class,
+                    RequestLogger.class,
+                    Set.class
             );
             ctor.setAccessible(true);
 
@@ -673,6 +677,12 @@ class StaticHandlerUnitTest {
                 }
             };
 
+            Request mockRequest = (Request) Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class[]{Request.class},
+                    (proxy, method, args) -> null
+            );
+
             Response mockResponse = (Response) Proxy.newProxyInstance(
                     getClass().getClassLoader(),
                     new Class[]{Response.class},
@@ -686,8 +696,11 @@ class StaticHandlerUnitTest {
                     StopWatch.start(),
                     "GET",
                     "/missing",
+                    mockRequest,
                     mockResponse,
-                    capturingListener
+                    capturingListener,
+                    new RequestLogger(),
+                    Set.of()
             );
 
             RuntimeException testError = new RuntimeException("downstream failure");
@@ -723,8 +736,11 @@ class StaticHandlerUnitTest {
                         StopWatch.class,
                         String.class,
                         String.class,
+                        Request.class,
                         Response.class,
-                        ServerEventListener.class
+                        ServerEventListener.class,
+                        RequestLogger.class,
+                        Set.class
                 );
                 ctor.setAccessible(true);
 
@@ -736,6 +752,12 @@ class StaticHandlerUnitTest {
                         delegateCalled.set(true);
                     }
                 };
+
+                Request mockRequest = (Request) Proxy.newProxyInstance(
+                        getClass().getClassLoader(),
+                        new Class[]{Request.class},
+                        (proxy, method, args) -> null
+                );
 
                 Response mockResponse = (Response) Proxy.newProxyInstance(
                         getClass().getClassLoader(),
@@ -752,8 +774,11 @@ class StaticHandlerUnitTest {
                         StopWatch.start(),
                         "GET",
                         "/index.html",
+                        mockRequest,
                         mockResponse,
-                        throwingListener
+                        throwingListener,
+                        new RequestLogger(),
+                        Set.of()
                 );
 
                 // Must not throw — listener exception is caught and logged internally.
@@ -798,7 +823,7 @@ class StaticHandlerUnitTest {
                     })
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             HttpURI uri = HttpURI.from("http://localhost/index.html");
 
@@ -873,7 +898,7 @@ class StaticHandlerUnitTest {
                     })
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE);
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
 
             HttpURI uri = HttpURI.from("http://localhost/index.html");
 

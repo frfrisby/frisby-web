@@ -179,7 +179,7 @@ Server server = Server.builder()
         .resources(new OrderResource(orderService))
         .staticAssets(
                 StaticAssetsConfiguration.classpath("/web")
-                        .spaFallback(true)
+                        .spaFallback()
                         .build()
         )
         .healthCheck()

@@ -1,5 +1,6 @@
 package software.frisby.web.server;
 
+import org.eclipse.jetty.http.HttpFields;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +18,67 @@ import static org.junit.jupiter.api.Assertions.*;
  * not reachable when the redaction config is always non-empty).
  */
 class LogDetailTest {
+    // -------------------------------------------------------------------------
+    // formatJettyRequestHeaders — null guard
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class FormatJettyRequestHeaders {
+        @Test
+        void nullHeaders_returnsEmpty() {
+            assertEquals("", LogDetail.formatJettyRequestHeaders(null, Set.of()));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // formatJettyResponseHeaders — masking branches
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class FormatJettyResponseHeaders {
+        @Test
+        void nullHeaders_returnsEmpty() {
+            assertEquals("", LogDetail.formatJettyResponseHeaders(null, Set.of()));
+        }
+
+        @Test
+        void unmaskedHeader_valueReturnedVerbatim() {
+            HttpFields headers = HttpFields.build()
+                    .add("Content-Type", "application/json")
+                    .asImmutable();
+
+            String result = LogDetail.formatJettyResponseHeaders(headers, Set.of());
+
+            assertEquals("\n    Content-Type: application/json", result);
+        }
+
+        @Test
+        void maskedNonSetCookieHeader_valueReplacedWithRedacted() {
+            // masked.contains(lowerName) == true, "set-cookie".equals(lowerName) == false
+            // → else if branch: value = "[redacted]"
+            HttpFields headers = HttpFields.build()
+                    .add("Authorization", "Bearer secret-token")
+                    .asImmutable();
+
+            String result = LogDetail.formatJettyResponseHeaders(headers, Set.of("authorization"));
+
+            assertEquals("\n    Authorization: [redacted]", result);
+        }
+
+        @Test
+        void maskedSetCookieHeader_valueRedactedPreservingAttributes() {
+            // masked.contains(lowerName) == true, "set-cookie".equals(lowerName) == true
+            // → first branch: value = redactSetCookieHeader(...)
+            HttpFields headers = HttpFields.build()
+                    .add("Set-Cookie", "session=abc123; Path=/; HttpOnly")
+                    .asImmutable();
+
+            String result = LogDetail.formatJettyResponseHeaders(headers, Set.of("set-cookie"));
+
+            assertEquals("\n    Set-Cookie: session=[redacted]; Path=/; HttpOnly", result);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // appendRequestHeader — Cookie edge cases
     // -------------------------------------------------------------------------

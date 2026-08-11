@@ -391,7 +391,12 @@ final class DefaultServer implements Server {
             Handler.Sequence sequence = new Handler.Sequence();
 
             for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
-                sequence.addHandler(new StaticHandler(config, eventListener));
+                sequence.addHandler(new StaticHandler(
+                        config,
+                        eventListener,
+                        requestLogger,
+                        configuration.logging().redactedHeaders()
+                ));
             }
 
             sequence.addHandler(jerseyHandler);

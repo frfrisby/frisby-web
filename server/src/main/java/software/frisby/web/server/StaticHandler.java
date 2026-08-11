@@ -1,10 +1,6 @@
 package software.frisby.web.server;
 
-import org.eclipse.jetty.http.CompressedContentFormat;
-import org.eclipse.jetty.http.HttpHeader;
-import org.eclipse.jetty.http.HttpStatus;
-import org.eclipse.jetty.http.HttpURI;
-import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.http.*;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
@@ -23,11 +19,12 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Jetty handler that serves static files from a classpath resource path or
  * filesystem directory, with dotfile protection, optional SPA fallback,
- * custom 404 pages, auth filtering, and configurable response headers.
+ * custom error pages, auth filtering, and configurable response headers.
  *
  * <p>One {@code StaticHandler} instance is created per
  * {@link StaticAssetsConfiguration} registered on the server. Each instance
@@ -43,18 +40,24 @@ final class StaticHandler extends Handler.Wrapper {
 
     private final StaticAssetsConfiguration configuration;
     private final ServerEventListener eventListener;
+    private final RequestLogger requestLogger;
+    private final Set<String> redactedHeaders;
 
     /**
      * Set during {@link #doStart()}; used for resource existence checks,
-     * SPA fallback resolution, and custom 404-page resolution.
+     * SPA fallback resolution, and custom error-page resolution.
      */
     private Resource baseResource;
 
     StaticHandler(StaticAssetsConfiguration configuration,
-                  ServerEventListener eventListener) {
+                  ServerEventListener eventListener,
+                  RequestLogger requestLogger,
+                  Set<String> redactedHeaders) {
         super(new ResourceHandler());
         this.configuration = configuration;
         this.eventListener = eventListener;
+        this.requestLogger = requestLogger;
+        this.redactedHeaders = redactedHeaders;
         this.baseResource = null;
     }
 
@@ -74,18 +77,15 @@ final class StaticHandler extends Handler.Wrapper {
      *
      * @param served   {@code true} if {@link ResourceHandler} claimed the request; {@code false}
      *                 if it returned without writing a response (file-disappeared race condition)
-     * @param path     the original request path, used for the warning log entry
      * @param request  the Jetty request, forwarded to {@link Response#writeError}
      * @param response the Jetty response, forwarded to {@link Response#writeError}
      * @param callback the response-completion callback, forwarded to {@link Response#writeError}
      */
     static void writeErrorIfNotServed(boolean served,
-                                      String path,
                                       Request request,
                                       Response response,
                                       Callback callback) {
         if (!served) {
-            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404", path);
             Response.writeError(request, response, callback, HttpStatus.NOT_FOUND_404);
         }
     }
@@ -161,6 +161,36 @@ final class StaticHandler extends Handler.Wrapper {
         int lastDot = lastSegment.lastIndexOf('.');
 
         return lastDot > 0 && lastDot < lastSegment.length() - 1;
+    }
+
+    /**
+     * Builds a multi-line detail string for log entries, including masked request
+     * headers and response headers.  Used for both TRACE-level success entries and
+     * WARNING/ERROR failure entries.  Static assets carry no request or response
+     * bodies, so only headers are included.
+     *
+     * @param request         The Jetty request.
+     * @param response        The Jetty response (after completion).
+     * @param redactedHeaders The set of lower-cased header names to redact.
+     * @return A detail string (may start with {@code \n}); never {@code null}.
+     */
+    private static String buildDetail(Request request,
+                                      Response response,
+                                      Set<String> redactedHeaders) {
+        StringBuilder sb = new StringBuilder();
+
+        String reqHeaders = LogDetail.formatJettyRequestHeaders(request.getHeaders(), redactedHeaders);
+
+        sb.append("\n  Request Headers:").append(reqHeaders);
+
+        HttpFields responseFields = response.getHeaders();
+        String resHeaders = LogDetail.formatJettyResponseHeaders(responseFields, redactedHeaders);
+
+        if (!resHeaders.isEmpty()) {
+            sb.append("\n  Response Headers:").append(resHeaders);
+        }
+
+        return sb.toString();
     }
 
     @Override
@@ -250,11 +280,20 @@ final class StaticHandler extends Handler.Wrapper {
         // callback so we fire a RequestCompletedEvent when the response completes.
         StopWatch watch = StopWatch.start();
         String method = request.getMethod();
-        Callback eventCallback = new EventFiringCallback(callback, watch, method, path, response, eventListener);
+        EventFiringCallback eventCallback = new EventFiringCallback(
+                callback,
+                watch,
+                method,
+                path,
+                request,
+                response,
+                eventListener,
+                requestLogger,
+                redactedHeaders
+        );
 
         // 2. Dotfile protection — unconditional 404 for any path segment starting with period (".").
         if (isDotfilePath(path)) {
-            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} blocked (dotfile)", path);
             Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
             return true;
         }
@@ -262,19 +301,15 @@ final class StaticHandler extends Handler.Wrapper {
         // 3. Auth filter — if present, invoke it.  When the filter returns false and has
         //    not committed a response, check whether a configured error page applies to the
         //    current response status and serve it automatically.  When the filter throws,
-        //    catch the exception and serve the configured 500 error page (if any).
+        //    catch the exception, record it on the callback for structured logging, and serve
+        //    the configured 500 error page (if any).
         if (configuration.authFilter().isPresent()) {
             boolean allowed;
 
             try {
                 allowed = configuration.authFilter().get().authorize(request, response);
             } catch (Exception ex) {
-                LOGGER.log(
-                        System.Logger.Level.ERROR,
-                        "Auth filter threw an exception for path: {0}",
-                        path,
-                        ex
-                );
+                eventCallback.setRequestException(ex);
 
                 if (!response.isCommitted()) {
                     int status = HttpStatus.INTERNAL_SERVER_ERROR_500;
@@ -292,12 +327,6 @@ final class StaticHandler extends Handler.Wrapper {
             }
 
             if (!allowed) {
-                LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "→ GET {0} rejected by auth filter",
-                        path
-                );
-
                 if (!response.isCommitted()) {
                     int status = response.getStatus();
 
@@ -340,7 +369,7 @@ final class StaticHandler extends Handler.Wrapper {
         // 6. Serve the resource.
         if (resourceExists) {
             boolean served = resourceHandler().handle(strippedRequest, response, eventCallback);
-            writeErrorIfNotServed(served, path, request, response, eventCallback);
+            writeErrorIfNotServed(served, request, response, eventCallback);
 
             return true;
         }
@@ -352,17 +381,11 @@ final class StaticHandler extends Handler.Wrapper {
             boolean served = resourceHandler().handle(indexRequest, response, eventCallback);
 
             if (served) {
-                LOGGER.log(
-                        System.Logger.Level.TRACE,
-                        "→ GET {0} → index.html",
-                        path
-                );
                 return true;
             }
 
             // index.html itself is missing — fall through to custom error page or plain 404.
             if (!configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404)) {
-                LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} 404 (index.html missing)", path);
                 Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
                 return true;
             }
@@ -419,7 +442,6 @@ final class StaticHandler extends Handler.Wrapper {
         Resource errorPageResource = baseResource.resolve(errorPagePath);
 
         if (!Resources.isReadableFile(errorPageResource)) {
-            LOGGER.log(System.Logger.Level.WARNING, "→ GET {0} {1}", originalPath, statusCode);
             Response.writeError(request, response, callback, statusCode);
             return;
         }
@@ -430,13 +452,6 @@ final class StaticHandler extends Handler.Wrapper {
         response.getHeaders().put(
                 HttpHeader.CONTENT_TYPE,
                 null != contentType ? contentType : "text/html; charset=utf-8"
-        );
-
-        LOGGER.log(
-                System.Logger.Level.WARNING,
-                "→ GET {0} {1} (custom page)",
-                originalPath,
-                statusCode
         );
 
         try (var in = errorPageResource.newInputStream()) {
@@ -452,9 +467,20 @@ final class StaticHandler extends Handler.Wrapper {
     // -------------------------------------------------------------------------
 
     /**
-     * Wraps a downstream {@link Callback} to fire a {@link RequestCompletedEvent}
-     * on the configured {@link ServerEventListener} when the response completes,
+     * Wraps a downstream {@link Callback} to log the completed request through
+     * {@link RequestLogger} and to fire a {@link RequestCompletedEvent} on the
+     * configured {@link ServerEventListener} when the response completes,
      * regardless of success or failure.
+     * <p>
+     * Logging follows the same level conventions as the JSON API side:
+     * <ul>
+     *   <li>{@code TRACE} — full entry with request and response headers for all completed requests.</li>
+     *   <li>{@code INFO} — compact one-liner for 2xx/3xx responses.</li>
+     *   <li>{@code WARNING} — full entry with request and response headers for 4xx responses
+     *       and 5xx responses caused by a {@link jakarta.ws.rs.WebApplicationException}.</li>
+     *   <li>{@code ERROR} — full entry with headers and attached stack trace for 5xx responses
+     *       caused by an unexpected exception (e.g. auth filter threw).</li>
+     * </ul>
      * <p>
      * The event is fired with {@code staticAsset = true} and
      * {@code endpoint = Optional.empty()}, reflecting that static asset requests
@@ -465,26 +491,47 @@ final class StaticHandler extends Handler.Wrapper {
         private final StopWatch watch;
         private final String method;
         private final String path;
+        private final Request request;
         private final Response response;
         private final ServerEventListener eventListener;
+        private final RequestLogger requestLogger;
+        private final Set<String> redactedHeaders;
+
+        /**
+         * Captured when the auth filter throws — used to attach the exception to the
+         * structured log entry so that ERROR-level records include the full stack trace.
+         */
+        private volatile Throwable requestException;
 
         private EventFiringCallback(Callback delegate,
                                     StopWatch watch,
                                     String method,
                                     String path,
+                                    Request request,
                                     Response response,
-                                    ServerEventListener eventListener) {
+                                    ServerEventListener eventListener,
+                                    RequestLogger requestLogger,
+                                    Set<String> redactedHeaders) {
             this.delegate = delegate;
             this.watch = watch;
             this.method = method;
             this.path = path;
+            this.request = request;
             this.response = response;
             this.eventListener = eventListener;
+            this.requestLogger = requestLogger;
+            this.redactedHeaders = redactedHeaders;
+            this.requestException = null;
+        }
+
+        void setRequestException(Throwable ex) {
+            this.requestException = ex;
         }
 
         @Override
         public void succeeded() {
             watch.stop();
+            logCompletion();
             fireEvent();
             delegate.succeeded();
         }
@@ -492,8 +539,33 @@ final class StaticHandler extends Handler.Wrapper {
         @Override
         public void failed(Throwable t) {
             watch.stop();
+            logCompletion();
             fireEvent();
             delegate.failed(t);
+        }
+
+        private void logCompletion() {
+            int status = response.getStatus();
+            long latencyMs = watch.duration().toMillis();
+
+            if (status < 400) {
+                requestLogger.logRequest(
+                        method,
+                        path,
+                        status,
+                        latencyMs,
+                        buildDetail(request, response, redactedHeaders)
+                );
+            } else {
+                requestLogger.logFailureDetail(
+                        method,
+                        path,
+                        status,
+                        latencyMs,
+                        buildDetail(request, response, redactedHeaders),
+                        requestException
+                );
+            }
         }
 
         private void fireEvent() {

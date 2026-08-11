@@ -681,20 +681,20 @@ etc., via a `System.LoggerFinder`).
 
 ### Logger names
 
-| Logger | What it covers |
-|---|---|
-| `software.frisby.web.server.RequestLogger` | All request lifecycle events: server start/stop, per-request INFO lines, 4xx/5xx failure detail, health check traces, capacity rejection warnings. **This is the primary logger to configure.** |
-| `software.frisby.web.server.DefaultServer` | Server wiring and lifecycle internals (connector setup, handler registration, component registration errors). |
-| `software.frisby.web.server.JsonErrorHandler` | Pre-Jersey errors (primarily HTTP 413 from the request-size gate). |
+| Logger                                        | What it covers                                                                                                                                                                                                                                                                      |
+|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `software.frisby.web.server.RequestLogger`    | All request lifecycle events for **both** JSON API and static asset requests: server start/stop, per-request INFO lines, 4xx/5xx failure detail (with request and response headers), health check traces, capacity rejection warnings. **This is the primary logger to configure.** |
+| `software.frisby.web.server.DefaultServer`    | Server wiring and lifecycle internals (connector setup, handler registration, component registration errors).                                                                                                                                                                       |
+| `software.frisby.web.server.JsonErrorHandler` | Pre-Jersey errors (primarily HTTP 413 from the request-size gate).                                                                                                                                                                                                                  |
 
 ### Log levels
 
-| Level | Emitted by `RequestLogger` |
-|---|---|
-| `TRACE` | Health check requests (one line per poll — suppressed at `INFO` to avoid noise). |
-| `INFO` | Server started / stopped.  Every 2xx and 3xx request: `METHOD path → STATUS (Nms)`. |
-| `WARNING` | 4xx responses and unhandled failures: one-liner + full request context (headers + buffered body + response headers).  Capacity-limit 503 rejections tagged `[capacity limit]`. |
-| `ERROR` | 5xx responses and server startup failures: same full context as WARNING, plus the originating exception attached to the log record for stack-trace visibility. |
+| Level     | Emitted by `RequestLogger`                                                                                                                                                                                                       |
+|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `TRACE`   | Full entry with request + response headers for every completed request — both JSON API and static assets.  Health check requests also logged at this level (suppressed at `INFO` to avoid noise).                                |
+| `INFO`    | Server started / stopped.  Every 2xx and 3xx request: `METHOD path → STATUS (Nms)`. Covers both JSON API and static asset serves.                                                                                                |
+| `WARNING` | 4xx responses and controlled failures (both JSON API and static assets): one-liner + request and response headers.  Capacity-limit 503 rejections tagged `[capacity limit]`.                                                     |
+| `ERROR`   | 5xx responses caused by unexpected exceptions (both JSON API and static assets) and server startup failures: same full context as WARNING, plus the originating exception attached to the log record for stack-trace visibility. |
 
 ### Silencing health check noise
 
@@ -911,7 +911,7 @@ Server.builder()
         .resources(new ApiResource())
         .staticAssets(
                 StaticAssetsConfiguration.classpath("/web")
-                        .spaFallback(true)
+                        .spaFallback()
                         .errorPage(404, "404.html")
                         .responseHeaders(Map.of(
                                 "Content-Security-Policy", "default-src 'self'",
@@ -950,7 +950,7 @@ assets are mounted into the filesystem.  For local development, point at the out
 directory of your front-end bundler (e.g. `frontend/dist`):
 
 ```java
-StaticAssetsConfiguration.filesystem(Path.of("frontend/dist")).spaFallback(true).build()
+StaticAssetsConfiguration.filesystem(Path.of("frontend/dist")).spaFallback().build()
 ```
 
 ### URL prefix
@@ -983,11 +983,11 @@ URL prefixes must not overlap — exact duplicates and proper-prefix relationshi
 
 ### SPA fallback
 
-Enable `spaFallback(true)` for single-page applications using client-side routing (React
+Enable `spaFallback()` for single-page applications using client-side routing (React
 Router, Vue Router, etc.):
 
 ```java
-StaticAssetsConfiguration.classpath("/web").spaFallback(true).build()
+StaticAssetsConfiguration.classpath("/web").spaFallback().build()
 ```
 
 When enabled, an extensionless path (e.g. `GET /orders/123`) that resolves to a missing
@@ -1112,7 +1112,7 @@ This option is designed for use with build tools that emit compressed siblings b
 
 ```java
 StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
-        .spaFallback(true)
+        .spaFallback()
         .preCompressed()          // serve .br / .gz siblings when present
         .cacheMaxAge(Duration.ofDays(365))
         .build();

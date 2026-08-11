@@ -286,7 +286,7 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ASSET_ROOT)
-                                        .spaFallback(true)
+                                        .spaFallback()
                                         .build()
                         )
                         .build();
@@ -393,7 +393,7 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ALT_ASSET_ROOT)
-                                        .spaFallback(true)
+                                        .spaFallback()
                                         .build()
                         )
                         .build();
@@ -445,7 +445,7 @@ class ServerStaticAssetsTest {
                         .components(TestLogging.forClass(ServerStaticAssetsTest.class))
                         .staticAssets(
                                 StaticAssetsConfiguration.classpath(CLASSPATH_ALT_ASSET_ROOT)
-                                        .spaFallback(true)
+                                        .spaFallback()
                                         .errorPage(404, "other.html")
                                         .build()
                         )
