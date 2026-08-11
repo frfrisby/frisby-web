@@ -264,7 +264,7 @@ final class StaticHandler extends Handler.Wrapper {
             return true;
         }
 
-        if (handleAuthFilter(path, request, response, eventCallback)) {
+        if (handleAuthFilter(request, response, eventCallback)) {
             return true;
         }
 
@@ -278,8 +278,7 @@ final class StaticHandler extends Handler.Wrapper {
      * {@code handle()} should return immediately; {@code false} if the filter allowed
      * the request or no filter is configured.
      */
-    private boolean handleAuthFilter(String path,
-                                     Request request,
+    private boolean handleAuthFilter(Request request,
                                      Response response,
                                      EventFiringCallback eventCallback) {
         StaticAssetsAuthFilter authFilter = configuration.authFilter().orElse(null);
