@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * always take the {@code true} / first branch.  The {@code false} / fallthrough branches
  * are never executed, which Sonar reports as uncovered.
  * <p>
- * Each test uses {@link SystemLogVerifier#builder()}.configure()} to narrow the logger
+ * Each test uses {@link SystemLogVerifier#builder()}.configure() to narrow the logger
  * level for the duration of the test, driving the otherwise-unreachable branch.
  * Level restoration is handled automatically by {@link SystemLogVerifier#close()} via
  * try-with-resources.  Branch correctness — message content, attached exceptions —

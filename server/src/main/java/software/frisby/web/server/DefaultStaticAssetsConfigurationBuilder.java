@@ -1,0 +1,142 @@
+package software.frisby.web.server;
+
+import software.frisby.core.validation.*;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfigurationBuilder {
+    private static final String RESOURCE_PATH_ARGUMENT_NAME = "resourcePath";
+    private static final String DIRECTORY_ARGUMENT_NAME = "directory";
+    private static final String URL_PREFIX_ARGUMENT_NAME = "urlPrefix";
+    private static final String CACHE_MAX_AGE_ARGUMENT_NAME = "cacheMaxAge";
+    private static final String RESPONSE_HEADERS_ARGUMENT_NAME = "responseHeaders";
+    private static final String ERROR_PAGE_STATUS_ARGUMENT_NAME = "statusCode";
+    private static final String ERROR_PAGE_PATH_ARGUMENT_NAME = "path";
+    private static final String AUTH_FILTER_ARGUMENT_NAME = "authFilter";
+
+    private static final String DEFAULT_URL_PREFIX = "/";
+    private static final Pattern STARTS_WITH_SLASH = Pattern.compile("^/.*");
+
+    private final String classpathResourcePath;
+    private final Path filesystemDirectory;
+    private final Map<String, String> responseHeaders;
+    private final Map<Integer, String> errorPages;
+    private String urlPrefix;
+    private Duration cacheMaxAge;
+    private boolean spaFallback;
+    private boolean preCompressed;
+    private StaticAssetsAuthFilter authFilter;
+
+    DefaultStaticAssetsConfigurationBuilder(String resourcePath) {
+        this.classpathResourcePath = Strings.notBlankWithMatches(RESOURCE_PATH_ARGUMENT_NAME, resourcePath, STARTS_WITH_SLASH);
+        this.filesystemDirectory = null;
+        this.urlPrefix = DEFAULT_URL_PREFIX;
+        this.cacheMaxAge = null;
+        this.responseHeaders = new HashMap<>();
+        this.spaFallback = false;
+        this.preCompressed = false;
+        this.errorPages = new HashMap<>();
+        this.authFilter = null;
+    }
+
+    DefaultStaticAssetsConfigurationBuilder(Path directory) {
+        Values.notNull(DIRECTORY_ARGUMENT_NAME, directory);
+
+        if (!Files.isDirectory(directory)) {
+            throw new DisallowedValueException(
+                    "The '" + DIRECTORY_ARGUMENT_NAME + "' value is invalid.  The path must refer to an existing directory."
+            );
+        }
+
+        this.classpathResourcePath = null;
+        this.filesystemDirectory = directory;
+        this.urlPrefix = DEFAULT_URL_PREFIX;
+        this.cacheMaxAge = null;
+        this.responseHeaders = new HashMap<>();
+        this.spaFallback = false;
+        this.preCompressed = false;
+        this.errorPages = new HashMap<>();
+        this.authFilter = null;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder urlPrefix(String prefix) {
+        this.urlPrefix = Strings.notBlankWithMatches(URL_PREFIX_ARGUMENT_NAME, prefix, STARTS_WITH_SLASH);
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder cacheMaxAge(Duration maxAge) {
+        this.cacheMaxAge = Durations.notNegative(CACHE_MAX_AGE_ARGUMENT_NAME, maxAge);
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder responseHeaders(Map<String, String> headers) {
+        Maps.notNull(RESPONSE_HEADERS_ARGUMENT_NAME, headers);
+
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (null == entry.getKey()) {
+                throw new NullMapKeyException(
+                        "The '" + RESPONSE_HEADERS_ARGUMENT_NAME + "' value is invalid.  The map must not contain null keys."
+                );
+            }
+
+            if (null == entry.getValue()) {
+                throw new NullMapValueException(
+                        "The '" + RESPONSE_HEADERS_ARGUMENT_NAME + "' value is invalid.  The map must not contain null values."
+                );
+            }
+        }
+
+        this.responseHeaders.putAll(headers);
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder spaFallback() {
+        this.spaFallback = true;
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder preCompressed() {
+        this.preCompressed = true;
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder errorPage(int statusCode, String path) {
+        Numbers.range(ERROR_PAGE_STATUS_ARGUMENT_NAME, statusCode, 400, 599);
+        Strings.notBlank(ERROR_PAGE_PATH_ARGUMENT_NAME, path);
+
+        this.errorPages.put(statusCode, path);
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfigurationBuilder authFilter(StaticAssetsAuthFilter filter) {
+        this.authFilter = Values.notNull(AUTH_FILTER_ARGUMENT_NAME, filter);
+        return this;
+    }
+
+    @Override
+    public StaticAssetsConfiguration build() {
+        return new DefaultStaticAssetsConfiguration(
+                classpathResourcePath,
+                filesystemDirectory,
+                urlPrefix,
+                cacheMaxAge,
+                Map.copyOf(responseHeaders),
+                spaFallback,
+                preCompressed,
+                Map.copyOf(errorPages),
+                authFilter
+        );
+    }
+}

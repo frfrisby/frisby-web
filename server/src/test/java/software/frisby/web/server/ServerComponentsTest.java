@@ -62,110 +62,19 @@ class ServerComponentsTest {
     // GZipResponseFilter — shouldCompress() false branches not covered by ServerGzipTest
     // -------------------------------------------------------------------------
 
-    @Nested
-    class GZipResponseFilterTests {
-        @Test
-        void inputStreamResponse_notCompressed() throws Exception {
-            // GET /ping/bytes returns an InputStream entity (APPLICATION_OCTET_STREAM).
-            // shouldCompress() returns false at the "entity instanceof InputStream" check.
-            HttpResponse<byte[]> response = HTTP.send(
-                    HttpRequest.newBuilder(uri("/ping/bytes"))
-                            .header("Accept-Encoding", "gzip")
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofByteArray()
-            );
-
-            assertEquals(200, response.statusCode());
-            assertFalse(
-                    response.headers()
-                            .firstValue("Content-Encoding")
-                            .orElse("")
-                            .contains("gzip"),
-                    "InputStream response must not be gzip-compressed"
-            );
-        }
-
-        @Test
-        void nonJsonMediaType_notCompressed() throws Exception {
-            // GET /ping/text returns text/plain.
-            // shouldCompress() returns false at the "isCompatible(APPLICATION_JSON)" check.
-            HttpResponse<String> response = HTTP.send(
-                    HttpRequest.newBuilder(uri("/ping/text"))
-                            .header("Accept-Encoding", "gzip")
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-            assertEquals(200, response.statusCode());
-            assertFalse(
-                    response.headers()
-                            .firstValue("Content-Encoding")
-                            .orElse("")
-                            .contains("gzip"),
-                    "text/plain response must not be gzip-compressed"
-            );
-        }
-
-        @Test
-        void nonGzipAcceptEncoding_notCompressed() throws Exception {
-            // Accept-Encoding: deflate — acceptEncoding is non-null but doesn't contain "gzip".
-            // shouldCompress() returns false at the final "acceptEncoding.contains(gzip)" check.
-            HttpResponse<String> response = HTTP.send(
-                    HttpRequest.newBuilder(uri("/ping"))
-                            .header("Accept-Encoding", "deflate")
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-            assertEquals(200, response.statusCode());
-            assertFalse(
-                    response.headers()
-                            .firstValue("Content-Encoding")
-                            .orElse("")
-                            .contains("gzip"),
-                    "deflate-only Accept-Encoding must not trigger gzip compression"
-            );
-        }
+    private static URI uri(String path) {
+        return URI.create("http://localhost:" + port + path);
     }
 
     // -------------------------------------------------------------------------
     // RequestBodyBufferingFilter — filter-skip transparency
     // -------------------------------------------------------------------------
 
-    @Nested
-    class BodyBufferingFilterTests {
-        @Test
-        void multipartUpload_doesNotCorruptRequestStream() throws Exception {
-            // POST a well-formed multipart body to /ping/upload — a resource that accepts
-            // multipart/form-data as a raw InputStream and returns the byte count received.
-            // RequestBodyBufferingFilter skips multipart bodies; this test proves that skip
-            // is transparent — Jersey still receives the intact stream and the resource
-            // method can read it successfully.
-            String boundary = "boundary123";
-            String multipartBody = "--" + boundary + "\r\n"
-                    + "Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n"
-                    + "Content-Type: text/plain\r\n"
-                    + "\r\n"
-                    + "Hello, World!\r\n"
-                    + "--" + boundary + "--";
-
-            HttpResponse<String> response = HTTP.send(
-                    HttpRequest.newBuilder(uri("/ping/upload"))
-                            .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                            .POST(HttpRequest.BodyPublishers.ofString(multipartBody))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
-
-            assertEquals(200, response.statusCode());
-            assertTrue(
-                    response.body().contains("\"received\""),
-                    "Response must contain a 'received' byte count confirming the body was delivered"
-            );
-        }
+    private static HttpResponse<String> get(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -280,21 +189,112 @@ class ServerComponentsTest {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static URI uri(String path) {
-        return URI.create("http://localhost:" + port + path);
-    }
-
-    private static HttpResponse<String> get(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path)).GET().build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
     private static final class ThrowingEventListener implements ServerEventListener {
         @Override
         public void onRequestCompleted(RequestCompletedEvent event) {
             throw new RuntimeException("Intentional test exception from onRequestCompleted");
+        }
+    }
+
+    @Nested
+    class GZipResponseFilterTests {
+        @Test
+        void inputStreamResponse_notCompressed() throws Exception {
+            // GET /ping/bytes returns an InputStream entity (APPLICATION_OCTET_STREAM).
+            // shouldCompress() returns false at the "entity instanceof InputStream" check.
+            HttpResponse<byte[]> response = HTTP.send(
+                    HttpRequest.newBuilder(uri("/ping/bytes"))
+                            .header("Accept-Encoding", "gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertFalse(
+                    response.headers()
+                            .firstValue("Content-Encoding")
+                            .orElse("")
+                            .contains("gzip"),
+                    "InputStream response must not be gzip-compressed"
+            );
+        }
+
+        @Test
+        void nonJsonMediaType_notCompressed() throws Exception {
+            // GET /ping/text returns text/plain.
+            // shouldCompress() returns false at the "isCompatible(APPLICATION_JSON)" check.
+            HttpResponse<String> response = HTTP.send(
+                    HttpRequest.newBuilder(uri("/ping/text"))
+                            .header("Accept-Encoding", "gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertFalse(
+                    response.headers()
+                            .firstValue("Content-Encoding")
+                            .orElse("")
+                            .contains("gzip"),
+                    "text/plain response must not be gzip-compressed"
+            );
+        }
+
+        @Test
+        void nonGzipAcceptEncoding_notCompressed() throws Exception {
+            // Accept-Encoding: deflate — acceptEncoding is non-null but doesn't contain "gzip".
+            // shouldCompress() returns false at the final "acceptEncoding.contains(gzip)" check.
+            HttpResponse<String> response = HTTP.send(
+                    HttpRequest.newBuilder(uri("/ping"))
+                            .header("Accept-Encoding", "deflate")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertFalse(
+                    response.headers()
+                            .firstValue("Content-Encoding")
+                            .orElse("")
+                            .contains("gzip"),
+                    "deflate-only Accept-Encoding must not trigger gzip compression"
+            );
+        }
+    }
+
+    @Nested
+    class BodyBufferingFilterTests {
+        @Test
+        void multipartUpload_doesNotCorruptRequestStream() throws Exception {
+            // POST a well-formed multipart body to /ping/upload — a resource that accepts
+            // multipart/form-data as a raw InputStream and returns the byte count received.
+            // RequestBodyBufferingFilter skips multipart bodies; this test proves that skip
+            // is transparent — Jersey still receives the intact stream and the resource
+            // method can read it successfully.
+            String boundary = "boundary123";
+            String multipartBody = "--" + boundary + "\r\n"
+                    + "Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n"
+                    + "Content-Type: text/plain\r\n"
+                    + "\r\n"
+                    + "Hello, World!\r\n"
+                    + "--" + boundary + "--";
+
+            HttpResponse<String> response = HTTP.send(
+                    HttpRequest.newBuilder(uri("/ping/upload"))
+                            .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                            .POST(HttpRequest.BodyPublishers.ofString(multipartBody))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertTrue(
+                    response.body().contains("\"received\""),
+                    "Response must contain a 'received' byte count confirming the body was delivered"
+            );
         }
     }
 }

@@ -8,11 +8,7 @@ import software.frisby.core.validation.NullValueException;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultCorsConfigurationBuilderTest {
     private static final String WILDCARD_WITH_CREDENTIALS_MESSAGE =

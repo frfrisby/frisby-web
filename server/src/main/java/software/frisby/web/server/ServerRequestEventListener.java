@@ -461,7 +461,8 @@ final class ServerRequestEventListener implements RequestEventListener {
                     latency,
                     requestBytes,
                     responseBytes,
-                    resolveEndpoint(event)
+                    resolveEndpoint(event),
+                    false
             );
 
             String detail = "";

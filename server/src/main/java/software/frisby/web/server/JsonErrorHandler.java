@@ -1,6 +1,5 @@
 package software.frisby.web.server;
 
-import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.server.Request;
@@ -98,7 +97,8 @@ final class JsonErrorHandler extends ErrorHandler {
                     Duration.ofMillis(latencyMs),
                     requestBytes,
                     jsonBytes.length,
-                    Optional.empty()
+                    Optional.empty(),
+                    false
             ));
         } catch (Exception ex) {
             if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
@@ -121,19 +121,9 @@ final class JsonErrorHandler extends ErrorHandler {
 
         Set<String> maskedHeaders = configuration.logging().redactedHeaders();
 
-        // Format request headers using the shared LogDetail helper — same masking
-        // and cookie-name-preserving rules as DefaultServer.formatRequestHeaders.
-        StringBuilder headersSb = new StringBuilder();
+        String reqHeaders = LogDetail.formatJettyRequestHeaders(request.getHeaders(), maskedHeaders);
 
-        for (HttpField field : request.getHeaders()) {
-            if (headersSb.isEmpty()) {
-                headersSb.append("\n  Request Headers:");
-            }
-
-            LogDetail.appendRequestHeader(headersSb, field.getName(), field.getValue(), maskedHeaders);
-        }
-
-        sb.append(headersSb);
+        sb.append("\n  Request Headers:").append(reqHeaders);
 
         // The request body was rejected by SizeLimitHandler before it could be read —
         // there is nothing to buffer or redact.  Reporting the Content-Length lets the

@@ -9,10 +9,7 @@ import javax.net.ssl.SSLContext;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultServerConfigurationBuilderTest {
     private static final long FOUR_MB = 4L * 1024L * 1024L;

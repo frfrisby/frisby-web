@@ -69,6 +69,17 @@ class ServerHealthCheckTest {
     // Health check endpoint
     // -------------------------------------------------------------------------
 
+    private static URI uri(String path) {
+        return URI.create("http://localhost:" + port + path);
+    }
+
+    private static HttpResponse<String> get(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
     @Test
     void healthCheck_defaultPath_returns200() throws Exception {
         HttpResponse<String> response = get("/health");
@@ -76,12 +87,20 @@ class ServerHealthCheckTest {
         assertEquals(200, response.statusCode());
     }
 
+    // -------------------------------------------------------------------------
+    // Health check on custom path
+    // -------------------------------------------------------------------------
+
     @Test
     void healthCheck_defaultPath_returnsUpBody() throws Exception {
         HttpResponse<String> response = get("/health");
 
         assertTrue(response.body().contains("UP"));
     }
+
+    // -------------------------------------------------------------------------
+    // Health check logging — TRACE only, not INFO
+    // -------------------------------------------------------------------------
 
     @Test
     void healthCheck_contentTypeIsJson() throws Exception {
@@ -94,10 +113,6 @@ class ServerHealthCheckTest {
                         .contains("application/json")
         );
     }
-
-    // -------------------------------------------------------------------------
-    // Health check on custom path
-    // -------------------------------------------------------------------------
 
     @Test
     void healthCheck_customPath_returns200() throws Exception {
@@ -132,7 +147,7 @@ class ServerHealthCheckTest {
     }
 
     // -------------------------------------------------------------------------
-    // Health check logging — TRACE only, not INFO
+    // Health check event suppression
     // -------------------------------------------------------------------------
 
     @Test
@@ -153,6 +168,10 @@ class ServerHealthCheckTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Health check under load — concurrency gate bypass
+    // -------------------------------------------------------------------------
+
     @Test
     void healthCheck_notLoggedAtInfo() throws Exception {
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
@@ -167,7 +186,7 @@ class ServerHealthCheckTest {
     }
 
     // -------------------------------------------------------------------------
-    // Health check event suppression
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Test
@@ -187,12 +206,74 @@ class ServerHealthCheckTest {
         assertEquals(countAfterPing, eventListener.completedCount());
     }
 
-    // -------------------------------------------------------------------------
-    // Health check under load — concurrency gate bypass
-    // -------------------------------------------------------------------------
+    private static final class CountingEventListener implements ServerEventListener {
+        private final AtomicInteger completed = new AtomicInteger(0);
+
+        @Override
+        public void onRequestCompleted(RequestCompletedEvent event) {
+            completed.incrementAndGet();
+        }
+
+
+        int completedCount() {
+            return completed.get();
+        }
+
+        /**
+         * Polls until {@code completed >= expected} or 2 seconds elapse, then returns
+         * the current count.  Used to absorb the small window between the client
+         * receiving an HTTP response and the server-side FINISHED event firing.
+         */
+        int awaitCount(int expected) throws InterruptedException {
+            long deadline = System.nanoTime() + 2_000_000_000L;
+
+            while (completed.get() < expected && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+
+            return completed.get();
+        }
+    }
 
     /**
-     * Verifies the liveness-under-load behaviour: when the server is at capacity but
+     * A JAX-RS resource with two endpoints:
+     * <ul>
+     *   <li>{@code GET /block} — signals the latch then blocks until
+     *       {@code requestCanProceed} is counted down, allowing tests to hold the
+     *       semaphore permit while issuing a concurrent health check request.</li>
+     *   <li>{@code GET /ping-simple} — returns 200 immediately.</li>
+     * </ul>
+     */
+    @Path("/")
+    @Produces(MediaType.APPLICATION_JSON)
+    public static final class SingleBlockingResource {
+        private final CountDownLatch serverHasRequest;
+        private final CountDownLatch requestCanProceed;
+
+        private SingleBlockingResource(CountDownLatch serverHasRequest,
+                                       CountDownLatch requestCanProceed) {
+            this.serverHasRequest = serverHasRequest;
+            this.requestCanProceed = requestCanProceed;
+        }
+
+        @GET
+        @Path("/block")
+        public Response block() throws InterruptedException {
+            serverHasRequest.countDown();
+            requestCanProceed.await(10, TimeUnit.SECONDS);
+
+            return Response.ok("{\"status\":\"done\"}").build();
+        }
+
+        @GET
+        @Path("/ping-simple")
+        public Response ping() {
+            return Response.ok("{\"status\":\"ok\"}").build();
+        }
+    }
+
+    /**
+     * Verifies the liveness-under-load behavior: when the server is at capacity but
      * healthy (not shutting down), the health check endpoint bypasses the concurrency
      * gate and returns 200.  Without the bypass, a fully-loaded server would return 503
      * and trick the load balancer into recycling a live instance.
@@ -310,87 +391,6 @@ class ServerHealthCheckTest {
                 executor.awaitTermination(5, TimeUnit.SECONDS);
                 loadedServer.stop();
             }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static URI uri(String path) {
-        return URI.create("http://localhost:" + port + path);
-    }
-
-    private static HttpResponse<String> get(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path)).GET().build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
-    }
-
-    private static final class CountingEventListener implements ServerEventListener {
-        private final AtomicInteger completed = new AtomicInteger(0);
-
-        @Override
-        public void onRequestCompleted(RequestCompletedEvent event) {
-            completed.incrementAndGet();
-        }
-
-
-        int completedCount() {
-            return completed.get();
-        }
-
-        /**
-         * Polls until {@code completed >= expected} or 2 seconds elapse, then returns
-         * the current count.  Used to absorb the small window between the client
-         * receiving an HTTP response and the server-side FINISHED event firing.
-         */
-        int awaitCount(int expected) throws InterruptedException {
-            long deadline = System.nanoTime() + 2_000_000_000L;
-
-            while (completed.get() < expected && System.nanoTime() < deadline) {
-                Thread.sleep(10);
-            }
-
-            return completed.get();
-        }
-    }
-
-    /**
-     * A JAX-RS resource with two endpoints:
-     * <ul>
-     *   <li>{@code GET /block} — signals the latch then blocks until
-     *       {@code requestCanProceed} is counted down, allowing tests to hold the
-     *       semaphore permit while issuing a concurrent health check request.</li>
-     *   <li>{@code GET /ping-simple} — returns 200 immediately.</li>
-     * </ul>
-     */
-    @Path("/")
-    @Produces(MediaType.APPLICATION_JSON)
-    public static final class SingleBlockingResource {
-        private final CountDownLatch serverHasRequest;
-        private final CountDownLatch requestCanProceed;
-
-        private SingleBlockingResource(CountDownLatch serverHasRequest,
-                                       CountDownLatch requestCanProceed) {
-            this.serverHasRequest = serverHasRequest;
-            this.requestCanProceed = requestCanProceed;
-        }
-
-        @GET
-        @Path("/block")
-        public Response block() throws InterruptedException {
-            serverHasRequest.countDown();
-            requestCanProceed.await(10, TimeUnit.SECONDS);
-
-            return Response.ok("{\"status\":\"done\"}").build();
-        }
-
-        @GET
-        @Path("/ping-simple")
-        public Response ping() {
-            return Response.ok("{\"status\":\"ok\"}").build();
         }
     }
 }

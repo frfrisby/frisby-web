@@ -51,6 +51,17 @@ class ServerRoutingTest {
     // Routing
     // -------------------------------------------------------------------------
 
+    private static URI uri(String path) {
+        return URI.create("http://localhost:" + port + path);
+    }
+
+    private static HttpResponse<String> get(String path) throws Exception {
+        return HTTP.send(
+                HttpRequest.newBuilder(uri(path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
     @Test
     void getRequest_returns200WithJsonBody() throws Exception {
         HttpResponse<String> response = get("/ping");
@@ -83,6 +94,10 @@ class ServerRoutingTest {
         assertTrue(response.body().contains("value"));
     }
 
+    // -------------------------------------------------------------------------
+    // Request logging
+    // -------------------------------------------------------------------------
+
     @Test
     void postRequest_typedPojo_echoesBodyBack() throws Exception {
         // POST /ping/typed accepts and returns a PingRequest record (no generic type
@@ -114,7 +129,7 @@ class ServerRoutingTest {
     }
 
     // -------------------------------------------------------------------------
-    // Request logging
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Test
@@ -149,21 +164,6 @@ class ServerRoutingTest {
             // With INFO disabled, logRequest's isLoggable guard prevents the call.
             assertEquals(0, verifier.infoCount());
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static URI uri(String path) {
-        return URI.create("http://localhost:" + port + path);
-    }
-
-    private static HttpResponse<String> get(String path) throws Exception {
-        return HTTP.send(
-                HttpRequest.newBuilder(uri(path)).GET().build(),
-                HttpResponse.BodyHandlers.ofString()
-        );
     }
 }
 

@@ -20,6 +20,57 @@ class SecurityResponseFilterTest {
     // Stripped status codes — entity must be set to null
     // -------------------------------------------------------------------------
 
+    private static MultivaluedHashMap<String, Object> headersWithContentType() {
+        MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
+
+        headers.add("Content-Type", "application/json");
+
+        return headers;
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass-through status codes — entity and Content-Type must not be touched
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a minimal {@link ContainerResponseContext} proxy that:
+     * <ul>
+     *   <li>{@code getStatus()} returns {@code status}</li>
+     *   <li>{@code getHeaders()} returns {@code headers}</li>
+     *   <li>{@code setEntity(Object, Annotation[], MediaType)} records whether the entity
+     *       was set to {@code null} in {@code entityStripped}, and stores the entity value
+     *       in {@code entityRef}</li>
+     *   <li>all other methods throw {@link UnsupportedOperationException}</li>
+     * </ul>
+     * The {@code requestContext} parameter is {@code null} throughout these tests because
+     * {@link SecurityResponseFilter} never accesses the request context.
+     */
+    private static ContainerResponseContext stubResponse(
+            int status,
+            AtomicBoolean entityStripped,
+            AtomicReference<Object> entityRef,
+            MultivaluedMap<String, Object> headers
+    ) {
+        return (ContainerResponseContext) Proxy.newProxyInstance(
+                ContainerResponseContext.class.getClassLoader(),
+                new Class[]{ContainerResponseContext.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getStatus" -> status;
+                    case "getHeaders" -> headers;
+                    case "setEntity" -> {
+                        entityRef.set(args[0]);
+                        entityStripped.set(null == args[0]);
+                        yield null;
+                    }
+                    default -> throw new UnsupportedOperationException(method.getName());
+                }
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
     @Nested
     class StrippedStatusCodes {
         @Test
@@ -55,10 +106,6 @@ class SecurityResponseFilterTest {
             assertFalse(headers.containsKey("Content-Type"), "Content-Type was not removed for 500");
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Pass-through status codes — entity and Content-Type must not be touched
-    // -------------------------------------------------------------------------
 
     @Nested
     class PassThroughStatusCodes {
@@ -105,53 +152,6 @@ class SecurityResponseFilterTest {
             assertFalse(entityRef.get() == null, "entity should not be set for 422");
             assertTrue(headers.containsKey("Content-Type"), "Content-Type should be preserved for 422");
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static MultivaluedHashMap<String, Object> headersWithContentType() {
-        MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
-
-        headers.add("Content-Type", "application/json");
-
-        return headers;
-    }
-
-    /**
-     * Returns a minimal {@link ContainerResponseContext} proxy that:
-     * <ul>
-     *   <li>{@code getStatus()} returns {@code status}</li>
-     *   <li>{@code getHeaders()} returns {@code headers}</li>
-     *   <li>{@code setEntity(Object, Annotation[], MediaType)} records whether the entity
-     *       was set to {@code null} in {@code entityStripped}, and stores the entity value
-     *       in {@code entityRef}</li>
-     *   <li>all other methods throw {@link UnsupportedOperationException}</li>
-     * </ul>
-     * The {@code requestContext} parameter is {@code null} throughout these tests because
-     * {@link SecurityResponseFilter} never accesses the request context.
-     */
-    private static ContainerResponseContext stubResponse(
-            int status,
-            AtomicBoolean entityStripped,
-            AtomicReference<Object> entityRef,
-            MultivaluedMap<String, Object> headers
-    ) {
-        return (ContainerResponseContext) Proxy.newProxyInstance(
-                ContainerResponseContext.class.getClassLoader(),
-                new Class[]{ContainerResponseContext.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "getStatus" -> status;
-                    case "getHeaders" -> headers;
-                    case "setEntity" -> {
-                        entityRef.set(args[0]);
-                        entityStripped.set(null == args[0]);
-                        yield null;
-                    }
-                    default -> throw new UnsupportedOperationException(method.getName());
-                }
-        );
     }
 }
 

@@ -177,6 +177,11 @@ Server server = Server.builder()
                 .port(8080)
                 .serializer(JacksonSerializer.builder().build()))
         .resources(new OrderResource(orderService))
+        .staticAssets(
+                StaticAssetsConfiguration.classpath("/web")
+                        .spaFallback()
+                        .build()
+        )
         .healthCheck()
         .build();
 
@@ -196,18 +201,18 @@ throw HttpErrors.unprocessableEntity(new ValidationErrorBody(violations));  // J
 throw HttpErrors.serviceUnavailable("Key service unreachable.", upstreamEx); // + cause
 ```
 
-See the [full server guide](docs/server.md) for TLS, HTTP/2, CORS, authentication, virtual
-threads, graceful shutdown, structured logging, and more.
+See the [full server guide](docs/server.md) for TLS, HTTP/2, CORS, authentication, static
+assets, virtual threads, graceful shutdown, structured logging, and more.
 
 ---
 
 ## Documentation
 
-| Guide                                | Contents                                                                                       |
-|--------------------------------------|------------------------------------------------------------------------------------------------|
-| [HTTP Client](docs/client.md)        | `Client`, `Configuration`, verb specs, compression, auth, logging, events, exception hierarchy |
-| [HTTP Server](docs/server.md)        | `Server`, `ServerConfiguration`, concurrency, TLS, HTTP/2, CORS, auth, logging, observability  |
-| [Architecture](docs/architecture.md) | Design decisions, module structure, extension points                                           |
+| Guide                                | Contents                                                                                                     |
+|--------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| [HTTP Client](docs/client.md)        | `Client`, `Configuration`, verb specs, compression, auth, logging, events, exception hierarchy               |
+| [HTTP Server](docs/server.md)        | `Server`, `ServerConfiguration`, concurrency, TLS, HTTP/2, CORS, static assets, auth, logging, observability |
+| [Architecture](docs/architecture.md) | Design decisions, module structure, extension points                                                         |
 
 ### AI agent reference docs
 
@@ -220,7 +225,7 @@ defaults, and complete usage examples.
 | [serialization.md](docs/ai/serialization.md)     | `JsonSerializer`, `GenericType`, `JacksonSerializer`                                        |
 | [client.md](docs/ai/client.md)                   | `Client`, all verb specs, body types, compression, decompression, events, exceptions        |
 | [client-security.md](docs/ai/client-security.md) | `BasicSecurityProvider`, `BearerTokenSecurityProvider`, `ClientCredentialsSecurityProvider` |
-| [server.md](docs/ai/server.md)                   | `Server`, `ServerConfiguration`, CORS, health check, logging, events                        |
+| [server.md](docs/ai/server.md)                   | `Server`, `ServerConfiguration`, static assets, CORS, health check, logging, events         |
 | [server-security.md](docs/ai/server-security.md) | `BasicAuthAuthenticationProvider`, `BearerTokenAuthenticationProvider`, RBAC, mixed auth    |
 
 ---

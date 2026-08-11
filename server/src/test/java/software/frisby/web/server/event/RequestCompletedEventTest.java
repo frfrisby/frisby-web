@@ -14,6 +14,63 @@ class RequestCompletedEventTest {
     // successful()
     // -------------------------------------------------------------------------
 
+    private static RequestCompletedEvent event(int statusCode) {
+        return new RequestCompletedEvent(
+                "GET",
+                "/test",
+                statusCode,
+                Duration.ofMillis(1),
+                0L,
+                0L,
+                Optional.empty(),
+                false
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // toString()
+    // -------------------------------------------------------------------------
+
+    @Test
+    void toString_formatsCorrectly() {
+        RequestCompletedEvent event = new RequestCompletedEvent(
+                "GET",
+                "/orders/1",
+                200,
+                Duration.ofMillis(14),
+                0L,
+                128L,
+                Optional.empty(),
+                false
+        );
+
+        String result = event.toString();
+
+        assertTrue(result.contains("GET"));
+        assertTrue(result.contains("/orders/1"));
+        assertTrue(result.contains("200"));
+        assertTrue(result.contains("14ms"));
+    }
+
+    // -------------------------------------------------------------------------
+    // endpoint()
+    // -------------------------------------------------------------------------
+
+    /**
+     * Minimal resource class used as a reflection fixture in tests.
+     */
+    public static class SampleResource {
+        public void handle() {
+        }
+
+        public void other() {
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // staticAsset()
+    // -------------------------------------------------------------------------
+
     @Nested
     class Successful {
         @Test
@@ -53,31 +110,7 @@ class RequestCompletedEventTest {
     }
 
     // -------------------------------------------------------------------------
-    // toString()
-    // -------------------------------------------------------------------------
-
-    @Test
-    void toString_formatsCorrectly() {
-        RequestCompletedEvent event = new RequestCompletedEvent(
-                "GET",
-                "/orders/1",
-                200,
-                Duration.ofMillis(14),
-                0L,
-                128L,
-                Optional.empty()
-        );
-
-        String result = event.toString();
-
-        assertTrue(result.contains("GET"));
-        assertTrue(result.contains("/orders/1"));
-        assertTrue(result.contains("200"));
-        assertTrue(result.contains("14ms"));
-    }
-
-    // -------------------------------------------------------------------------
-    // endpoint()
+    // Endpoint record
     // -------------------------------------------------------------------------
 
     @Nested
@@ -99,7 +132,8 @@ class RequestCompletedEventTest {
                     Duration.ofMillis(5),
                     0L,
                     0L,
-                    Optional.of(endpoint)
+                    Optional.of(endpoint),
+                    false
             );
 
             assertTrue(event.endpoint().isPresent());
@@ -109,8 +143,32 @@ class RequestCompletedEventTest {
     }
 
     // -------------------------------------------------------------------------
-    // Endpoint record
+    // Helpers
     // -------------------------------------------------------------------------
+
+    @Nested
+    class StaticAssetField {
+        @Test
+        void staticAssetFalse_returnsFalse() {
+            assertFalse(event(200).staticAsset());
+        }
+
+        @Test
+        void staticAssetTrue_returnsTrue() {
+            RequestCompletedEvent event = new RequestCompletedEvent(
+                    "GET",
+                    "/app.js",
+                    200,
+                    Duration.ofMillis(3),
+                    0L,
+                    0L,
+                    Optional.empty(),
+                    true
+            );
+
+            assertTrue(event.staticAsset());
+        }
+    }
 
     @Nested
     class EndpointRecord {
@@ -144,27 +202,5 @@ class RequestCompletedEventTest {
                     new Endpoint(SampleResource.class, other)
             );
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static RequestCompletedEvent event(int statusCode) {
-        return new RequestCompletedEvent(
-                "GET",
-                "/test",
-                statusCode,
-                Duration.ofMillis(1),
-                0L,
-                0L,
-                Optional.empty()
-        );
-    }
-
-    /** Minimal resource class used as a reflection fixture in tests. */
-    public static class SampleResource {
-        public void handle() {}
-        public void other() {}
     }
 }

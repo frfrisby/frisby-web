@@ -16,6 +16,7 @@ final class DefaultServerBuilder implements ServerBuilder {
     private static final String AUTHENTICATION_PROVIDERS_ARGUMENT_NAME = "authentication";
     private static final String EVENT_LISTENER_ARGUMENT_NAME = "eventListener";
     private static final String HEALTH_CHECK_PATH_ARGUMENT_NAME = "healthCheck.path";
+    private static final String STATIC_ASSETS_ARGUMENT_NAME = "staticAssets";
     private static final String DEFAULT_HEALTH_CHECK_PATH = "/health";
 
     // Maximum character length enforced before the regex runs — prevents ReDoS on
@@ -34,6 +35,7 @@ final class DefaultServerBuilder implements ServerBuilder {
     private final List<Object> resources;
     private final List<Object> components;
     private final List<AuthenticationProvider> authenticationProviders;
+    private final List<StaticAssetsConfiguration> staticAssetsConfigurations;
     private ServerConfiguration configuration;
     private ServerEventListener eventListener;
     private String healthCheckPath;
@@ -43,6 +45,7 @@ final class DefaultServerBuilder implements ServerBuilder {
         this.resources = new ArrayList<>();
         this.components = new ArrayList<>();
         this.authenticationProviders = new ArrayList<>();
+        this.staticAssetsConfigurations = new ArrayList<>();
         this.eventListener = NoOpServerEventListener.INSTANCE;
         this.healthCheckPath = null;
     }
@@ -105,6 +108,17 @@ final class DefaultServerBuilder implements ServerBuilder {
     }
 
     @Override
+    public ServerBuilder staticAssets(StaticAssetsConfiguration... configurations) {
+        return this.staticAssets(List.of(Sequences.notEmpty(STATIC_ASSETS_ARGUMENT_NAME, configurations)));
+    }
+
+    @Override
+    public ServerBuilder staticAssets(List<StaticAssetsConfiguration> configurations) {
+        this.staticAssetsConfigurations.addAll(Sequences.notEmpty(STATIC_ASSETS_ARGUMENT_NAME, configurations));
+        return this;
+    }
+
+    @Override
     public Server build() {
         if (null == configuration) {
             throw new IllegalStateException(
@@ -118,13 +132,16 @@ final class DefaultServerBuilder implements ServerBuilder {
             );
         }
 
+        StaticAssetsPrefixValidator.validate(staticAssetsConfigurations);
+
         return new DefaultServer(
                 configuration,
                 List.copyOf(resources),
                 List.copyOf(components),
                 List.copyOf(authenticationProviders),
                 eventListener,
-                healthCheckPath
+                healthCheckPath,
+                List.copyOf(staticAssetsConfigurations)
         );
     }
 }

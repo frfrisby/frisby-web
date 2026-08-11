@@ -19,16 +19,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ServerLifecycleTest {
     // Each test creates its own server on its own free port for full isolation.
 
-    /** Builds a server that asks the OS to assign a free port. */
+    /**
+     * Builds a server that asks the OS to assign a free port.
+     */
     private static Server buildServer() {
         return Server.builder()
                 .configuration(
@@ -43,7 +41,9 @@ class ServerLifecycleTest {
                 .build();
     }
 
-    /** Builds a server bound to an explicit {@code port} — used to test port-conflict scenarios. */
+    /**
+     * Builds a server bound to an explicit {@code port} — used to test port-conflict scenarios.
+     */
     private static Server buildServer(int port) {
         return Server.builder()
                 .configuration(
@@ -69,6 +69,37 @@ class ServerLifecycleTest {
     // -------------------------------------------------------------------------
     // Functional lifecycle
     // -------------------------------------------------------------------------
+
+    /**
+     * Replaces the private {@code jettyServer} field of a started {@link DefaultServer}
+     * with an anonymous {@link org.eclipse.jetty.server.Server} stub whose {@code doStop()}
+     * always throws.  The stub is started first so that Jetty's {@code AbstractLifeCycle}
+     * state machine reaches the STARTED state — {@code stop()} only delegates to
+     * {@code doStop()} from there, and the thrown exception propagates through the
+     * final {@code stop()} method to {@link DefaultServer#stop()}'s catch block.
+     */
+    private static void injectThrowingJettyServer(Server server) throws Exception {
+        org.eclipse.jetty.server.Server stub = new org.eclipse.jetty.server.Server() {
+            @Override
+            protected void doStop() throws Exception {
+                throw new Exception("Simulated stop failure");
+            }
+        };
+        stub.start();   // puts stub in STARTED state; doStop() is only invoked from there
+
+        Field field = DefaultServer.class.getDeclaredField("jettyServer");
+        field.setAccessible(true);
+        field.set(server, stub);
+    }
+
+    private static void assertEquals200(HttpResponse<String> response) {
+        if (200 != response.statusCode()) {
+            throw new AssertionError(
+                    "Expected HTTP 200 but got " + response.statusCode()
+                            + ". Body: " + response.body()
+            );
+        }
+    }
 
     @Test
     void start_serverAcceptsConnections() throws Exception {
@@ -146,7 +177,6 @@ class ServerLifecycleTest {
         assertFalse(server.isRunning());
     }
 
-
     @Test
     void uri_returnsHttpUriWithCorrectHostAndPort() {
         Server server = buildServer();
@@ -162,6 +192,10 @@ class ServerLifecycleTest {
             server.stop();
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Logging — start / stop / start failure
+    // -------------------------------------------------------------------------
 
     @Test
     void configuration_returnsConfigurationPassedAtBuild() {
@@ -186,10 +220,6 @@ class ServerLifecycleTest {
             assertThrows(UncheckedIOException.class, server::start);
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Logging — start / stop / start failure
-    // -------------------------------------------------------------------------
 
     @Test
     void start_logsStartedAtInfo() {
@@ -268,6 +298,10 @@ class ServerLifecycleTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // executor
+    // -------------------------------------------------------------------------
+
     @Test
     void stop_exceptionDuringStop_warningIsLogged() throws Exception {
         Server server = buildServer();
@@ -288,6 +322,10 @@ class ServerLifecycleTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // stopTimeout — graceful shutdown
+    // -------------------------------------------------------------------------
+
     @Test
     void stop_exceptionDuringStop_warningLevelDisabled_exceptionIsStillSwallowed() throws Exception {
         Server server = buildServer();
@@ -305,7 +343,7 @@ class ServerLifecycleTest {
     }
 
     // -------------------------------------------------------------------------
-    // executor
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Test
@@ -344,10 +382,6 @@ class ServerLifecycleTest {
             pool.shutdown();
         }
     }
-
-    // -------------------------------------------------------------------------
-    // stopTimeout — graceful shutdown
-    // -------------------------------------------------------------------------
 
     @Test
     void stopTimeout_inFlightRequestCompletesBeforeShutdown() throws Exception {
@@ -393,41 +427,6 @@ class ServerLifecycleTest {
         // The response must still arrive successfully — Jetty waited for it.
         HttpResponse<String> response = future.get(5, TimeUnit.SECONDS);
         assertEquals(200, response.statusCode());
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Replaces the private {@code jettyServer} field of a started {@link DefaultServer}
-     * with an anonymous {@link org.eclipse.jetty.server.Server} stub whose {@code doStop()}
-     * always throws.  The stub is started first so that Jetty's {@code AbstractLifeCycle}
-     * state machine reaches the STARTED state — {@code stop()} only delegates to
-     * {@code doStop()} from there, and the thrown exception propagates through the
-     * final {@code stop()} method to {@link DefaultServer#stop()}'s catch block.
-     */
-    private static void injectThrowingJettyServer(Server server) throws Exception {
-        org.eclipse.jetty.server.Server stub = new org.eclipse.jetty.server.Server() {
-            @Override
-            protected void doStop() throws Exception {
-                throw new Exception("Simulated stop failure");
-            }
-        };
-        stub.start();   // puts stub in STARTED state; doStop() is only invoked from there
-
-        Field field = DefaultServer.class.getDeclaredField("jettyServer");
-        field.setAccessible(true);
-        field.set(server, stub);
-    }
-
-    private static void assertEquals200(HttpResponse<String> response) {
-        if (200 != response.statusCode()) {
-            throw new AssertionError(
-                    "Expected HTTP 200 but got " + response.statusCode()
-                            + ". Body: " + response.body()
-            );
-        }
     }
 
     /**

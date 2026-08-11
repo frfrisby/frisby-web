@@ -1,5 +1,8 @@
 package software.frisby.web.server;
 
+import org.eclipse.jetty.http.HttpField;
+import org.eclipse.jetty.http.HttpFields;
+
 import java.util.Collection;
 import java.util.Locale;
 import java.util.Set;
@@ -8,10 +11,11 @@ import java.util.regex.Pattern;
 /**
  * Static helpers for building failure-log detail strings.
  * <p>
- * Shared by {@link DefaultServer} (JAX-RS / Jersey pipeline) and
- * {@link JsonErrorHandler} (Jetty pre-Jersey layer) so that header masking,
- * cookie redaction, and body-field redaction behave identically regardless of
- * which layer intercepts the request.
+ * Shared by {@link ServerRequestEventListener} (JAX-RS / Jersey pipeline),
+ * {@link JsonErrorHandler} (Jetty pre-Jersey layer), and {@link StaticHandler}
+ * (static asset layer) so that header masking, cookie redaction, and
+ * body-field redaction behave identically regardless of which layer intercepts
+ * the request.
  */
 final class LogDetail {
     private static final String REDACTED = "[redacted]";
@@ -105,6 +109,80 @@ final class LogDetail {
         }
 
         return REDACTED + attributes;
+    }
+
+    // -------------------------------------------------------------------------
+    // Jetty-layer header formatting
+    // -------------------------------------------------------------------------
+
+    /**
+     * Formats all Jetty request headers applying the shared masking and
+     * cookie-name-preserving redaction rules.
+     * <p>
+     * Returns a string whose entries each start with {@code \n    } (four spaces),
+     * suitable for appending directly after a {@code \n  Request Headers:} label.
+     * Returns an empty string when {@code headers} is {@code null} or empty.
+     * <p>
+     * Used by {@link JsonErrorHandler} and {@link StaticHandler}, both of which
+     * operate at the Jetty layer and work with {@link HttpFields} rather than the
+     * JAX-RS {@code MultivaluedMap} types used by {@link ServerRequestEventListener}.
+     *
+     * @param headers The Jetty request headers; {@code null}-safe.
+     * @param masked  The set of lower-cased header names whose values must be redacted.
+     */
+    static String formatJettyRequestHeaders(HttpFields headers, Set<String> masked) {
+        if (null == headers) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (HttpField field : headers) {
+            appendRequestHeader(sb, field.getName(), field.getValue(), masked);
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Formats all Jetty response headers applying the shared masking rules.
+     * <p>
+     * {@code Set-Cookie} headers are redacted via
+     * {@link #redactSetCookieHeader(String)}, preserving the cookie name and
+     * security attributes while hiding the value.  All other masked headers
+     * are replaced with {@code [redacted]}.
+     * <p>
+     * Returns a string whose entries each start with {@code \n    } (four spaces),
+     * suitable for appending directly after a {@code \n  Response Headers:} label.
+     * Returns an empty string when {@code headers} is {@code null} or empty.
+     *
+     * @param headers The Jetty response headers; {@code null}-safe.
+     * @param masked  The set of lower-cased header names whose values must be redacted.
+     */
+    static String formatJettyResponseHeaders(HttpFields headers, Set<String> masked) {
+        if (null == headers) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (HttpField field : headers) {
+            String name = field.getName();
+            String lowerName = name.toLowerCase(Locale.ROOT);
+            String value;
+
+            if (masked.contains(lowerName) && "set-cookie".equals(lowerName)) {
+                value = redactSetCookieHeader(field.getValue());
+            } else if (masked.contains(lowerName)) {
+                value = REDACTED;
+            } else {
+                value = field.getValue();
+            }
+
+            sb.append("\n    ").append(name).append(": ").append(value);
+        }
+
+        return sb.toString();
     }
 
     // -------------------------------------------------------------------------

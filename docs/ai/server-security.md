@@ -315,3 +315,41 @@ public Response getProfile(@Context SecurityContext securityContext) {
 }
 ```
 
+---
+
+## Static asset authentication — `StaticAssetsAuthFilter`
+
+Static assets served via `ServerBuilder.staticAssets()` bypass the Jersey filter chain
+entirely.  `AuthenticationProvider` implementations registered via
+`ServerBuilder.authentication()` are **not** applied to static asset requests.
+
+To gate access to static assets, use `authFilter()` on `StaticAssetsConfigurationBuilder`:
+
+```java
+StaticAssetsConfiguration.classpath("/admin-web")
+        .urlPrefix("/admin")
+        .authFilter((request, response) -> {
+            String token = extractBearerToken(request);
+            if (null == token || !tokenStore.isValid(token)) {
+                response.setStatus(401);
+                return false;  // handler serves errorPage(401, ...) if configured
+            }
+            return true;
+        })
+        .build()
+```
+
+`StaticAssetsAuthFilter` is a `@FunctionalInterface` (`boolean authorize(Request, Response) throws Exception`):
+
+- Return `true` to allow the request.
+- Return `false` to block it.  Set the status code on the response first; if an
+  `errorPage(statusCode, ...)` is configured for that code, the handler serves it
+  automatically.  If the filter writes a full response (commits it), it is sent as-is.
+- Throw an exception to signal a backend failure (e.g. database unreachable); the handler
+  catches it and serves the configured `errorPage(500, ...)` if present, or returns a
+  plain `500 Internal Server Error`.
+
+The filter receives raw Jetty `Request` / `Response` objects — not the JAX-RS
+`ContainerRequestContext`.  It runs at the Jetty handler layer, ahead of Jersey.
+
+See `server.md` for the full `StaticAssetsConfigurationBuilder` reference.

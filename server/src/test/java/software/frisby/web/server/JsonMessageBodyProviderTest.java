@@ -11,23 +11,15 @@ import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class JsonMessageBodyProviderTest {
     private static final TestJsonSerializer SERIALIZER = new TestJsonSerializer();
     private static final JsonMessageBodyProvider PROVIDER = new JsonMessageBodyProvider(SERIALIZER);
     private static final Annotation[] NO_ANNOTATIONS = new Annotation[0];
-
     /**
-     * Used purely to capture {@code List<String>} as a {@link java.lang.reflect.ParameterizedType}
-     * at runtime without a third-party type-token library.  The field is never read.
+     * The {@code ParameterizedType} for {@code List<String>} — captured from the field above.
      */
-    @SuppressWarnings("unused")
-    private List<String> listOfStringToken;
-
-    /** The {@code ParameterizedType} for {@code List<String>} — captured from the field above. */
     private static final Type LIST_OF_STRING_TYPE;
 
     static {
@@ -39,6 +31,13 @@ class JsonMessageBodyProviderTest {
             throw new ExceptionInInitializerError(ex);
         }
     }
+
+    /**
+     * Used purely to capture {@code List<String>} as a {@link java.lang.reflect.ParameterizedType}
+     * at runtime without a third-party type-token library.  The field is never read.
+     */
+    @SuppressWarnings("unused")
+    private List<String> listOfStringToken;
 
     // -------------------------------------------------------------------------
     // readFrom — Class path (type.equals(genericType))

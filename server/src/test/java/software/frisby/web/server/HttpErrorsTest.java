@@ -302,7 +302,7 @@ class HttpErrorsTest {
 
     // -------------------------------------------------------------------------
     // Remaining statuses — non-no-arg overloads (status verified; body/cause
-    // behaviour is fully proven by the BadRequest suite above)
+    // behavior is fully proven by the BadRequest suite above)
     // -------------------------------------------------------------------------
 
     @Nested

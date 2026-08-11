@@ -1,14 +1,10 @@
 package software.frisby.web.server;
 
-import jakarta.ws.rs.core.SecurityContext;
 import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.SecurityContext;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import software.frisby.core.validation.BlankValueException;
-import software.frisby.core.validation.MissingElementsException;
-import software.frisby.core.validation.NullValueException;
-import software.frisby.core.validation.PatternMismatchException;
-import software.frisby.core.validation.StringLengthOutsideRangeException;
+import software.frisby.core.validation.*;
 
 import java.security.Principal;
 import java.util.List;
@@ -24,6 +20,27 @@ class DefaultServerBuilderTest {
 
     // -------------------------------------------------------------------------
     // configuration(UnaryOperator<ServerConfigurationBuilder>)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Always accepts and authenticates any request — for builder wiring tests only.
+     */
+    private static final class AlwaysAcceptProvider implements AuthenticationProvider {
+        private static final Principal PRINCIPAL = () -> "test";
+
+        @Override
+        public boolean accepts(ContainerRequestContext context) {
+            return true;
+        }
+
+        @Override
+        public SecurityContext authenticate(ContainerRequestContext context) {
+            return ServerSecurityContext.of(PRINCIPAL);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // components(Object...)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -43,7 +60,7 @@ class DefaultServerBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // components(Object...)
+    // components(List<Object>)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -83,7 +100,7 @@ class DefaultServerBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // components(List<Object>)
+    // healthCheck(String path) — path validation
     // -------------------------------------------------------------------------
 
     @Nested
@@ -123,7 +140,7 @@ class DefaultServerBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // healthCheck(String path) — path validation
+    // authentication(AuthenticationProvider...)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -254,7 +271,7 @@ class DefaultServerBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // authentication(AuthenticationProvider...)
+    // authentication(List<AuthenticationProvider>)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -294,7 +311,7 @@ class DefaultServerBuilderTest {
     }
 
     // -------------------------------------------------------------------------
-    // authentication(List<AuthenticationProvider>)
+    // Helpers
     // -------------------------------------------------------------------------
 
     @Nested
@@ -330,25 +347,6 @@ class DefaultServerBuilderTest {
 
             server.start();
             server.stop();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /** Always accepts and authenticates any request — for builder wiring tests only. */
-    private static final class AlwaysAcceptProvider implements AuthenticationProvider {
-        private static final Principal PRINCIPAL = () -> "test";
-
-        @Override
-        public boolean accepts(ContainerRequestContext context) {
-            return true;
-        }
-
-        @Override
-        public SecurityContext authenticate(ContainerRequestContext context) {
-            return ServerSecurityContext.of(PRINCIPAL);
         }
     }
 

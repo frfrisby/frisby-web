@@ -42,6 +42,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -88,6 +89,7 @@ final class DefaultServer implements Server {
     private final List<Object> resources;
     private final List<Object> components;
     private final List<AuthenticationProvider> authenticationProviders;
+    private final List<StaticAssetsConfiguration> staticAssetsConfigurations;
     private final ServerEventListener eventListener;
     private final RequestLogger requestLogger;
     private final String healthCheckPath;
@@ -108,11 +110,13 @@ final class DefaultServer implements Server {
                   List<Object> components,
                   List<AuthenticationProvider> authenticationProviders,
                   ServerEventListener eventListener,
-                  String healthCheckPath) {
+                  String healthCheckPath,
+                  List<StaticAssetsConfiguration> staticAssetsConfigurations) {
         this.configuration = Values.notNull("configuration", configuration);
         this.resources = Sequences.notEmpty("resources", resources);
         this.components = Sequences.notNull("components", components);
         this.authenticationProviders = Sequences.notNull("authenticationProviders", authenticationProviders);
+        this.staticAssetsConfigurations = Sequences.notNull("staticAssetsConfigurations", staticAssetsConfigurations);
         this.eventListener = Values.notNull("eventListener", eventListener);
         this.healthCheckPath = Strings.optionalNotBlank("healthCheckPath", healthCheckPath);
 
@@ -268,8 +272,27 @@ final class DefaultServer implements Server {
             sb.append("\n  livenessProbePath=").append(healthCheckPath);
         }
 
-        sb.append("\n  maxConcurrentRequests=").append(configuration.maxConcurrentRequests());
+        for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
+            sb.append("\n  staticAssets: ").append(config.describeSource())
+                    .append(" → ").append(config.urlPrefix());
 
+            if (config.spaFallback()) {
+                sb.append(" (SPA fallback)");
+            }
+
+            if (config.preCompressed()) {
+                sb.append(" (pre-compressed)");
+            }
+
+            if (!config.errorPages().isEmpty()) {
+                for (Map.Entry<Integer, String> entry : config.errorPages().entrySet()) {
+                    sb.append("\n    errorPage: ").append(entry.getKey())
+                            .append(" → ").append(entry.getValue());
+                }
+            }
+        }
+
+        sb.append("\n  maxConcurrentRequests=").append(configuration.maxConcurrentRequests());
         sb.append("\n  maxRequestSize=").append(configuration.maxRequestSize()).append(" bytes");
 
         configuration.stopTimeout().ifPresent(t ->
@@ -279,8 +302,8 @@ final class DefaultServer implements Server {
         String executorType = configuration.executor()
                 .map(e -> e.getClass().getSimpleName())
                 .orElse("platform threads");
-        sb.append("\n  executor=").append(executorType);
 
+        sb.append("\n  executor=").append(executorType);
         sb.append("\n  ssl=").append(configuration.ssl().isPresent());
 
         if (configuration.http2()) {
@@ -358,7 +381,27 @@ final class DefaultServer implements Server {
         connector.setPort(uri.getPort());
 
         server.addConnector(connector);
-        server.setHandler(jerseyHandler);
+
+        // If static assets are configured, prepend one StaticHandler per configuration
+        // in a Handler.Sequence ahead of the Jersey servlet.  When no static assets are
+        // configured the handler chain is unchanged from the pre-static-assets behavior.
+        if (staticAssetsConfigurations.isEmpty()) {
+            server.setHandler(jerseyHandler);
+        } else {
+            Handler.Sequence sequence = new Handler.Sequence();
+
+            for (StaticAssetsConfiguration config : staticAssetsConfigurations) {
+                sequence.addHandler(new StaticHandler(
+                        config,
+                        eventListener,
+                        requestLogger,
+                        configuration.logging().redactedHeaders()
+                ));
+            }
+
+            sequence.addHandler(jerseyHandler);
+            server.setHandler(sequence);
+        }
 
         return server;
     }
@@ -747,7 +790,8 @@ final class DefaultServer implements Server {
                         latency,
                         0L,
                         BODY_503.length,
-                        java.util.Optional.empty()
+                        java.util.Optional.empty(),
+                        false
                 ));
             } catch (Exception ex) {
                 if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
