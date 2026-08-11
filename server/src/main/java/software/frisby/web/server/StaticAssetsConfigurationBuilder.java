@@ -146,6 +146,26 @@ public interface StaticAssetsConfigurationBuilder {
     StaticAssetsConfigurationBuilder errorPage(int statusCode, String path);
 
     /**
+     * Enables serving of pre-compressed sibling files ({@code .br} and {@code .gz})
+     * in preference to the uncompressed originals when the client advertises support
+     * via {@code Accept-Encoding}.
+     *
+     * <p>Brotli ({@code .br}) is preferred over gzip ({@code .gz}) when both exist
+     * and the client accepts both encodings.  When no compressed sibling exists the
+     * uncompressed file is served normally — enabling this option on a root that has
+     * no compressed siblings is a no-op.
+     *
+     * <p>Use this with asset roots produced by Vite, webpack, or Rollup with their
+     * pre-compression plugins enabled.  The server adds {@code Vary: Accept-Encoding}
+     * to responses automatically when this option is active.
+     *
+     * <p>Defaults to {@code false} when not called.
+     *
+     * @return this builder
+     */
+    StaticAssetsConfigurationBuilder preCompressed();
+
+    /**
      * Registers an auth filter that is invoked before each asset request is served.
      *
      * <p>The filter receives the raw Jetty request and response.  If the filter

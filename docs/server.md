@@ -1081,15 +1081,45 @@ JAX-RS `ContainerRequestContext`.
 
 ### Builder reference
 
-| Method                                | Default | Description                                                   |
-|---------------------------------------|---------|---------------------------------------------------------------|
-| `urlPrefix(String)`                   | `"/"`   | URL prefix for this handler. Must start with `/`.             |
-| `cacheMaxAge(Duration)`               | none    | `Cache-Control` header value. Not negative.                   |
-| `responseHeaders(Map<String,String>)` | empty   | Response headers added to every asset response.               |
-| `spaFallback(boolean)`                | `false` | Serve `index.html` for extensionless missing paths.           |
-| `errorPage(int, String)`              | none    | Custom response body for a given HTTP error status (400–599). |
-| `authFilter(StaticAssetsAuthFilter)`  | none    | Pre-request authorization hook.                               |
-| `build()`                             | —       | Returns the `StaticAssetsConfiguration`.                      |
+| Method                                | Default | Description                                                                          |
+|---------------------------------------|---------|--------------------------------------------------------------------------------------|
+| `urlPrefix(String)`                   | `"/"`   | URL prefix for this handler. Must start with `/`.                                    |
+| `cacheMaxAge(Duration)`               | none    | `Cache-Control` header value. Not negative.                                          |
+| `responseHeaders(Map<String,String>)` | empty   | Response headers added to every asset response.                                      |
+| `spaFallback(boolean)`                | `false` | Serve `index.html` for extensionless missing paths.                                  |
+| `preCompressed()`                     | `false` | Serve pre-compressed `.br` / `.gz` siblings when the client accepts them. See below. |
+| `errorPage(int, String)`              | none    | Custom response body for a given HTTP error status (400–599).                        |
+| `authFilter(StaticAssetsAuthFilter)`  | none    | Pre-request authorization hook.                                                      |
+| `build()`                             | —       | Returns the `StaticAssetsConfiguration`.                                             |
+
+### Pre-compressed serving
+
+Calling `.preCompressed()` on the builder tells the handler to look for pre-compressed sibling
+files alongside each requested asset.  When a client sends `Accept-Encoding: gzip`, the handler
+looks for `app.js.gz` next to `app.js` and serves it directly with `Content-Encoding: gzip`.
+Brotli (`.br`) is preferred over gzip when both siblings exist and the client accepts both.
+When no sibling exists the uncompressed file is served normally — enabling this option on an
+asset root that has no compressed siblings is a no-op.
+
+The server adds `Vary: Accept-Encoding` to responses automatically.  The browser's cache then
+stores separate entries for compressed and uncompressed variants.
+
+This option is designed for use with build tools that emit compressed siblings by default:
+
+- **Vite** — enable the `vite-plugin-compression` plugin (gzip + brotli)
+- **webpack** — use `compression-webpack-plugin`
+- **Rollup** — use `rollup-plugin-gzip`
+
+```java
+StaticAssetsConfiguration assets = StaticAssetsConfiguration.classpath("/web")
+        .spaFallback(true)
+        .preCompressed()          // serve .br / .gz siblings when present
+        .cacheMaxAge(Duration.ofDays(365))
+        .build();
+```
+
+No new Maven dependency is required — pre-compressed serving is handled entirely by Jetty's
+`ResourceHandler`.
 
 ---
 

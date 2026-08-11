@@ -280,6 +280,10 @@ final class DefaultServer implements Server {
                 sb.append(" (SPA fallback)");
             }
 
+            if (config.preCompressed()) {
+                sb.append(" (pre-compressed)");
+            }
+
             if (!config.errorPages().isEmpty()) {
                 for (Map.Entry<Integer, String> entry : config.errorPages().entrySet()) {
                     sb.append("\n    errorPage: ").append(entry.getKey())

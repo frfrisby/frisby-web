@@ -179,6 +179,27 @@ public interface StaticAssetsConfiguration {
     Map<Integer, String> errorPages();
 
     /**
+     * Returns {@code true} if pre-compressed sibling files should be served in
+     * preference to the uncompressed originals when the client advertises support
+     * via {@code Accept-Encoding}.
+     *
+     * <p>When enabled, the handler looks for sibling files with a {@code .br} or
+     * {@code .gz} suffix alongside the requested file (e.g. {@code app.js.br} and
+     * {@code app.js.gz} alongside {@code app.js}).  Brotli is preferred when both
+     * exist and the client accepts both encodings.  When no compressed sibling
+     * exists the uncompressed file is served normally.
+     *
+     * <p>Suitable for asset roots produced by Vite, webpack, or Rollup when their
+     * pre-compression plugins are enabled.  Has no effect when no {@code .gz} or
+     * {@code .br} siblings are present.
+     *
+     * <p>Defaults to {@code false}.
+     *
+     * @return {@code true} if pre-compressed serving is enabled; {@code false} otherwise
+     */
+    boolean preCompressed();
+
+    /**
      * Returns the auth filter to invoke before serving each asset, or empty if no
      * filter has been configured.
      *

@@ -1656,6 +1656,171 @@ class ServerStaticAssetsTest {
             assertEquals(304, conditionalResponse.statusCode());
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Pre-compressed serving
+    // -------------------------------------------------------------------------
+
+    /**
+     * Tests pre-compressed serving using a filesystem source so that compressed
+     * sibling files can be generated programmatically in {@code @BeforeEach}.
+     * <p>
+     * {@code app.js.gz} is a real gzip stream produced by {@link java.util.zip.GZIPOutputStream}.
+     * {@code app.js.br} contains placeholder bytes — Java's {@link HttpClient} does not
+     * automatically decompress brotli, so the test verifies only the
+     * {@code Content-Encoding: br} header rather than the decompressed body.
+     */
+    @Nested
+    class PreCompressed {
+        private static final String APP_JS_CONTENT = "console.log('precompressed-test');";
+        private static final String NO_SIBLING_CONTENT = "console.log('no-sibling');";
+
+        @TempDir
+        Path tempDir;
+
+        private Server server;
+        private Server serverDisabled;
+        private URI baseUri;
+        private URI baseUriDisabled;
+
+        @BeforeEach
+        void setUp() throws Exception {
+            // Write plain source files.
+            Files.writeString(tempDir.resolve("app.js"), APP_JS_CONTENT);
+            Files.writeString(tempDir.resolve("no-sibling.js"), NO_SIBLING_CONTENT);
+
+            // Write a real gzip-compressed sibling.
+            try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(
+                    java.nio.file.Files.newOutputStream(tempDir.resolve("app.js.gz")))) {
+                gzip.write(APP_JS_CONTENT.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+
+            // Write placeholder brotli sibling — Jetty serves it as-is with Content-Encoding: br.
+            Files.write(tempDir.resolve("app.js.br"), new byte[]{0x01, 0x00});
+
+            server = Server.builder()
+                    .configuration(
+                            ServerConfiguration.builder()
+                                    .port(0)
+                                    .serializer(new TestJsonSerializer())
+                                    .build()
+                    )
+                    .resources(new PingResource())
+                    .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                    .staticAssets(
+                            StaticAssetsConfiguration.filesystem(tempDir)
+                                    .preCompressed()
+                                    .build()
+                    )
+                    .build();
+            server.start();
+            baseUri = server.uri();
+
+            serverDisabled = Server.builder()
+                    .configuration(
+                            ServerConfiguration.builder()
+                                    .port(0)
+                                    .serializer(new TestJsonSerializer())
+                                    .build()
+                    )
+                    .resources(new PingResource())
+                    .components(TestLogging.forClass(ServerStaticAssetsTest.class))
+                    .staticAssets(
+                            StaticAssetsConfiguration.filesystem(tempDir)
+                                    .build()
+                    )
+                    .build();
+            serverDisabled.start();
+            baseUriDisabled = serverDisabled.uri();
+        }
+
+        @AfterEach
+        void tearDown() {
+            server.stop();
+            serverDisabled.stop();
+        }
+
+        @Test
+        void gzipAccepted_servesGzipSibling() throws Exception {
+            HttpResponse<byte[]> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUri.resolve("/app.js"))
+                            .header("Accept-Encoding", "gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertEquals("gzip", response.headers().firstValue("Content-Encoding").orElse(""));
+
+            try (java.util.zip.GZIPInputStream gzipIn = new java.util.zip.GZIPInputStream(
+                    new java.io.ByteArrayInputStream(response.body()))) {
+                String decompressed = new String(
+                        gzipIn.readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8
+                );
+                assertEquals(APP_JS_CONTENT, decompressed);
+            }
+        }
+
+        @Test
+        void brotliAccepted_servesBrotliSibling() throws Exception {
+            HttpResponse<byte[]> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUri.resolve("/app.js"))
+                            .header("Accept-Encoding", "br")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertEquals("br", response.headers().firstValue("Content-Encoding").orElse(""));
+        }
+
+        @Test
+        void bothAccepted_prefersBrotli() throws Exception {
+            HttpResponse<byte[]> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUri.resolve("/app.js"))
+                            .header("Accept-Encoding", "br, gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertEquals("br", response.headers().firstValue("Content-Encoding").orElse(""));
+        }
+
+        @Test
+        void noSibling_servesUncompressed() throws Exception {
+            HttpResponse<String> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUri.resolve("/no-sibling.js"))
+                            .header("Accept-Encoding", "gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.headers().firstValue("Content-Encoding").isEmpty());
+            assertEquals(NO_SIBLING_CONTENT, response.body());
+        }
+
+        @Test
+        void notEnabled_servesUncompressedEvenWithSibling() throws Exception {
+            HttpResponse<String> response = httpClient.send(
+                    HttpRequest.newBuilder(baseUriDisabled.resolve("/app.js"))
+                            .header("Accept-Encoding", "gzip")
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.headers().firstValue("Content-Encoding").isEmpty());
+            assertEquals(APP_JS_CONTENT, response.body());
+        }
+    }
 }
 
 

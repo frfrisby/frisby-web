@@ -12,6 +12,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     private final Duration cacheMaxAge;              // null = not configured
     private final Map<String, String> responseHeaders;
     private final boolean spaFallback;
+    private final boolean preCompressed;
     private final Map<Integer, String> errorPages;   // empty = not configured
     private final StaticAssetsAuthFilter authFilter; // null = not configured
 
@@ -22,6 +23,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
             Duration cacheMaxAge,
             Map<String, String> responseHeaders,
             boolean spaFallback,
+            boolean preCompressed,
             Map<Integer, String> errorPages,
             StaticAssetsAuthFilter authFilter) {
         this.classpathPath = classpathPath;
@@ -30,6 +32,7 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
         this.cacheMaxAge = cacheMaxAge;
         this.responseHeaders = responseHeaders;
         this.spaFallback = spaFallback;
+        this.preCompressed = preCompressed;
         this.errorPages = errorPages;
         this.authFilter = authFilter;
     }
@@ -62,6 +65,11 @@ final class DefaultStaticAssetsConfiguration implements StaticAssetsConfiguratio
     @Override
     public boolean spaFallback() {
         return spaFallback;
+    }
+
+    @Override
+    public boolean preCompressed() {
+        return preCompressed;
     }
 
     @Override

@@ -340,6 +340,7 @@ clear error if the path is missing.
 | `cacheMaxAge(Duration)` | none | Emits `Cache-Control: max-age=<s>, public`. `Duration.ZERO` emits `max-age=0, no-cache`. Omitting emits no header. Not null, not negative. |
 | `responseHeaders(Map<String,String>)` | empty | Headers added to every asset response. Cumulative — later calls merge into earlier; duplicate keys take the later value. Map and all keys/values must not be null. |
 | `spaFallback(boolean)` | `false` | When `true`, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404. |
+| `preCompressed()` | `false` | Enables serving of pre-compressed sibling files. When a client sends `Accept-Encoding: gzip` or `br`, Jetty looks for a `.gz` or `.br` sibling file and serves it directly with the appropriate `Content-Encoding` header. Brotli is preferred over gzip when both siblings exist. No-op when no siblings are present. Use with Vite/webpack pre-compression output. |
 | `errorPage(int statusCode, String path)` | none | Maps an HTTP error status (400–599) to a file in the asset root. Status code preserved; only body and `Content-Type` come from the file. Multiple calls allowed (different codes); duplicate codes are last-write-wins. Each path is validated for readability at server startup. |
 | `authFilter(StaticAssetsAuthFilter)` | none | Invoked before every asset request. See below. |
 | `build()` | — | Returns a `StaticAssetsConfiguration`. |
@@ -369,6 +370,7 @@ to gate static asset access.
 |---|---|
 | **Dotfile protection** | Final path segment starting with `.` (e.g. `/.env`) → unconditional `404`. Cannot be disabled. |
 | **Directory index** | `GET /` and `GET /subdir/` serve the `index.html` within that directory. |
+| **Pre-compressed serving** | When `preCompressed()` is set, `.br` and `.gz` siblings are served in preference to the original when the client advertises the matching `Accept-Encoding`. Brotli preferred when both exist. `Vary: Accept-Encoding` added automatically. |
 | **ETags / Last-Modified** | Emitted automatically; `If-None-Match` returns `304 Not Modified`. |
 | **JAX-RS priority** | Static handlers only receive requests that no JAX-RS endpoint matched. |
 | **Startup validation** | Asset source and all `errorPage` paths validated when the server starts; missing resources → `IllegalStateException` with a clear message. |

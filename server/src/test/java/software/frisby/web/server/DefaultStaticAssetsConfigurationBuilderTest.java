@@ -388,6 +388,7 @@ class DefaultStaticAssetsConfigurationBuilderTest {
             assertTrue(config.cacheMaxAge().isEmpty());
             assertEquals(Map.of(), config.responseHeaders());
             assertFalse(config.spaFallback());
+            assertFalse(config.preCompressed());
             assertEquals(Map.of(), config.errorPages());
             assertTrue(config.authFilter().isEmpty());
         }
@@ -400,9 +401,32 @@ class DefaultStaticAssetsConfigurationBuilderTest {
             assertTrue(config.cacheMaxAge().isEmpty());
             assertEquals(Map.of(), config.responseHeaders());
             assertFalse(config.spaFallback());
+            assertFalse(config.preCompressed());
             assertEquals(Map.of(), config.errorPages());
             assertTrue(config.authFilter().isEmpty());
         }
     }
-}
 
+    // -------------------------------------------------------------------------
+    // preCompressed()
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class PreCompressed {
+        @Test
+        void notCalled_defaultsFalse() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web").build();
+
+            assertFalse(config.preCompressed());
+        }
+
+        @Test
+        void called_storesTrue() {
+            StaticAssetsConfiguration config = StaticAssetsConfiguration.classpath("/web")
+                    .preCompressed()
+                    .build();
+
+            assertTrue(config.preCompressed());
+        }
+    }
+}

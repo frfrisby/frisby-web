@@ -1,5 +1,6 @@
 package software.frisby.web.server;
 
+import org.eclipse.jetty.http.CompressedContentFormat;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpURI;
@@ -179,6 +180,10 @@ final class StaticHandler extends Handler.Wrapper {
         resourceHandler.setDirAllowed(false);
         resourceHandler.setEtags(true);
         resourceHandler.setWelcomeFiles("index.html");
+
+        if (configuration.preCompressed()) {
+            resourceHandler.setPrecompressedFormats(CompressedContentFormat.BR, CompressedContentFormat.GZIP);
+        }
 
         for (Map.Entry<Integer, String> entry : configuration.errorPages().entrySet()) {
             String errorPagePath = entry.getValue();

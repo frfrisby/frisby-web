@@ -29,6 +29,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     private String urlPrefix;
     private Duration cacheMaxAge;
     private boolean spaFallback;
+    private boolean preCompressed;
     private StaticAssetsAuthFilter authFilter;
 
     DefaultStaticAssetsConfigurationBuilder(String resourcePath) {
@@ -38,6 +39,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
         this.cacheMaxAge = null;
         this.responseHeaders = new HashMap<>();
         this.spaFallback = false;
+        this.preCompressed = false;
         this.errorPages = new HashMap<>();
         this.authFilter = null;
     }
@@ -57,6 +59,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
         this.cacheMaxAge = null;
         this.responseHeaders = new HashMap<>();
         this.spaFallback = false;
+        this.preCompressed = false;
         this.errorPages = new HashMap<>();
         this.authFilter = null;
     }
@@ -102,6 +105,12 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
     }
 
     @Override
+    public StaticAssetsConfigurationBuilder preCompressed() {
+        this.preCompressed = true;
+        return this;
+    }
+
+    @Override
     public StaticAssetsConfigurationBuilder errorPage(int statusCode, String path) {
         Numbers.range(ERROR_PAGE_STATUS_ARGUMENT_NAME, statusCode, 400, 599);
         Strings.notBlank(ERROR_PAGE_PATH_ARGUMENT_NAME, path);
@@ -125,6 +134,7 @@ final class DefaultStaticAssetsConfigurationBuilder implements StaticAssetsConfi
                 cacheMaxAge,
                 Map.copyOf(responseHeaders),
                 spaFallback,
+                preCompressed,
                 Map.copyOf(errorPages),
                 authFilter
         );
