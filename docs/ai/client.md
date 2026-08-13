@@ -496,7 +496,7 @@ RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60))  // custo
 - **Multipart bodies** — the stream cannot be replayed; retry is silently skipped regardless of policy.
 - **Non-idempotent methods** (`POST`, `PUT`, `PATCH`) — blocked unless `allowNonIdempotent()` is set.
 
-### Sync vs. async retry behaviour
+### Sync vs. async retry behavior
 
 | Path | Retry mechanism |
 |---|---|

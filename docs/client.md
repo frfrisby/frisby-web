@@ -864,14 +864,14 @@ RetryPolicy.builder()
 
 ### Idempotency and multipart
 
-By default only idempotent methods (`GET`, `HEAD`, `DELETE`) are retried.  Call
+By default, only idempotent methods (`GET`, `HEAD`, `DELETE`) are retried.  Call
 `allowNonIdempotent()` to also retry `POST`, `PUT`, and `PATCH` — only do this when
 you are certain the server operation is safe to execute more than once.
 
 **Multipart form-data requests are never retried**, regardless of any policy setting.
 The body is streamed and cannot be replayed after the first attempt.
 
-### Sync vs. async behaviour
+### Sync vs. async behavior
 
 | Path        | Retry mechanism                                                    |
 |-------------|--------------------------------------------------------------------|

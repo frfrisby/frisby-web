@@ -37,7 +37,7 @@ support — with zero framework magic and a minimal, explicit API.
 ## 1. Why this library?
 
 Most Java HTTP server options come bundled with an opinionated runtime: a DI framework,
-auto-configuration, a metrics stack, a configuration file format, or GraalVM build-time
+autoconfiguration, a metrics stack, a configuration file format, or GraalVM build-time
 processing.  If you want an embedded server and nothing else, the overhead is significant.
 
 `frisby-web:server` is different:
@@ -253,7 +253,7 @@ thread while waiting, enabling high concurrency without a large platform-thread 
 how many requests are actively processed simultaneously, guarding heap from memory pressure
 when many large payloads arrive at once.
 
-### 503 rejection behaviour
+### 503 rejection behavior
 
 When the concurrency limit is reached, the server responds immediately with:
 
@@ -267,7 +267,7 @@ Content-Type: application/json
 
 Capacity rejections are logged at `WARNING` with a `[capacity limit]` tag by
 `software.frisby.web.server.RequestLogger`.  They are intentionally `WARNING`, not
-`ERROR` — load shedding is correct operational behaviour, not a malfunction.
+`ERROR` — load shedding is correct operational behavior, not a malfunction.
 
 ### Thread-pool sizing
 
@@ -352,7 +352,7 @@ their content type is not in the safe-to-compress set.
 
 ### Advanced compression
 
-For custom compression behaviour — compressing additional media types, applying size
+For custom compression behavior — compressing additional media types, applying size
 thresholds, or compressing non-JSON responses — omit `gzip()` and register a custom
 `ContainerResponseFilter` (and Jersey's `GZipEncoder` if needed) via
 `ServerBuilder.components(...)`.
@@ -679,13 +679,23 @@ The server uses `System.Logger` throughout, routing through the standard JUL bri
 (or whichever logging backend is wired to `System.Logger` at runtime — SLF4J, Log4j 2,
 etc., via a `System.LoggerFinder`).
 
+> **Note — SLF4J and the embedded Jetty server.** This library adds no SLF4J dependency
+> of its own.  However, the embedded Jetty server uses SLF4J internally, so any
+> application that depends on the `server` module will need an SLF4J provider on the
+> classpath to suppress SLF4J's "no provider found" warning at startup.  If you are
+> already using Logback, Log4j 2, or another SLF4J-compatible framework you are already
+> covered.  If you are using `java.util.logging` directly, add `slf4j-jdk14` to bridge
+> Jetty's output into JUL.
+
 ### Logger names
 
-| Logger                                        | What it covers                                                                                                                                                                                                                                                                      |
-|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `software.frisby.web.server.RequestLogger`    | All request lifecycle events for **both** JSON API and static asset requests: server start/stop, per-request INFO lines, 4xx/5xx failure detail (with request and response headers), health check traces, capacity rejection warnings. **This is the primary logger to configure.** |
-| `software.frisby.web.server.DefaultServer`    | Server wiring and lifecycle internals (connector setup, handler registration, component registration errors).                                                                                                                                                                       |
-| `software.frisby.web.server.JsonErrorHandler` | Pre-Jersey errors (primarily HTTP 413 from the request-size gate).                                                                                                                                                                                                                  |
+| Logger                                                    | What it covers                                                                                                                                                                                                                                                                      |
+|-----------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `software.frisby.web.server.RequestLogger`                | All request lifecycle events for **both** JSON API and static asset requests: server start/stop, per-request INFO lines, 4xx/5xx failure detail (with request and response headers), health check traces, capacity rejection warnings. **This is the primary logger to configure.** |
+| `software.frisby.web.server.DefaultServer`                | Server wiring and lifecycle internals (connector setup, handler registration, component registration errors).                                                                                                                                                                       |
+| `software.frisby.web.server.JsonErrorHandler`             | Pre-Jersey errors (primarily HTTP 413 from the request-size gate).                                                                                                                                                                                                                  |
+| `software.frisby.web.server.ServerRequestEventListener`   | Emits a single `WARNING` when a user-registered `ServerEventListener` callback throws from a JSON API request.  Rarely needs independent configuration.                                                                                                                             |
+| `software.frisby.web.server.StaticHandler`                | Emits a single `WARNING` when a user-registered `ServerEventListener` callback throws from a static asset request.  Rarely needs independent configuration.                                                                                                                         |
 
 ### Log levels
 
@@ -725,7 +735,7 @@ buffered request body, and response headers — at `WARNING` (4xx) or `ERROR` (5
 gives you the information needed to diagnose failures without enabling verbose tracing in
 production.
 
-### Default behaviour
+### Default behavior
 
 - **Request body** — buffered up to **8 KB** from text-based entity types.  Binary content
   (`application/octet-stream`, `image/*`, `audio/*`, `video/*`) and multipart bodies are
@@ -736,7 +746,7 @@ production.
     - `Set-Cookie` — logged as `name=[redacted]; Path=...; Secure; HttpOnly` (attributes preserved).
 - **No field redaction** — all JSON body fields are logged as-is.
 
-### Customising with LoggingConfiguration
+### Customizing with LoggingConfiguration
 
 ```java
 LoggingConfiguration logging = LoggingConfiguration.builder()
@@ -760,11 +770,11 @@ LoggingConfiguration logging = LoggingConfiguration.builder()
                 .redactFields("password", "token")))
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `maxBodySize(int)` | `8192` (8 KB) | Maximum bytes buffered from the request body and included in failure log entries.  Bodies larger than this are truncated with a note.  Pass `0` to disable body logging entirely. |
-| `redactHeaders(String...)` | none | Additional header names whose values are replaced with `***` in failure log entries.  The three hard-coded headers (`Authorization`, `Cookie`, `Set-Cookie`) are always masked regardless of this setting. |
-| `redactFields(String...)` | none | JSON body field names whose string values are replaced with `[redacted]`.  Matching is case-sensitive and exact.  Only string-typed values are affected; numbers, booleans, and nested objects are left unchanged. |
+| Option                     | Default       | Description                                                                                                                                                                                                        |
+|----------------------------|---------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `maxBodySize(int)`         | `8192` (8 KB) | Maximum bytes buffered from the request body and included in failure log entries.  Bodies larger than this are truncated with a note.  Pass `0` to disable body logging entirely.                                  |
+| `redactHeaders(String...)` | none          | Additional header names whose values are replaced with `***` in failure log entries.  The three hard-coded headers (`Authorization`, `Cookie`, `Set-Cookie`) are always masked regardless of this setting.         |
+| `redactFields(String...)`  | none          | JSON body field names whose string values are replaced with `[redacted]`.  Matching is case-sensitive and exact.  Only string-typed values are affected; numbers, booleans, and nested objects are left unchanged. |
 
 ### Text-safe body types (buffered for logging)
 
@@ -773,6 +783,15 @@ Bodies are buffered for logging only when the `Content-Type` is one of:
 `application/x-www-form-urlencoded`, `application/graphql`.
 
 All other types produce the `[type/subtype — body not logged]` placeholder.
+
+### Static asset requests
+
+`redactedHeaders` applies to static asset request and response header logging as well as
+JSON API logging — the same header masking rules are used for both sides of the server.
+
+`redactedFields` and `maxBodySize` have no effect on static asset logging.  Static asset
+requests carry no application body to buffer or redact; the logged detail block contains
+headers only.
 
 ---
 
@@ -1128,11 +1147,11 @@ No new Maven dependency is required — pre-compressed serving is handled entire
 ### vs. Spring Boot (embedded Tomcat / Netty)
 
 Spring Boot is an application framework that happens to include an embedded server.  Starting
-a Spring Boot application pulls in auto-configuration, a DI container, property resolution,
+a Spring Boot application pulls in autoconfiguration, a DI container, property resolution,
 actuator endpoints, and a large transitive dependency graph — even for the simplest use cases.
 
 `frisby-web:server` is just a server.  If you already have a service layer, you wire it
-directly to JAX-RS resource classes.  No container, no auto-configuration, no classpath
+directly to JAX-RS resource classes.  No container, no autoconfiguration, no classpath
 scanning, no `application.properties`, no startup-time surprises.
 
 **Choose Spring Boot** when you need the full ecosystem — Spring Security, Spring Data,
