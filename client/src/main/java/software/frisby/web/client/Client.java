@@ -31,6 +31,7 @@ package software.frisby.web.client;
  * @see PatchSpec
  * @see DeleteSpec
  * @see HeadSpec
+ * @see SseSpec
  */
 public interface Client {
     /**
@@ -87,6 +88,18 @@ public interface Client {
      * @return A {@link HeadSpec} to configure and execute the request.
      */
     HeadSpec head();
+
+    /**
+     * Begins a fluent Server-Sent Events (SSE) stream request.
+     * <p>
+     * Returns the raw {@code text/event-stream} response body — for typed per-event-type
+     * callback dispatch, automatic reconnection, and backpressure handling, use the
+     * {@code software.frisby.web:client-sse} module instead.  Callers who want to write
+     * their own SSE reader can use this method directly with no additional dependency.
+     *
+     * @return An {@link SseSpec} to configure and open the stream.
+     */
+    SseSpec sse();
 
     /**
      * Returns the {@link ClientConfiguration} used to create this client instance.

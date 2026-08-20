@@ -46,6 +46,11 @@ final class DefaultClient implements Client {
     }
 
     @Override
+    public SseSpec sse() {
+        return new SseRequest(engine, defaultSecurity);
+    }
+
+    @Override
     public ClientConfiguration configuration() {
         return engine.configuration();
     }

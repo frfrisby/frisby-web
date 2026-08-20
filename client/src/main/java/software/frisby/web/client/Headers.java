@@ -108,6 +108,13 @@ public final class Headers {
     public static final String LAST_MODIFIED = "Last-Modified";
 
     /**
+     * {@code Last-Event-ID} — sent by an SSE client on reconnect to resume a stream
+     * from the last successfully processed event.  Set via
+     * {@link SseSpec#header(String, String) SseSpec.header(Headers.LAST_EVENT_ID, id)}.
+     */
+    public static final String LAST_EVENT_ID = "Last-Event-ID";
+
+    /**
      * {@code User-Agent} — identifies the client software making the request.
      */
     public static final String USER_AGENT = "User-Agent";

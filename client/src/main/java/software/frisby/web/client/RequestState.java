@@ -171,6 +171,23 @@ final class RequestState {
     }
 
     /**
+     * Returns whether the caller has already set a header with the given name
+     * (case-insensitive).
+     * <p>
+     * Used by request types that need a default header value only when the caller has
+     * not already supplied one (e.g. {@link SseRequest}'s {@code Accept: text/event-stream}
+     * default), following the same pattern as the {@code addAcceptJson} check in
+     * {@link #prepareBuilder}.
+     *
+     * @param name The header name to check.
+     * @return {@code true} if a header with this name was already added via
+     * {@link #header(String, String)} or {@link #header(String, String...)}.
+     */
+    boolean hasHeader(String name) {
+        return headers.stream().anyMatch(e -> e.getKey().equalsIgnoreCase(name));
+    }
+
+    /**
      * Resolves the final request URI from the base URI, the accumulated path,
      * and query parameters.
      *
