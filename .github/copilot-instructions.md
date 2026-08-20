@@ -12,6 +12,12 @@ They are not fetched automatically — they must be explicitly attached to the c
 Without these files in context, the AI will not have the complete validation method
 signatures, utility class behavior, or style rules needed to generate correct code.
 
+When working on a module that depends on `software.frisby.core:concurrency` (e.g.
+`client-sse`), also attach:
+
+- `.github/docs/concurrency.md` — full API reference for `software.frisby.core.concurrency`
+  (`Pipeline`, `Buffer`, `Group`, `Action`, `NamedExecutorService`, etc.)
+
 When working on a specific area, also attach the relevant AI reference doc from `docs/ai/`:
 
 - `docs/ai/serialization.md` — `JsonSerializer`, `GenericType`, `JacksonSerializer`
