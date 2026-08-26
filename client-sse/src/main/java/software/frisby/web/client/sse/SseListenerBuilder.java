@@ -15,12 +15,15 @@ import java.util.function.Consumer;
 /**
  * A fluent builder for configuring and opening a typed-callback {@link SseListener}.
  * <p>
- * Obtained from {@code SseListener.builder(Client)}. Navigation methods (path,
+ * Obtained from {@link SseListener#builder()}. Navigation methods (path,
  * parameter, header, cookie, security) are re-declared here rather than delegating to
  * a single {@code SseSpec} instance, because the builder captures navigation as an
  * immutable template that is replayed against a fresh {@code client.sse()} call on
  * every connection attempt — including reconnects, where the {@code Last-Event-ID}
  * header must reflect the most recently processed event.
+ * <p>
+ * {@link #client(Client)} is required — {@link #build()} throws if it was never called.
+ * It may be called at any point in the fluent chain, not necessarily first.
  * <p>
  * A connection reconnects unconditionally and indefinitely on any connect or
  * reconnect failure — there is no configurable retry limit and no way to disable
@@ -36,6 +39,18 @@ import java.util.function.Consumer;
  * @see SseMessage
  */
 public interface SseListenerBuilder {
+    /**
+     * Sets the client used to issue the initial connection request and every reconnect
+     * attempt.
+     * <p>
+     * Required — {@link #build()} throws if this method is never called.
+     *
+     * @param client The client to use.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code client} is null.
+     */
+    SseListenerBuilder client(Client client);
+
     /**
      * Sets the URI path for this connection's requests.
      * <p>
@@ -231,6 +246,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.NullValueException  if {@code event}, {@code type}, or
      *                                                             {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEvent(String event, Class<T> type, Consumer<SseMessage<T>> handler);
 
@@ -264,6 +282,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEvent(String event, Class<T> type, Consumer<SseMessage<T>> handler, int concurrency);
 
@@ -280,6 +301,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.NullValueException  if {@code event}, {@code type}, or
      *                                                             {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEvent(String event, GenericType<T> type, Consumer<SseMessage<T>> handler);
 
@@ -307,6 +331,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEvent(String event, GenericType<T> type, Consumer<SseMessage<T>> handler, int concurrency);
 
@@ -321,6 +348,9 @@ public interface SseListenerBuilder {
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException  if {@code event} or {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler);
 
@@ -347,6 +377,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler, int concurrency);
 
@@ -375,6 +408,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.NullValueException  if {@code event}, {@code type}, or
      *                                                             {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEventBatch(String event, Class<T> type, Consumer<List<SseMessage<T>>> handler);
 
@@ -406,6 +442,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEventBatch(String event, Class<T> type, Consumer<List<SseMessage<T>>> handler,
                                          int concurrency);
@@ -426,6 +465,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.NullValueException  if {@code event}, {@code type}, or
      *                                                             {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEventBatch(String event, GenericType<T> type, Consumer<List<SseMessage<T>>> handler);
 
@@ -455,6 +497,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     <T> SseListenerBuilder onEventBatch(String event, GenericType<T> type, Consumer<List<SseMessage<T>>> handler,
                                          int concurrency);
@@ -473,6 +518,9 @@ public interface SseListenerBuilder {
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException  if {@code event} or {@code handler} is null.
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     SseListenerBuilder onEventBatch(String event, Consumer<List<SseMessage<String>>> handler);
 
@@ -501,6 +549,9 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
+     * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already
+     *                                                                    registered via {@link #onEvent}
+     *                                                                    or {@link #onEventBatch}.
      */
     SseListenerBuilder onEventBatch(String event, Consumer<List<SseMessage<String>>> handler, int concurrency);
 

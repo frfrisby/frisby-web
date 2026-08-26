@@ -1,9 +1,11 @@
 package software.frisby.web.client.sse;
 
+import software.frisby.web.client.Client;
+
 /**
  * A live, typed-callback connection to an SSE stream.
  * <p>
- * Assembled via {@code SseListener.builder(Client)} and {@link SseListenerBuilder#build()},
+ * Assembled via {@link #builder()} and {@link SseListenerBuilder#build()},
  * which validate the configured navigation, handlers, and options up front but perform
  * no I/O and start no threads. {@link #connectAsync()} opens the connection —
  * starting the background reader thread, dispatch pipeline, and reconnect loop — and
@@ -16,15 +18,21 @@ package software.frisby.web.client.sse;
  * run of failures is unrecoverable. See {@link SseListenerBuilder#onError} for details.
  * <p>
  * Once closed, an {@code SseListener} cannot be reopened — build a fresh instance via
- * {@code SseListener.builder(Client)} instead.
- * <p>
- * The static {@code builder(Client)} factory method is added in a later chunk, once
- * {@link SseListenerBuilder}'s implementation exists to back it.
+ * {@link #builder()} instead.
  *
  * @see SseListenerBuilder
  * @see SseMessage
  */
 public interface SseListener extends AutoCloseable {
+    /**
+     * Returns a new {@link SseListenerBuilder} for configuring and opening a connection.
+     *
+     * @return A new builder.
+     */
+    static SseListenerBuilder builder() {
+        return new DefaultSseListenerBuilder();
+    }
+
     /**
      * Opens the connection and returns immediately.
      * <p>

@@ -43,6 +43,36 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>jackson-serializer</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Provides the embedded Jersey+Jetty server and JAX-RS resources (including
+            SseTestResource) used by client-sse integration tests.  Not deployed to any
+            remote repo.
+        -->
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Routes Jetty's SLF4J log output through java.util.logging so that Jetty
+            logs are visible in tests and the SLF4J "no providers found" warning is
+            silenced.  Test-scoped only.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
