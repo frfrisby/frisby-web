@@ -4,6 +4,7 @@ import org.glassfish.jersey.media.multipart.MultiPartFeature;
 import software.frisby.web.test.resource.EchoResource;
 import software.frisby.web.test.resource.HeaderResource;
 import software.frisby.web.test.resource.PersonResource;
+import software.frisby.web.test.resource.SseTestResource;
 import software.frisby.web.test.resource.StatusResource;
 import software.frisby.web.test.resource.StreamResource;
 import software.frisby.web.test.resource.UploadResource;
@@ -51,6 +52,8 @@ public final class TestResources {
      *   <li>{@link StatusResource} — {@code /status/{code}} — error-mapping scenarios</li>
      *   <li>{@link StreamResource} — {@code /stream} — streaming download</li>
      *   <li>{@link UploadResource} — {@code /upload} — multipart file upload</li>
+     *   <li>{@link SseTestResource} — {@code /sse/stream} — hand-written
+     *       {@code text/event-stream} resource for SSE client integration tests</li>
      * </ul>
      *
      * @return An immutable list of resource instances; never {@code null}.
@@ -62,7 +65,8 @@ public final class TestResources {
                 new HeaderResource(),
                 new StatusResource(),
                 new StreamResource(),
-                new UploadResource()
+                new UploadResource(),
+                new SseTestResource()
         );
     }
 }
