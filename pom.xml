@@ -127,6 +127,7 @@
         <module>bom</module>
         <module>serial</module>
         <module>client</module>
+        <module>client-sse</module>
         <module>basic-security</module>
         <module>oauth2-security</module>
         <module>server</module>
