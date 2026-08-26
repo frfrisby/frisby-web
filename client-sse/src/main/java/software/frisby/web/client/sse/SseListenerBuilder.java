@@ -195,11 +195,19 @@ public interface SseListenerBuilder {
     SseListenerBuilder onBufferFull(BufferFullPolicy policy);
 
     /**
-     * Sets a custom {@link Executor} on which registered handlers are invoked.
+     * Sets a custom {@link Executor} backing every registered handler's dispatch
+     * pipeline.
      * <p>
-     * Optional; defaults to a single dedicated worker thread per connection, which
-     * guarantees serial, in-order handler invocation. Supplying a multi-threaded
-     * executor allows parallel dispatch at the cost of ordering guarantees.
+     * Each registered event type gets its own dedicated dispatch pipeline — ordering
+     * and concurrency are configured per handler (see the {@code concurrency} parameter
+     * on {@link #onEvent(String, Class, Consumer, int) onEvent} and
+     * {@link #onEventBatch(String, Class, Consumer, int) onEventBatch}), independent of
+     * every other event type's handler. This executor is simply the thread pool those
+     * per-handler pipelines draw worker threads from; it does not itself control
+     * ordering or concurrency.
+     * <p>
+     * Optional; defaults to a dedicated {@code NamedExecutorService} per connection,
+     * shut down when the connection is {@link SseListener#close() closed}.
      *
      * @param executor The executor to use; must not be {@code null}.
      * @return This builder instance.
@@ -228,6 +236,39 @@ public interface SseListenerBuilder {
 
     /**
      * Registers a typed handler for events whose {@code event} field matches
+     * {@code event}, dispatched across {@code concurrency} concurrent worker arms.
+     * <p>
+     * The raw wire-format {@code data} string is deserialized via the {@link Client}'s
+     * configured {@code JsonSerializer} and delivered as {@link SseMessage#body()}.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — events are fanned out round-robin/least-busy across
+     * {@code concurrency} independent worker arms, so a later event may be delivered
+     * before an earlier one. {@code handler} is invoked concurrently from up to
+     * {@code concurrency} threads and must be thread-safe. Use this overload only for
+     * handlers whose processing latency (I/O, external calls, etc.) would otherwise
+     * bottleneck a high-volume event type; {@code concurrency = 1} (the other overload)
+     * is equivalent to this one and preserves today's in-order, single-arm delivery.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param type        The type to deserialize the event data into.
+     * @param handler     The callback invoked with the message; must be thread-safe
+     *                    when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @param <T>         The deserialized payload type.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event}, {@code type}, or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    <T> SseListenerBuilder onEvent(String event, Class<T> type, Consumer<SseMessage<T>> handler, int concurrency);
+
+    /**
+     * Registers a typed handler for events whose {@code event} field matches
      * {@code event}, deserializing into a generic type such as {@code List<Item>}.
      *
      * @param event   The event type to handle; events with no {@code event} field are
@@ -243,6 +284,33 @@ public interface SseListenerBuilder {
     <T> SseListenerBuilder onEvent(String event, GenericType<T> type, Consumer<SseMessage<T>> handler);
 
     /**
+     * Registers a typed handler for events whose {@code event} field matches
+     * {@code event}, deserializing into a generic type such as {@code List<Item>},
+     * dispatched across {@code concurrency} concurrent worker arms.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — see {@link #onEvent(String, Class, Consumer, int)} for the full
+     * explanation of this trade-off and the thread-safety requirement it places on
+     * {@code handler}.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param type        The generic type to deserialize the event data into.
+     * @param handler     The callback invoked with the message; must be thread-safe
+     *                    when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @param <T>         The deserialized payload type.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event}, {@code type}, or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    <T> SseListenerBuilder onEvent(String event, GenericType<T> type, Consumer<SseMessage<T>> handler, int concurrency);
+
+    /**
      * Registers a raw handler for events whose {@code event} field matches
      * {@code event}, receiving an {@code SseMessage<String>} whose
      * {@link SseMessage#body()} is the untouched wire-format {@code data} string.
@@ -255,6 +323,32 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
      */
     SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler);
+
+    /**
+     * Registers a raw handler for events whose {@code event} field matches
+     * {@code event}, receiving an {@code SseMessage<String>} whose
+     * {@link SseMessage#body()} is the untouched wire-format {@code data} string,
+     * dispatched across {@code concurrency} concurrent worker arms.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — see {@link #onEvent(String, Class, Consumer, int)} for the full
+     * explanation of this trade-off and the thread-safety requirement it places on
+     * {@code handler}.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param handler     The callback invoked with the raw message; must be
+     *                    thread-safe when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event} or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler, int concurrency);
 
     /**
      * Registers a catch-all handler invoked for any event whose {@code event} field
@@ -286,6 +380,38 @@ public interface SseListenerBuilder {
 
     /**
      * Registers a typed batch handler for events whose {@code event} field matches
+     * {@code event}, dispatched across {@code concurrency} concurrent worker arms.
+     * Events are grouped and delivered together once {@link #batchSize} is reached or
+     * {@link #batchTimeout} elapses, whichever comes first.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — batches are fanned out round-robin/least-busy across
+     * {@code concurrency} independent worker arms, so a later batch may be delivered
+     * before an earlier one, and each batch is still homogeneous (all items share the
+     * same {@code event()} value) but is only ordered within itself. {@code handler} is
+     * invoked concurrently from up to {@code concurrency} threads and must be
+     * thread-safe.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param type        The type to deserialize each event's data into.
+     * @param handler     The callback invoked with the batch of messages; must be
+     *                    thread-safe when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @param <T>         The deserialized payload type.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event}, {@code type}, or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    <T> SseListenerBuilder onEventBatch(String event, Class<T> type, Consumer<List<SseMessage<T>>> handler,
+                                         int concurrency);
+
+    /**
+     * Registers a typed batch handler for events whose {@code event} field matches
      * {@code event}, deserializing each event's data into a generic type such as
      * {@code List<Item>}. Events are grouped and delivered together once
      * {@link #batchSize} is reached or {@link #batchTimeout} elapses, whichever comes
@@ -304,6 +430,36 @@ public interface SseListenerBuilder {
     <T> SseListenerBuilder onEventBatch(String event, GenericType<T> type, Consumer<List<SseMessage<T>>> handler);
 
     /**
+     * Registers a typed batch handler for events whose {@code event} field matches
+     * {@code event}, deserializing each event's data into a generic type such as
+     * {@code List<Item>}, dispatched across {@code concurrency} concurrent worker arms.
+     * Events are grouped and delivered together once {@link #batchSize} is reached or
+     * {@link #batchTimeout} elapses, whichever comes first.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — see
+     * {@link #onEventBatch(String, Class, Consumer, int)} for the full explanation of
+     * this trade-off and the thread-safety requirement it places on {@code handler}.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param type        The generic type to deserialize each event's data into.
+     * @param handler     The callback invoked with the batch of messages; must be
+     *                    thread-safe when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @param <T>         The deserialized payload type.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event}, {@code type}, or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    <T> SseListenerBuilder onEventBatch(String event, GenericType<T> type, Consumer<List<SseMessage<T>>> handler,
+                                         int concurrency);
+
+    /**
      * Registers a raw batch handler for events whose {@code event} field matches
      * {@code event}, receiving each batch as a {@link List} of
      * {@code SseMessage<String>} whose {@link SseMessage#body()} is the untouched
@@ -319,6 +475,34 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException if {@code event} is blank.
      */
     SseListenerBuilder onEventBatch(String event, Consumer<List<SseMessage<String>>> handler);
+
+    /**
+     * Registers a raw batch handler for events whose {@code event} field matches
+     * {@code event}, receiving each batch as a {@link List} of
+     * {@code SseMessage<String>} whose {@link SseMessage#body()} is the untouched
+     * wire-format {@code data} string, dispatched across {@code concurrency} concurrent
+     * worker arms. Events are grouped and delivered together once {@link #batchSize} is
+     * reached or {@link #batchTimeout} elapses, whichever comes first.
+     * <p>
+     * <strong>{@code concurrency > 1} forfeits in-order delivery for this event
+     * type</strong> — see
+     * {@link #onEventBatch(String, Class, Consumer, int)} for the full explanation of
+     * this trade-off and the thread-safety requirement it places on {@code handler}.
+     *
+     * @param event       The event type to handle; events with no {@code event} field
+     *                    are matched against {@code "message"}.
+     * @param handler     The callback invoked with the batch of raw messages; must be
+     *                    thread-safe when {@code concurrency > 1}.
+     * @param concurrency The number of concurrent worker arms dispatching to
+     *                    {@code handler}; must be positive.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException               if {@code event} or
+     *                                                                          {@code handler} is null.
+     * @throws software.frisby.core.validation.BlankValueException              if {@code event} is blank.
+     * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
+     *                                                                          positive.
+     */
+    SseListenerBuilder onEventBatch(String event, Consumer<List<SseMessage<String>>> handler, int concurrency);
 
     /**
      * Sets the maximum number of events collected into a single batch before it is
