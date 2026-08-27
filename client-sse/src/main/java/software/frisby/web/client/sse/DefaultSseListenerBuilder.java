@@ -62,6 +62,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private String lastEventId;
     private int bufferCapacity;
     private BufferFullPolicy bufferFullPolicy;
+    private Consumer<SseMessage<String>> droppedHandler;
     private Executor executor;
     private Consumer<SseMessage<String>> unhandledHandler;
     private int batchSize;
@@ -78,6 +79,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         this.lastEventId = null;
         this.bufferCapacity = DEFAULT_BUFFER_CAPACITY;
         this.bufferFullPolicy = BufferFullPolicy.BLOCK;
+        this.droppedHandler = null;
         this.executor = null;
         this.unhandledHandler = null;
         this.batchSize = DEFAULT_BATCH_SIZE;
@@ -183,6 +185,12 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     @Override
     public SseListenerBuilder onBufferFull(BufferFullPolicy policy) {
         this.bufferFullPolicy = Values.notNull(POLICY_ARGUMENT_NAME, policy);
+        return this;
+    }
+
+    @Override
+    public SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler) {
+        this.droppedHandler = Values.notNull(HANDLER_ARGUMENT_NAME, handler);
         return this;
     }
 
@@ -345,6 +353,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
                 lastEventId,
                 bufferCapacity,
                 bufferFullPolicy,
+                droppedHandler,
                 executor,
                 Map.copyOf(eventHandlers),
                 Map.copyOf(batchHandlers),

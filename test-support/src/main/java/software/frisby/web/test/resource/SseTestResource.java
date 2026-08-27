@@ -39,6 +39,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code GET /sse/stream?channel={name}} — isolates the in-memory event log used for
  *       {@code Last-Event-ID} replay so concurrent tests do not interfere with one another;
  *       defaults to {@value #DEFAULT_CHANNEL}</li>
+ *   <li>{@code GET /sse/stream?retryMs={n}} — emits a {@code retry:} field (milliseconds) on
+ *       the first generated event only, for exercising a client's server-supplied reconnect
+ *       delay handling</li>
  *   <li>A {@code Last-Event-ID} request header causes only events with an {@code id} greater
  *       than the supplied value to be replayed, using a simple in-memory event log keyed by
  *       {@code channel}</li>
@@ -68,6 +71,9 @@ public final class SseTestResource {
      *                           line entirely instead of writing {@code event: message}.
      * @param channel            Isolates the in-memory event log used for {@code Last-Event-ID}
      *                           replay.
+     * @param retryMs            When present, the first generated event carries a {@code retry:}
+     *                           field with this millisecond value; ignored on subsequent requests
+     *                           for the same channel (the event log is generated only once).
      * @param lastEventId        The incoming {@code Last-Event-ID} header value, if any.
      * @return A streaming {@code text/event-stream} response.
      */
@@ -78,10 +84,11 @@ public final class SseTestResource {
                             @QueryParam("closeAfterMs") Long closeAfterMs,
                             @QueryParam("includeEventField") @DefaultValue("true") boolean includeEventField,
                             @QueryParam("channel") @DefaultValue(DEFAULT_CHANNEL) String channel,
+                            @QueryParam("retryMs") Long retryMs,
                             @HeaderParam(LAST_EVENT_ID) String lastEventId) {
         List<StoredEvent> events = EVENT_LOGS.computeIfAbsent(
                 channel,
-                key -> generateEvents(count, includeEventField)
+                key -> generateEvents(count, includeEventField, retryMs)
         );
 
         long afterId = null == lastEventId ? 0L : Long.parseLong(lastEventId);
@@ -95,12 +102,13 @@ public final class SseTestResource {
         return Response.ok(output).type(TEXT_EVENT_STREAM).build();
     }
 
-    private static List<StoredEvent> generateEvents(int count, boolean includeEventField) {
+    private static List<StoredEvent> generateEvents(int count, boolean includeEventField, Long retryMs) {
         List<StoredEvent> events = new ArrayList<>();
 
         for (int id = 1; id <= count; id++) {
             String event = includeEventField ? "message" : null;
-            events.add(new StoredEvent(id, event, "event-" + id));
+            Long retry = 1 == id ? retryMs : null;
+            events.add(new StoredEvent(id, event, "event-" + id, retry));
         }
 
         return List.copyOf(events);
@@ -135,10 +143,11 @@ public final class SseTestResource {
         }
     }
 
-    private record StoredEvent(long id, String event, String data) {
+    private record StoredEvent(long id, String event, String data, Long retryMs) {
         String toWireFormat() {
             String eventLine = null == event ? "" : "event: " + event + "\n";
-            return "id: " + id + "\n" + eventLine + "data: " + data + "\n\n";
+            String retryLine = null == retryMs ? "" : "retry: " + retryMs + "\n";
+            return "id: " + id + "\n" + eventLine + retryLine + "data: " + data + "\n\n";
         }
     }
 }

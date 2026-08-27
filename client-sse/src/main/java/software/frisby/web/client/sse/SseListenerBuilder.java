@@ -210,6 +210,35 @@ public interface SseListenerBuilder {
     SseListenerBuilder onBufferFull(BufferFullPolicy policy);
 
     /**
+     * Registers a handler invoked once for every event discarded under
+     * {@link BufferFullPolicy#DROP}, receiving the untouched wire-format
+     * {@code SseMessage<String>} that was dropped.
+     * <p>
+     * This connection always logs a {@code WARNING} when a run of drops begins and
+     * another when the buffer recovers (summarizing how many events were dropped and
+     * over what duration), regardless of whether this handler is registered — so the
+     * default, out-of-the-box behavior already surfaces "backpressure is occurring and
+     * roughly how much impact it's having" without per-event log volume. This handler
+     * exists for callers who want per-item granularity instead — e.g. incrementing a
+     * metrics counter once per drop, or implementing their own custom
+     * summarization/sampling strategy — and fires for every dropped event, unsummarized,
+     * regardless of the built-in logging above.
+     * <p>
+     * Only relevant when {@link #onBufferFull} is set to {@link BufferFullPolicy#DROP};
+     * never invoked for {@link BufferFullPolicy#BLOCK} or {@link BufferFullPolicy#DISCONNECT}
+     * — {@code DISCONNECT} never actually discards an event (it reconnects and relies on
+     * {@code Last-Event-ID} replay instead), so there is nothing to report here for it.
+     * <p>
+     * Optional; if not set, dropped events are only visible via the built-in logging
+     * described above.
+     *
+     * @param handler The callback invoked with each dropped event.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
+     */
+    SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler);
+
+    /**
      * Sets a custom {@link Executor} backing every registered handler's dispatch
      * pipeline.
      * <p>
@@ -410,6 +439,13 @@ public interface SseListenerBuilder {
      * Registers a typed batch handler for events whose {@code event} field matches
      * {@code event}. Events are grouped and delivered together once {@link #batchSize}
      * is reached or {@link #batchTimeout} elapses, whichever comes first.
+     * <p>
+     * An event within the batch whose data fails to deserialize into {@code type} is
+     * omitted from the delivered batch individually — logged and routed to
+     * {@link #onError} with that event's own raw context — rather than discarding the
+     * batch entirely. This means a delivered batch can be smaller than the number of
+     * events actually collected into it, independent of the
+     * {@link #batchSize}/{@link #batchTimeout} ceiling described above.
      *
      * @param event   The event type to handle; matched against an event's explicit
      *                {@code event} field. Events with no {@code event} field at all are
@@ -441,6 +477,9 @@ public interface SseListenerBuilder {
      * same {@code event()} value) but is only ordered within itself. {@code handler} is
      * invoked concurrently from up to {@code concurrency} threads and must be
      * thread-safe.
+     * <p>
+     * See {@link #onEventBatch(String, Class, Consumer)} for how a deserialization
+     * failure within a batch is handled.
      *
      * @param event       The event type to handle; matched against an event's explicit
      *                    {@code event} field. Events with no {@code event} field at all
@@ -471,6 +510,9 @@ public interface SseListenerBuilder {
      * {@code List<Item>}. Events are grouped and delivered together once
      * {@link #batchSize} is reached or {@link #batchTimeout} elapses, whichever comes
      * first.
+     * <p>
+     * See {@link #onEventBatch(String, Class, Consumer)} for how a deserialization
+     * failure within a batch is handled.
      *
      * @param event   The event type to handle; matched against an event's explicit
      *                {@code event} field. Events with no {@code event} field at all are
@@ -500,6 +542,8 @@ public interface SseListenerBuilder {
      * type</strong> — see
      * {@link #onEventBatch(String, Class, Consumer, int)} for the full explanation of
      * this trade-off and the thread-safety requirement it places on {@code handler}.
+     * See {@link #onEventBatch(String, Class, Consumer)} for how a deserialization
+     * failure within a batch is handled.
      *
      * @param event       The event type to handle; matched against an event's explicit
      *                    {@code event} field. Events with no {@code event} field at all
@@ -582,6 +626,16 @@ public interface SseListenerBuilder {
     /**
      * Sets the maximum number of events collected into a single batch before it is
      * delivered to a registered {@link #onEventBatch} handler.
+     * <p>
+     * This is a ceiling, not a target size to wait for — a batch is delivered as soon
+     * as either {@code maxBatchSize} is reached or {@link #batchTimeout} elapses,
+     * whichever comes first. Under low event volume, batches will routinely be
+     * delivered well below {@code maxBatchSize}, including a "batch" of a single
+     * event; this is expected, not a sign of misconfiguration. For a typed
+     * {@link #onEventBatch} handler, a delivered batch can also be smaller than the
+     * number of events actually collected into it, if one or more of those events
+     * failed to deserialize — see
+     * {@link #onEventBatch(String, Class, Consumer) onEventBatch} for that behavior.
      * <p>
      * Optional; defaults to {@code 100}.
      *
