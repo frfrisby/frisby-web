@@ -115,9 +115,61 @@ class ClientSseSingleEventTest {
     }
 
     @Test
+    void eventWithNoEventFieldAtAll_routesToUnhandledEvent_notMessageHandler() throws InterruptedException {
+        List<String> unhandled = new CopyOnWriteArrayList<>();
+        List<String> messageHandlerCalls = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(3);
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/stream")
+                .parameter("channel", "no-event-field-not-message")
+                .parameter("includeEventField", "false")
+                .onEvent("message", message -> messageHandlerCalls.add(message.body()))
+                .onUnhandledEvent(message -> {
+                    unhandled.add(message.body());
+                    latch.countDown();
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertEquals(List.of("event-1", "event-2", "event-3"), unhandled);
+            assertTrue(messageHandlerCalls.isEmpty());
+        } finally {
+            listener.close();
+        }
+    }
+
+    @Test
+    void eventWithExplicitMessageEventField_routesToRegisteredMessageHandler() throws InterruptedException {
+        List<String> received = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(3);
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/stream")
+                .parameter("channel", "explicit-message-event-field")
+                .onEvent("message", message -> {
+                    received.add(message.body());
+                    latch.countDown();
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertEquals(List.of("event-1", "event-2", "event-3"), received);
+        } finally {
+            listener.close();
+        }
+    }
+
+    @Test
     void callbackExceptionOnOneEvent_doesNotStopSubsequentDelivery() throws InterruptedException {
         AtomicInteger deliveryCount = new AtomicInteger(0);
-        AtomicReference<Throwable> capturedError = new AtomicReference<>();
+        AtomicReference<SseErrorEvent> capturedError = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(3);
         CountDownLatch errorLatch = new CountDownLatch(1);
 
@@ -144,7 +196,9 @@ class ClientSseSingleEventTest {
             assertTrue(latch.await(10, TimeUnit.SECONDS));
             assertTrue(errorLatch.await(10, TimeUnit.SECONDS));
             assertEquals(3, deliveryCount.get());
-            assertEquals(IllegalStateException.class, capturedError.get().getClass());
+            assertEquals(IllegalStateException.class, capturedError.get().cause().getClass());
+            assertTrue(capturedError.get().message().isPresent());
+            assertEquals("event-1", capturedError.get().message().get().body());
         } finally {
             listener.close();
         }

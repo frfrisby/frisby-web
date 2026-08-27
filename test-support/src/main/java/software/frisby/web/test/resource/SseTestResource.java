@@ -32,6 +32,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *       before each event</li>
  *   <li>{@code GET /sse/stream?closeAfterMs={n}} — sleeps for {@code n} milliseconds immediately
  *       before writing the final event, holding the connection open for that duration</li>
+ *   <li>{@code GET /sse/stream?includeEventField=false} — omits the {@code event:} line entirely
+ *       for every generated event, rather than writing {@code event: message} — used to
+ *       distinguish "the producer never set an event type" from "the producer explicitly chose
+ *       the name message" in client-side dispatch tests</li>
  *   <li>{@code GET /sse/stream?channel={name}} — isolates the in-memory event log used for
  *       {@code Last-Event-ID} replay so concurrent tests do not interfere with one another;
  *       defaults to {@value #DEFAULT_CHANNEL}</li>
@@ -53,14 +57,18 @@ public final class SseTestResource {
      * Writes a configurable sequence of SSE events, optionally replaying only those events
      * whose {@code id} is greater than the supplied {@code Last-Event-ID} header value.
      *
-     * @param count        The number of events to generate for this channel the first time it
-     *                     is requested; ignored on subsequent requests for the same channel.
-     * @param heartbeat    When {@code true}, a {@code : keep-alive} comment line precedes every
-     *                     event.
-     * @param closeAfterMs When present, the number of milliseconds to sleep immediately before
-     *                     writing the final event.
-     * @param channel      Isolates the in-memory event log used for {@code Last-Event-ID} replay.
-     * @param lastEventId  The incoming {@code Last-Event-ID} header value, if any.
+     * @param count              The number of events to generate for this channel the first
+     *                           time it is requested; ignored on subsequent requests for the
+     *                           same channel.
+     * @param heartbeat          When {@code true}, a {@code : keep-alive} comment line precedes
+     *                           every event.
+     * @param closeAfterMs       When present, the number of milliseconds to sleep immediately
+     *                           before writing the final event.
+     * @param includeEventField  When {@code false}, generated events omit the {@code event:}
+     *                           line entirely instead of writing {@code event: message}.
+     * @param channel            Isolates the in-memory event log used for {@code Last-Event-ID}
+     *                           replay.
+     * @param lastEventId        The incoming {@code Last-Event-ID} header value, if any.
      * @return A streaming {@code text/event-stream} response.
      */
     @GET
@@ -68,9 +76,13 @@ public final class SseTestResource {
     public Response stream(@QueryParam("count") @DefaultValue("" + DEFAULT_EVENT_COUNT) int count,
                             @QueryParam("heartbeat") @DefaultValue("false") boolean heartbeat,
                             @QueryParam("closeAfterMs") Long closeAfterMs,
+                            @QueryParam("includeEventField") @DefaultValue("true") boolean includeEventField,
                             @QueryParam("channel") @DefaultValue(DEFAULT_CHANNEL) String channel,
                             @HeaderParam(LAST_EVENT_ID) String lastEventId) {
-        List<StoredEvent> events = EVENT_LOGS.computeIfAbsent(channel, key -> generateEvents(count));
+        List<StoredEvent> events = EVENT_LOGS.computeIfAbsent(
+                channel,
+                key -> generateEvents(count, includeEventField)
+        );
 
         long afterId = null == lastEventId ? 0L : Long.parseLong(lastEventId);
 
@@ -83,11 +95,12 @@ public final class SseTestResource {
         return Response.ok(output).type(TEXT_EVENT_STREAM).build();
     }
 
-    private static List<StoredEvent> generateEvents(int count) {
+    private static List<StoredEvent> generateEvents(int count, boolean includeEventField) {
         List<StoredEvent> events = new ArrayList<>();
 
         for (int id = 1; id <= count; id++) {
-            events.add(new StoredEvent(id, "message", "event-" + id));
+            String event = includeEventField ? "message" : null;
+            events.add(new StoredEvent(id, event, "event-" + id));
         }
 
         return List.copyOf(events);
@@ -124,7 +137,8 @@ public final class SseTestResource {
 
     private record StoredEvent(long id, String event, String data) {
         String toWireFormat() {
-            return "id: " + id + "\nevent: " + event + "\ndata: " + data + "\n\n";
+            String eventLine = null == event ? "" : "event: " + event + "\n";
+            return "id: " + id + "\n" + eventLine + "data: " + data + "\n\n";
         }
     }
 }

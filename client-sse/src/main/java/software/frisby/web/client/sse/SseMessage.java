@@ -30,15 +30,19 @@ public interface SseMessage<T> {
     Optional<String> id();
 
     /**
-     * Returns the event type this message was dispatched under.
+     * Returns the event's {@code event} field, if present.
      * <p>
-     * Resolved at dispatch time — an event with no {@code event} field on the wire is
-     * resolved to {@code "message"}, matching the default used to look up a registered
-     * handler.
+     * Reflects exactly what was received on the wire — {@link Optional#empty()} means
+     * the server sent no {@code event:} line at all for this event, which is a distinct
+     * condition from an explicit {@code event: message} field. Events with no
+     * {@code event} field are never matched against a handler registered via
+     * {@code onEvent(String, ...)} — including one registered for {@code "message"} —
+     * and are always routed to {@code onUnhandledEvent} instead.
      *
-     * @return The resolved event type; never {@code null} or blank.
+     * @return The event's {@code event} field, or {@link Optional#empty()} if the event
+     * had no {@code event} field.
      */
-    String event();
+    Optional<String> event();
 
     /**
      * Returns the message body.

@@ -237,8 +237,10 @@ public interface SseListenerBuilder {
      * The raw wire-format {@code data} string is deserialized via the {@link Client}'s
      * configured {@code JsonSerializer} and delivered as {@link SseMessage#body()}.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param type    The type to deserialize the event data into.
      * @param handler The callback invoked with the message.
      * @param <T>     The deserialized payload type.
@@ -268,8 +270,10 @@ public interface SseListenerBuilder {
      * bottleneck a high-volume event type; {@code concurrency = 1} (the other overload)
      * is equivalent to this one and preserves today's in-order, single-arm delivery.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param type        The type to deserialize the event data into.
      * @param handler     The callback invoked with the message; must be thread-safe
      *                    when {@code concurrency > 1}.
@@ -292,8 +296,10 @@ public interface SseListenerBuilder {
      * Registers a typed handler for events whose {@code event} field matches
      * {@code event}, deserializing into a generic type such as {@code List<Item>}.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param type    The generic type to deserialize the event data into.
      * @param handler The callback invoked with the message.
      * @param <T>     The deserialized payload type.
@@ -317,8 +323,10 @@ public interface SseListenerBuilder {
      * explanation of this trade-off and the thread-safety requirement it places on
      * {@code handler}.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param type        The generic type to deserialize the event data into.
      * @param handler     The callback invoked with the message; must be thread-safe
      *                    when {@code concurrency > 1}.
@@ -342,8 +350,10 @@ public interface SseListenerBuilder {
      * {@code event}, receiving an {@code SseMessage<String>} whose
      * {@link SseMessage#body()} is the untouched wire-format {@code data} string.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param handler The callback invoked with the raw message.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException  if {@code event} or {@code handler} is null.
@@ -365,8 +375,10 @@ public interface SseListenerBuilder {
      * explanation of this trade-off and the thread-safety requirement it places on
      * {@code handler}.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param handler     The callback invoked with the raw message; must be
      *                    thread-safe when {@code concurrency > 1}.
      * @param concurrency The number of concurrent worker arms dispatching to
@@ -399,8 +411,10 @@ public interface SseListenerBuilder {
      * {@code event}. Events are grouped and delivered together once {@link #batchSize}
      * is reached or {@link #batchTimeout} elapses, whichever comes first.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param type    The type to deserialize each event's data into.
      * @param handler The callback invoked with the batch of messages.
      * @param <T>     The deserialized payload type.
@@ -428,8 +442,10 @@ public interface SseListenerBuilder {
      * invoked concurrently from up to {@code concurrency} threads and must be
      * thread-safe.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param type        The type to deserialize each event's data into.
      * @param handler     The callback invoked with the batch of messages; must be
      *                    thread-safe when {@code concurrency > 1}.
@@ -456,8 +472,10 @@ public interface SseListenerBuilder {
      * {@link #batchSize} is reached or {@link #batchTimeout} elapses, whichever comes
      * first.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param type    The generic type to deserialize each event's data into.
      * @param handler The callback invoked with the batch of messages.
      * @param <T>     The deserialized payload type.
@@ -483,8 +501,10 @@ public interface SseListenerBuilder {
      * {@link #onEventBatch(String, Class, Consumer, int)} for the full explanation of
      * this trade-off and the thread-safety requirement it places on {@code handler}.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param type        The generic type to deserialize each event's data into.
      * @param handler     The callback invoked with the batch of messages; must be
      *                    thread-safe when {@code concurrency > 1}.
@@ -512,8 +532,10 @@ public interface SseListenerBuilder {
      * {@link #batchSize} is reached or {@link #batchTimeout} elapses, whichever comes
      * first.
      *
-     * @param event   The event type to handle; events with no {@code event} field are
-     *                matched against {@code "message"}.
+     * @param event   The event type to handle; matched against an event's explicit
+     *                {@code event} field. Events with no {@code event} field at all are
+     *                never matched here — they are always routed to
+     *                {@link #onUnhandledEvent} instead.
      * @param handler The callback invoked with the batch of raw messages.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException  if {@code event} or {@code handler} is null.
@@ -537,8 +559,10 @@ public interface SseListenerBuilder {
      * {@link #onEventBatch(String, Class, Consumer, int)} for the full explanation of
      * this trade-off and the thread-safety requirement it places on {@code handler}.
      *
-     * @param event       The event type to handle; events with no {@code event} field
-     *                    are matched against {@code "message"}.
+     * @param event       The event type to handle; matched against an event's explicit
+     *                    {@code event} field. Events with no {@code event} field at all
+     *                    are never matched here — they are always routed to
+     *                    {@link #onUnhandledEvent} instead.
      * @param handler     The callback invoked with the batch of raw messages; must be
      *                    thread-safe when {@code concurrency > 1}.
      * @param concurrency The number of concurrent worker arms dispatching to
@@ -585,6 +609,14 @@ public interface SseListenerBuilder {
      * Registers a handler invoked when a callback exception, deserialization failure,
      * or connect/reconnect failure occurs.
      * <p>
+     * {@code handler} receives an {@link SseErrorEvent} pairing the failure with
+     * whatever raw event context was available — {@link SseErrorEvent#message()} is
+     * present for a deserialization failure or a handler callback exception (always
+     * the untouched wire-format {@code data} string, never a typed payload, since that
+     * is the one representation guaranteed to survive a deserialization failure), and
+     * empty for a connect/reconnect failure or a whole-batch {@code onEventBatch}
+     * callback exception, neither of which is attributable to a single event.
+     * <p>
      * Does not stop the pipeline or close the connection — this connection retries
      * every connect/reconnect failure unconditionally and indefinitely (subject to
      * {@link #reconnectDelay}'s backoff), including failures that can never succeed on
@@ -601,11 +633,11 @@ public interface SseListenerBuilder {
      * connection prone to permanent failure will result in a silent, indefinitely
      * reconnecting connection.
      *
-     * @param handler The callback invoked with the failure.
+     * @param handler The callback invoked with the failure and its available context.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
      */
-    SseListenerBuilder onError(Consumer<Throwable> handler);
+    SseListenerBuilder onError(Consumer<SseErrorEvent> handler);
 
     /**
      * Sets the strategy used to compute the delay before each reconnect attempt.

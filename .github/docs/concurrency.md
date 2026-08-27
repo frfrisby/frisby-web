@@ -147,6 +147,11 @@ Buffer.of(Message.class)
     .itemDeliveredHandler(...)  // optional
 ```
 
+**Blocking behavior:** `post()` blocks the calling thread once the queue reaches
+`capacity`.  There is no built-in non-blocking or reject-on-full variant.  If you need
+drop, reroute, or disconnect-style overflow handling, check `inFlight()` on the pipeline
+before calling `post()` — see [Capacity Monitoring](#capacity-monitoring) below.
+
 #### `PriorityBuffer<T>` — priority pass-through, `T → T`
 
 ```java
@@ -323,6 +328,11 @@ Use `OpenRouter` (not `Router`) when arm output must flow to a shared downstream
 | `.sticky(Function<T,?>)`               | Consistent hashing — same key always goes to the same arm. |
 | `.routingFunction(RoutingFunction<T>)` | Custom; return a zero-based arm index.                     |
 
+**`inFlight()` on a `Router`** sums across all arms, so a single `pipeline.inFlight()`
+call gives the correct total system load even when `routes > 1`.  This makes the
+[capacity monitoring pattern](#capacity-monitoring) work correctly for fan-out pipelines
+without any per-arm bookkeeping.
+
 ---
 
 ## SourceBlock — Async Producer
@@ -393,6 +403,31 @@ executor.shutdown();   // after awaitCompletion() — interrupts blocked workers
 
 ---
 
+## Capacity Monitoring
+
+`Pipeline<T>` (and every `Target<T>`) exposes two non-blocking inspection methods:
+
+- `pipeline.size()` — items queued at the head stage only.
+- `pipeline.inFlight()` — items queued or being processed anywhere in the pipeline
+  (head + all downstream stages, including all arms of a `Router` or `OpenRouter`).
+
+Use `inFlight()` to implement overflow handling without blocking the posting thread:
+
+```java
+// Check backpressure before posting, without blocking
+if (pipeline.inFlight() < capacityThreshold) {
+    pipeline.post(item);
+} else {
+    // handle overflow: drop, reroute, record a metric, disconnect the producer, etc.
+}
+```
+
+This pattern is the idiomatic alternative to relying on `Buffer`'s blocking `post()`.
+`itemPostedHandler` and `itemDeliveredHandler` are per-event callbacks intended for
+metrics and observability — they are not the right tool for backpressure decisions.
+
+---
+
 ## NamedExecutorService
 
 ```java
@@ -426,13 +461,22 @@ Use manual wiring when:
 // software.frisby.core.concurrency
 
 @FunctionalInterface
-Target<T>              // receieve items: boolean post(T item)
+Target<T>              // receive items:  boolean post(T item)
+                       // capacity:       size(), inFlight()
                        // lifecycle:      complete(), awaitCompletion(), completion()
 
 Source<T>              // emit items:     void linkTo(Target<T> target)
 
 Stage<T, R>            // implements both Target<T> and Source<R>
 ```
+
+**`size()` vs `inFlight()`** — these are the correct tools for inspecting backpressure;
+do not use `itemPostedHandler`/`itemDeliveredHandler` for this purpose:
+
+- `size()` — the number of items queued **at this stage only** (does not include downstream stages).
+- `inFlight()` — recursively aggregates this stage **and all downstream stages**.  This is
+  the recommended method for backpressure checks from outside a pipeline, because it reflects
+  total system load rather than a single queue depth.
 
 ### Direct block construction
 

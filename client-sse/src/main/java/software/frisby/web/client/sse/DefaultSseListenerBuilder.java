@@ -66,7 +66,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private Consumer<SseMessage<String>> unhandledHandler;
     private int batchSize;
     private Duration batchTimeout;
-    private Consumer<Throwable> errorHandler;
+    private Consumer<SseErrorEvent> errorHandler;
     private RetryDelay reconnectDelay;
 
     DefaultSseListenerBuilder() {
@@ -324,7 +324,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onError(Consumer<Throwable> handler) {
+    public SseListenerBuilder onError(Consumer<SseErrorEvent> handler) {
         this.errorHandler = Values.notNull(HANDLER_ARGUMENT_NAME, handler);
         return this;
     }

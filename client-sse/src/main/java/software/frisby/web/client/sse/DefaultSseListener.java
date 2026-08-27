@@ -31,17 +31,30 @@ import java.util.function.Consumer;
  * caller did not supply their own via {@link SseListenerBuilder#executor}.
  * <p>
  * Every handler's pipeline starts the same way — {@code Buffer<RawSseEvent> →
- * Transform<RawSseEvent, SseMessage>} (deserializing, or passing the raw {@code data}
- * string through unchanged for a raw handler) — a failed deserialization is caught inside
- * the {@code Transform} step, logged at {@code WARNING}, routed to {@code onError}, and
- * dropped ({@code null} result) rather than propagated. An {@code onEvent} handler's
- * pipeline ends there with a terminal {@code Action}; an {@code onEventBatch} handler's
- * pipeline inserts an additional {@code Batch<SseMessage>} stage before the terminal
- * {@code Action}, so batching only ever groups already-deserialized, already-valid
- * messages — a failed item is simply absent from the batch it would have belonged to,
- * rather than requiring special partial-batch-failure handling. {@code concurrency > 1}
- * wraps either shape in a {@code Router} with that many arms (see
- * {@link #buildHandlerPipeline} / {@link #buildBatchHandlerPipeline}).
+ * Transform<RawSseEvent, Delivery>} (deserializing, or passing the raw {@code data}
+ * string through unchanged for a raw handler; {@link Delivery} pairs the resulting
+ * {@link SseMessage} with the {@link RawSseEvent} it came from, so a handler callback
+ * exception can still report the untouched wire-format {@code data} string as
+ * {@link SseErrorEvent} context) — a failed deserialization is caught inside the
+ * {@code Transform} step, logged at {@code WARNING}, routed to {@code onError} with that
+ * same raw context, and dropped ({@code null} result) rather than propagated. An
+ * {@code onEvent} handler's pipeline ends there with a terminal {@code Action}; an
+ * {@code onEventBatch} handler's pipeline inserts an additional {@code Batch<Delivery>}
+ * stage before the terminal {@code Action}, so batching only ever groups
+ * already-deserialized, already-valid deliveries — a failed item is simply absent from
+ * the batch it would have belonged to, rather than requiring special
+ * partial-batch-failure handling. {@code concurrency > 1} wraps either shape in a
+ * {@code Router} with that many arms (see {@link #buildHandlerPipeline} /
+ * {@link #buildBatchHandlerPipeline}).
+ * <p>
+ * <strong>Dispatch resolution.</strong> An event whose {@code event} field is explicitly
+ * present is looked up in the per-event-type handler map by that exact value — including
+ * the literal string {@code "message"}, if a handler happens to be registered for it. An
+ * event with <em>no</em> {@code event} field at all is never looked up in that map; it is
+ * always routed straight to the unhandled-event pipeline. This keeps "the producer didn't
+ * set an event type" distinct from "the producer explicitly chose the name message" —
+ * conflating the two would let an untyped event be silently deserialized against whatever
+ * type a caller happened to register under {@code "message"}. See {@link ReaderTask#dispatch}.
  * <p>
  * <strong>Reconnect loop not yet implemented.</strong> {@code reconnectDelay} is accepted
  * and stored now so {@link DefaultSseListenerBuilder} has a stable constructor to call,
@@ -51,7 +64,6 @@ import java.util.function.Consumer;
  */
 final class DefaultSseListener implements SseListener {
     private static final System.Logger LOGGER = System.getLogger(DefaultSseListener.class.getName());
-    private static final String DEFAULT_EVENT_TYPE = "message";
     private static final String EXECUTOR_THREAD_PREFIX = "sse-listener";
     private static final String READER_THREAD_NAME = "sse-listener-reader";
 
@@ -66,7 +78,7 @@ final class DefaultSseListener implements SseListener {
     private final Consumer<SseMessage<String>> unhandledHandler;
     private final int batchSize;
     private final Duration batchTimeout;
-    private final Consumer<Throwable> errorHandler;
+    private final Consumer<SseErrorEvent> errorHandler;
     private final RetryDelay reconnectDelay;
 
     private final AtomicBoolean started;
@@ -90,7 +102,7 @@ final class DefaultSseListener implements SseListener {
                        Consumer<SseMessage<String>> unhandledHandler,
                        int batchSize,
                        Duration batchTimeout,
-                       Consumer<Throwable> errorHandler,
+                       Consumer<SseErrorEvent> errorHandler,
                        RetryDelay reconnectDelay) {
         this.client = client;
         this.navigationOps = navigationOps;
@@ -217,9 +229,9 @@ final class DefaultSseListener implements SseListener {
             return Pipeline.<RawSseEvent>builder()
                     .executor(pipelineExecutor)
                     .from(Buffer.of(RawSseEvent.class).capacity(bufferCapacity))
-                    .then(Transform.of(RawSseEvent.class, SseMessage.class)
+                    .then(Transform.of(RawSseEvent.class, Delivery.class)
                             .transform(raw -> deserializeSafely(raw, handler)))
-                    .to(message -> dispatchSafely(handler, message));
+                    .to(delivery -> dispatchSafely(handler, delivery));
         }
 
         return Pipeline.<RawSseEvent>builder()
@@ -229,9 +241,9 @@ final class DefaultSseListener implements SseListener {
                         .factory(() -> Pipeline.<RawSseEvent>builder()
                                 .executor(pipelineExecutor)
                                 .from(Buffer.of(RawSseEvent.class).capacity(bufferCapacity))
-                                .then(Transform.of(RawSseEvent.class, SseMessage.class)
+                                .then(Transform.of(RawSseEvent.class, Delivery.class)
                                         .transform(raw -> deserializeSafely(raw, handler)))
-                                .to(message -> dispatchSafely(handler, message))));
+                                .to(delivery -> dispatchSafely(handler, delivery))));
     }
 
     private Pipeline<RawSseEvent> buildBatchHandlerPipeline(SseHandler handler) {
@@ -239,12 +251,12 @@ final class DefaultSseListener implements SseListener {
             return Pipeline.<RawSseEvent>builder()
                     .executor(pipelineExecutor)
                     .from(Buffer.of(RawSseEvent.class).capacity(bufferCapacity))
-                    .then(Transform.of(RawSseEvent.class, SseMessage.class)
+                    .then(Transform.of(RawSseEvent.class, Delivery.class)
                             .transform(raw -> deserializeSafely(raw, handler)))
-                    .then(Batch.of(SseMessage.class)
+                    .then(Batch.of(Delivery.class)
                             .batchSize(batchSize)
                             .timeout(batchTimeout))
-                    .to(messages -> dispatchBatchSafely(handler, messages));
+                    .to(deliveries -> dispatchBatchSafely(handler, deliveries));
         }
 
         return Pipeline.<RawSseEvent>builder()
@@ -254,12 +266,12 @@ final class DefaultSseListener implements SseListener {
                         .factory(() -> Pipeline.<RawSseEvent>builder()
                                 .executor(pipelineExecutor)
                                 .from(Buffer.of(RawSseEvent.class).capacity(bufferCapacity))
-                                .then(Transform.of(RawSseEvent.class, SseMessage.class)
+                                .then(Transform.of(RawSseEvent.class, Delivery.class)
                                         .transform(raw -> deserializeSafely(raw, handler)))
-                                .then(Batch.of(SseMessage.class)
+                                .then(Batch.of(Delivery.class)
                                         .batchSize(batchSize)
                                         .timeout(batchTimeout))
-                                .to(messages -> dispatchBatchSafely(handler, messages))));
+                                .to(deliveries -> dispatchBatchSafely(handler, deliveries))));
     }
 
     private Pipeline<RawSseEvent> buildUnhandledPipeline() {
@@ -271,18 +283,17 @@ final class DefaultSseListener implements SseListener {
                 .to(this::dispatchUnhandledSafely);
     }
 
-    private SseMessage<?> deserializeSafely(RawSseEvent raw, SseHandler handler) {
+    private Delivery deserializeSafely(RawSseEvent raw, SseHandler handler) {
         try {
-            return toMessage(raw, handler);
+            return new Delivery(raw, toMessage(raw, handler));
         } catch (RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "SSE event deserialization failed.", e);
-            notifyError(e);
+            notifyError(toRawMessage(raw), e);
             return null;
         }
     }
 
     private SseMessage<?> toMessage(RawSseEvent raw, SseHandler handler) {
-        String resolvedEvent = raw.event().orElse(DEFAULT_EVENT_TYPE);
         Object body;
 
         if (null != handler.type()) {
@@ -295,23 +306,23 @@ final class DefaultSseListener implements SseListener {
             body = raw.data();
         }
 
-        return new DefaultSseMessage<>(raw.id(), resolvedEvent, body, Instant.now());
+        return new DefaultSseMessage<>(raw.id(), raw.event(), body, Instant.now());
     }
 
     private SseMessage<String> toRawMessage(RawSseEvent raw) {
-        return new DefaultSseMessage<>(raw.id(), raw.event().orElse(DEFAULT_EVENT_TYPE), raw.data(), Instant.now());
+        return new DefaultSseMessage<>(raw.id(), raw.event(), raw.data(), Instant.now());
     }
 
-    private void dispatchSafely(SseHandler handler, SseMessage<?> message) {
-        if (null == message) {
+    private void dispatchSafely(SseHandler handler, Delivery delivery) {
+        if (null == delivery) {
             return;
         }
 
         try {
-            invokeCallback(handler.callback(), message);
+            invokeCallback(handler.callback(), delivery.message());
         } catch (RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "SSE handler callback failed.", e);
-            notifyError(e);
+            notifyError(toRawMessage(delivery.raw()), e);
         }
     }
 
@@ -325,14 +336,18 @@ final class DefaultSseListener implements SseListener {
             unhandledHandler.accept((SseMessage<String>) message);
         } catch (RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "SSE unhandled-event callback failed.", e);
-            notifyError(e);
+            notifyError((SseMessage<String>) message, e);
         }
     }
 
-    private void dispatchBatchSafely(SseHandler handler, List<?> messages) {
-        if (null == messages || messages.isEmpty()) {
+    private void dispatchBatchSafely(SseHandler handler, List<Delivery> deliveries) {
+        if (null == deliveries || deliveries.isEmpty()) {
             return;
         }
+
+        List<?> messages = deliveries.stream()
+                .map(Delivery::message)
+                .toList();
 
         try {
             invokeBatchCallback(handler.callback(), messages);
@@ -353,12 +368,20 @@ final class DefaultSseListener implements SseListener {
     }
 
     private void notifyError(Throwable error) {
+        notify(SseErrorEvent.of(error));
+    }
+
+    private void notifyError(SseMessage<String> rawMessage, Throwable error) {
+        notify(SseErrorEvent.of(rawMessage, error));
+    }
+
+    private void notify(SseErrorEvent event) {
         if (null == errorHandler) {
             return;
         }
 
         try {
-            errorHandler.accept(error);
+            errorHandler.accept(event);
         } catch (Exception ex) {
             LOGGER.log(
                     System.Logger.Level.WARNING,
@@ -366,6 +389,17 @@ final class DefaultSseListener implements SseListener {
                     ex
             );
         }
+    }
+
+    /**
+     * Pairs a handler's deserialized {@link SseMessage} with the {@link RawSseEvent} it
+     * was produced from, so a handler callback exception ({@link #dispatchSafely}) can
+     * still report the untouched wire-format {@code data} string as {@link SseErrorEvent}
+     * context — {@code message.body()} may already be a typed payload by the time the
+     * callback runs, but the raw string is always available and is what {@link SseErrorEvent}
+     * documents it will surface.
+     */
+    private record Delivery(RawSseEvent raw, SseMessage<?> message) {
     }
 
     /**
@@ -381,7 +415,7 @@ final class DefaultSseListener implements SseListener {
         private final String initialLastEventId;
         private final Map<String, Pipeline<RawSseEvent>> handlerPipelines;
         private final Pipeline<RawSseEvent> unhandledPipeline;
-        private final Consumer<Throwable> errorHandler;
+        private final Consumer<SseErrorEvent> errorHandler;
         private final AtomicReference<InputStream> currentStream;
 
         private ReaderTask(Client client,
@@ -389,7 +423,7 @@ final class DefaultSseListener implements SseListener {
                            String initialLastEventId,
                            Map<String, Pipeline<RawSseEvent>> handlerPipelines,
                            Pipeline<RawSseEvent> unhandledPipeline,
-                           Consumer<Throwable> errorHandler,
+                           Consumer<SseErrorEvent> errorHandler,
                            AtomicReference<InputStream> currentStream) {
             this.client = client;
             this.navigationOps = navigationOps;
@@ -420,13 +454,13 @@ final class DefaultSseListener implements SseListener {
             }
         }
 
-        private static void notifyError(Consumer<Throwable> errorHandler, Throwable error) {
+        private static void notifyError(Consumer<SseErrorEvent> errorHandler, Throwable error) {
             if (null == errorHandler) {
                 return;
             }
 
             try {
-                errorHandler.accept(error);
+                errorHandler.accept(SseErrorEvent.of(error));
             } catch (Exception ex) {
                 LOGGER.log(
                         System.Logger.Level.WARNING,
@@ -451,9 +485,26 @@ final class DefaultSseListener implements SseListener {
             return response.body();
         }
 
+        /**
+         * Routes an event to its handler's dedicated pipeline.
+         * <p>
+         * An event with no {@code event} field at all is always routed to
+         * {@code unhandledPipeline} — it is never matched against a handler registered
+         * for the literal string {@code "message"}. Only an event whose {@code event}
+         * field is explicitly present is looked up in {@code handlerPipelines}, falling
+         * back to {@code unhandledPipeline} when no handler is registered for that exact
+         * value. This distinguishes "the producer didn't set an event type" from "the
+         * producer explicitly chose the name message" — conflating the two would let an
+         * untyped event be silently deserialized against whatever type a caller happened
+         * to register under {@code "message"}.
+         */
         private void dispatch(RawSseEvent raw) {
-            String eventType = raw.event().orElse(DEFAULT_EVENT_TYPE);
-            Pipeline<RawSseEvent> target = handlerPipelines.getOrDefault(eventType, unhandledPipeline);
+            if (raw.event().isEmpty()) {
+                unhandledPipeline.post(raw);
+                return;
+            }
+
+            Pipeline<RawSseEvent> target = handlerPipelines.getOrDefault(raw.event().get(), unhandledPipeline);
             target.post(raw);
         }
     }
