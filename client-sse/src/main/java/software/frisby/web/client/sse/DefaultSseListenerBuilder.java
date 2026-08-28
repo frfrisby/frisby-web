@@ -6,7 +6,6 @@ import software.frisby.web.client.PathParameter;
 import software.frisby.web.client.RetryDelay;
 import software.frisby.web.client.SseSpec;
 import software.frisby.web.client.security.SecurityProvider;
-import software.frisby.web.serial.GenericType;
 
 import java.net.HttpCookie;
 import java.time.Duration;
@@ -37,36 +36,26 @@ import java.util.function.Consumer;
 final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private static final String CLIENT_ARGUMENT_NAME = "client";
     private static final String EVENT_ARGUMENT_NAME = "event";
-    private static final String TYPE_ARGUMENT_NAME = "type";
     private static final String HANDLER_ARGUMENT_NAME = "handler";
-    private static final String CONCURRENCY_ARGUMENT_NAME = "concurrency";
     private static final String ID_ARGUMENT_NAME = "id";
-    private static final String CAPACITY_ARGUMENT_NAME = "capacity";
     private static final String POLICY_ARGUMENT_NAME = "policy";
     private static final String EXECUTOR_ARGUMENT_NAME = "executor";
-    private static final String MAX_BATCH_SIZE_ARGUMENT_NAME = "maxBatchSize";
-    private static final String FLUSH_TIMEOUT_ARGUMENT_NAME = "flushTimeout";
     private static final String STRATEGY_ARGUMENT_NAME = "strategy";
 
-    private static final int DEFAULT_BUFFER_CAPACITY = 1024;
-    private static final int DEFAULT_BATCH_SIZE = 100;
-    private static final Duration DEFAULT_BATCH_TIMEOUT = Duration.ofMillis(250);
     private static final RetryDelay DEFAULT_RECONNECT_DELAY = RetryDelay.exponential(Duration.ofSeconds(3));
 
     private final List<Consumer<SseSpec>> navigationOps;
     private final Map<String, SseHandler> eventHandlers;
-    private final Map<String, SseHandler> batchHandlers;
+    private final Map<String, SseBatchHandler> batchHandlers;
 
     private Client client;
     private SseSpec navigationTemplate;
     private String lastEventId;
-    private int bufferCapacity;
     private BufferFullPolicy bufferFullPolicy;
     private Consumer<SseMessage<String>> droppedHandler;
     private Executor executor;
-    private Consumer<SseMessage<String>> unhandledHandler;
-    private int batchSize;
-    private Duration batchTimeout;
+    private SseHandler unhandledHandler;
+    private SseBatchHandler unhandledBatchHandler;
     private Consumer<SseErrorEvent> errorHandler;
     private RetryDelay reconnectDelay;
 
@@ -77,13 +66,11 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         this.client = null;
         this.navigationTemplate = null;
         this.lastEventId = null;
-        this.bufferCapacity = DEFAULT_BUFFER_CAPACITY;
         this.bufferFullPolicy = BufferFullPolicy.BLOCK;
         this.droppedHandler = null;
         this.executor = null;
         this.unhandledHandler = null;
-        this.batchSize = DEFAULT_BATCH_SIZE;
-        this.batchTimeout = DEFAULT_BATCH_TIMEOUT;
+        this.unhandledBatchHandler = null;
         this.errorHandler = null;
         this.reconnectDelay = null;
     }
@@ -111,16 +98,17 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
 
     /**
      * Rejects a registration for {@code event} if it is already registered via either
-     * {@link #onEvent} or {@link #onEventBatch} — the two maps are populated
-     * independently, so without this check a later call silently shadows an earlier
-     * one (same map) or resolves ambiguously at dispatch time (across maps, inside
-     * {@link DefaultSseListener}'s pipeline construction) instead of failing fast here.
+     * {@link #onEvent(String, SseHandler)} or {@link #onEvent(String, SseBatchHandler)}
+     * — the two maps are populated independently, so without this check a later call
+     * silently shadows an earlier one (same map) or resolves ambiguously at dispatch
+     * time (across maps, inside {@link DefaultSseListener}'s pipeline construction)
+     * instead of failing fast here.
      */
     private void checkEventNotRegistered(String event) {
         if (eventHandlers.containsKey(event) || batchHandlers.containsKey(event)) {
             throw new DuplicateElementsException(
                     "The '" + EVENT_ARGUMENT_NAME + "' value is invalid.  An event named '" + event
-                            + "' is already registered via onEvent or onEventBatch."
+                            + "' is already registered via onEvent."
             );
         }
     }
@@ -177,12 +165,6 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder bufferCapacity(int capacity) {
-        this.bufferCapacity = Numbers.positive(CAPACITY_ARGUMENT_NAME, capacity);
-        return this;
-    }
-
-    @Override
     public SseListenerBuilder onBufferFull(BufferFullPolicy policy) {
         this.bufferFullPolicy = Values.notNull(POLICY_ARGUMENT_NAME, policy);
         return this;
@@ -201,133 +183,62 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public <T> SseListenerBuilder onEvent(String event, Class<T> type, Consumer<SseMessage<T>> handler) {
-        return onEvent(event, type, handler, 1);
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEvent(String event,
-                                          Class<T> type,
-                                          Consumer<SseMessage<T>> handler,
-                                          int concurrency) {
-        Strings.notBlank(EVENT_ARGUMENT_NAME, event);
-        Values.notNull(TYPE_ARGUMENT_NAME, type);
-        Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
-        checkEventNotRegistered(event);
-
-        eventHandlers.put(event, new SseHandler(type, null, handler, concurrency));
-        return this;
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEvent(String event, GenericType<T> type, Consumer<SseMessage<T>> handler) {
-        return onEvent(event, type, handler, 1);
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEvent(String event,
-                                          GenericType<T> type,
-                                          Consumer<SseMessage<T>> handler,
-                                          int concurrency) {
-        Strings.notBlank(EVENT_ARGUMENT_NAME, event);
-        Values.notNull(TYPE_ARGUMENT_NAME, type);
-        Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
-        checkEventNotRegistered(event);
-
-        eventHandlers.put(event, new SseHandler(null, type, handler, concurrency));
-        return this;
-    }
-
-    @Override
-    public SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler) {
-        return onEvent(event, handler, 1);
-    }
-
-    @Override
-    public SseListenerBuilder onEvent(String event, Consumer<SseMessage<String>> handler, int concurrency) {
+    public SseListenerBuilder onEvent(String event, SseHandler handler) {
         Strings.notBlank(EVENT_ARGUMENT_NAME, event);
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
         checkEventNotRegistered(event);
 
-        eventHandlers.put(event, new SseHandler(null, null, handler, concurrency));
+        eventHandlers.put(event, handler);
         return this;
     }
 
     @Override
     public SseListenerBuilder onUnhandledEvent(Consumer<SseMessage<String>> handler) {
-        this.unhandledHandler = Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        return this;
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEventBatch(String event, Class<T> type, Consumer<List<SseMessage<T>>> handler) {
-        return onEventBatch(event, type, handler, 1);
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEventBatch(String event, Class<T> type, Consumer<List<SseMessage<T>>> handler,
-                                               int concurrency) {
-        Strings.notBlank(EVENT_ARGUMENT_NAME, event);
-        Values.notNull(TYPE_ARGUMENT_NAME, type);
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
-        checkEventNotRegistered(event);
-
-        batchHandlers.put(event, new SseHandler(type, null, handler, concurrency));
+        this.unhandledHandler = SseHandler.of(handler);
+        this.unhandledBatchHandler = null;
         return this;
     }
 
     @Override
-    public <T> SseListenerBuilder onEventBatch(String event, GenericType<T> type,
-                                               Consumer<List<SseMessage<T>>> handler) {
-        return onEventBatch(event, type, handler, 1);
-    }
-
-    @Override
-    public <T> SseListenerBuilder onEventBatch(String event,
-                                               GenericType<T> type,
-                                               Consumer<List<SseMessage<T>>> handler,
-                                               int concurrency) {
-        Strings.notBlank(EVENT_ARGUMENT_NAME, event);
-        Values.notNull(TYPE_ARGUMENT_NAME, type);
+    public SseListenerBuilder onUnhandledEvent(SseHandler handler) {
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
-        checkEventNotRegistered(event);
 
-        batchHandlers.put(event, new SseHandler(null, type, handler, concurrency));
+        if (handler.type().isPresent() || handler.genericType().isPresent()) {
+            throw new IllegalArgumentException(
+                    "The '" + HANDLER_ARGUMENT_NAME + "' value is invalid.  An onUnhandledEvent handler must be "
+                            + "raw; it cannot declare a type() or genericType()."
+            );
+        }
+
+        this.unhandledHandler = handler;
+        this.unhandledBatchHandler = null;
         return this;
     }
 
     @Override
-    public SseListenerBuilder onEventBatch(String event, Consumer<List<SseMessage<String>>> handler) {
-        return onEventBatch(event, handler, 1);
+    public SseListenerBuilder onUnhandledEvent(SseBatchHandler handler) {
+        Values.notNull(HANDLER_ARGUMENT_NAME, handler);
+
+        if (handler.type().isPresent() || handler.genericType().isPresent()) {
+            throw new IllegalArgumentException(
+                    "The '" + HANDLER_ARGUMENT_NAME + "' value is invalid.  An onUnhandledEvent handler must be "
+                            + "raw; it cannot declare a type() or genericType()."
+            );
+        }
+
+        this.unhandledBatchHandler = handler;
+        this.unhandledHandler = null;
+        return this;
     }
 
     @Override
-    public SseListenerBuilder onEventBatch(String event,
-                                           Consumer<List<SseMessage<String>>> handler,
-                                           int concurrency) {
+    public SseListenerBuilder onEvent(String event, SseBatchHandler handler) {
         Strings.notBlank(EVENT_ARGUMENT_NAME, event);
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        Numbers.positive(CONCURRENCY_ARGUMENT_NAME, concurrency);
         checkEventNotRegistered(event);
 
-        batchHandlers.put(event, new SseHandler(null, null, handler, concurrency));
-        return this;
-    }
-
-    @Override
-    public SseListenerBuilder batchSize(int maxBatchSize) {
-        this.batchSize = Numbers.positive(MAX_BATCH_SIZE_ARGUMENT_NAME, maxBatchSize);
-        return this;
-    }
-
-    @Override
-    public SseListenerBuilder batchTimeout(Duration flushTimeout) {
-        this.batchTimeout = Durations.positive(FLUSH_TIMEOUT_ARGUMENT_NAME, flushTimeout);
+        batchHandlers.put(event, handler);
         return this;
     }
 
@@ -347,19 +258,27 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     public SseListener build() {
         Values.notNull(CLIENT_ARGUMENT_NAME, client);
 
+        if (eventHandlers.isEmpty()
+                && batchHandlers.isEmpty()
+                && null == unhandledHandler
+                && null == unhandledBatchHandler) {
+            throw new IllegalStateException(
+                    "The 'builder' value is invalid.  At least one handler must be registered via onEvent or "
+                            + "onUnhandledEvent (or their batch equivalents) before calling build()."
+            );
+        }
+
         return new DefaultSseListener(
                 client,
                 List.copyOf(navigationOps),
                 lastEventId,
-                bufferCapacity,
                 bufferFullPolicy,
                 droppedHandler,
                 executor,
                 Map.copyOf(eventHandlers),
                 Map.copyOf(batchHandlers),
                 unhandledHandler,
-                batchSize,
-                batchTimeout,
+                unhandledBatchHandler,
                 errorHandler,
                 null != reconnectDelay ? reconnectDelay : DEFAULT_RECONNECT_DELAY
         );

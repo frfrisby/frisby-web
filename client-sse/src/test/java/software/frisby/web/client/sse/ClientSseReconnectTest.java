@@ -86,7 +86,7 @@ class ClientSseReconnectTest {
                 .parameter("count", "1")
                 .security(countingProvider)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", message -> { })
+                .onEvent("message", SseHandler.of(message -> { }))
                 .build();
 
         try {
@@ -116,7 +116,7 @@ class ClientSseReconnectTest {
                 .parameter("retryMs", "50")
                 .security(timestampingProvider)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofSeconds(4)))
-                .onEvent("message", message -> { })
+                .onEvent("message", SseHandler.of(message -> { }))
                 .build();
 
         try {
@@ -154,20 +154,24 @@ class ClientSseReconnectTest {
                 .path("/sse/stream")
                 .parameter("channel", "last-event-id-replay-on-disconnect")
                 .parameter("count", String.valueOf(totalEvents))
-                .bufferCapacity(2)
                 .onBufferFull(BufferFullPolicy.DISCONNECT)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", message -> {
+                .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
                     sleepBriefly();
                     latch.countDown();
-                })
+                }).capacity(2))
                 .build();
 
         try {
             listener.connectAsync();
 
-            assertTrue(latch.await(30, TimeUnit.SECONDS));
+            // capacity(2) with a 50 ms-per-event handler and a burst of 20 events forces
+            // BufferFullPolicy.DISCONNECT to trigger repeatedly (roughly every couple of
+            // events) — that repeated disconnect/Last-Event-ID-replay cycle is exactly what
+            // this test exists to exercise, so a generous timeout is required to let every
+            // reconnect round-trip complete.
+            assertTrue(latch.await(60, TimeUnit.SECONDS));
             assertEquals(totalEvents, received.size());
             assertEquals(totalEvents, new HashSet<>(received).size(), "Expected no duplicate deliveries");
 
@@ -187,40 +191,66 @@ class ClientSseReconnectTest {
         AtomicInteger deliveredCount = new AtomicInteger(0);
         AtomicInteger droppedCount = new AtomicInteger(0);
         List<String> droppedBodies = new CopyOnWriteArrayList<>();
-        CountDownLatch firstFewDelivered = new CountDownLatch(2);
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch someDropped = new CountDownLatch(1);
+        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "buffer-full-policy-drop")
                 .parameter("count", String.valueOf(totalEvents))
-                .bufferCapacity(1)
                 .onBufferFull(BufferFullPolicy.DROP)
                 .onDropped(message -> {
                     droppedCount.incrementAndGet();
                     droppedBodies.add(message.body());
+                    someDropped.countDown();
                 })
-                .onEvent("message", message -> {
+                // Blocking on the very first delivery — rather than merely being slow —
+                // deterministically keeps the capacity-1 pipeline's single slot occupied
+                // ("in-flight") for as long as the test needs, so every event the reader
+                // thread posts in the meantime is guaranteed to be dropped. This replaces
+                // a previous version of this test that raced a fixed Thread.sleep against
+                // the server's real production speed, which was occasionally flaky.
+                //
+                // Deliberately does NOT assert here: this runs on the connection's own
+                // dedicated dispatch worker thread, not the test thread, and an
+                // AssertionFailedError is an Error (not a RuntimeException) that
+                // DefaultSseListener's callback-safety net does not swallow, so it would
+                // otherwise kill this capacity-1 handler's sole worker permanently and
+                // hang listener.close() forever inside awaitCompletion(). The await's
+                // timeout is purely a safety net in case the main thread's own release
+                // (below, in the finally block) never happens for some other reason —
+                // every real assertion about this test's behavior belongs on the main
+                // thread instead.
+                .onEvent("message", SseHandler.of(message -> {
                     deliveredCount.incrementAndGet();
-                    firstFewDelivered.countDown();
-                    sleepBriefly();
-                })
+                    firstEventDelivered.countDown();
+
+                    try {
+                        releaseFirstEvent.await(30, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }).capacity(1))
                 .build();
 
         try {
             listener.connectAsync();
 
-            assertTrue(firstFewDelivered.await(10, TimeUnit.SECONDS));
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+            assertTrue(
+                    someDropped.await(10, TimeUnit.SECONDS),
+                    "Expected at least one event to be dropped while the handler was blocked"
+            );
 
-            // Give the reader thread time to race ahead and drop the rest of the burst.
-            Thread.sleep(1_000);
-
+            assertTrue(droppedCount.get() > 0, "Expected onDropped to fire at least once");
+            assertEquals(droppedCount.get(), droppedBodies.size());
             assertTrue(
                     deliveredCount.get() < totalEvents,
                     "Expected DROP to discard at least some of the burst, delivered " + deliveredCount.get()
             );
-            assertTrue(droppedCount.get() > 0, "Expected onDropped to fire at least once");
-            assertEquals(droppedCount.get(), droppedBodies.size());
         } finally {
+            releaseFirstEvent.countDown();
             listener.close();
         }
     }
@@ -250,9 +280,8 @@ class ClientSseReconnectTest {
                     .path("/sse/stream")
                     .parameter("channel", "buffer-full-policy-drop-log-boundaries")
                     .parameter("count", String.valueOf(totalEvents))
-                    .bufferCapacity(1)
                     .onBufferFull(BufferFullPolicy.DROP)
-                    .onEvent("message", message -> {
+                    .onEvent("message", SseHandler.of(message -> {
                         // The first delivery races ahead of the burst so the reader thread
                         // fills the capacity-1 buffer and starts dropping; slowing down only
                         // the first delivery lets the remaining backlog (if any survives)
@@ -263,7 +292,7 @@ class ClientSseReconnectTest {
                         }
 
                         allDelivered.countDown();
-                    })
+                    }).capacity(1))
                     .build();
 
             try {
@@ -287,7 +316,7 @@ class ClientSseReconnectTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/this-path-does-not-exist")
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", message -> { })
+                .onEvent("message", SseHandler.of(message -> { }))
                 .onError(error -> {
                     errorCount.incrementAndGet();
                     firstError.countDown();

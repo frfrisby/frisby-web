@@ -1,7 +1,5 @@
 package software.frisby.web.client.sse;
 
-import software.frisby.web.client.Client;
-
 /**
  * A live, typed-callback connection to an SSE stream.
  * <p>

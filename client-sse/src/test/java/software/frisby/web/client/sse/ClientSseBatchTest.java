@@ -19,8 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests — batched delivery ({@code onEventBatch}) against
- * {@code SseTestResource} in {@code test-support}, the hand-written
+ * Integration tests — batched delivery ({@code onEvent(String, SseBatchHandler)})
+ * against {@code SseTestResource} in {@code test-support}, the hand-written
  * {@code text/event-stream} resource standing in for the not-yet-built
  * {@code server-sse} module (see {@code temp/sse-plan.md}, Chunk 3).
  * <p>
@@ -71,11 +71,10 @@ class ClientSseBatchTest {
                 .path("/sse/stream")
                 .parameter("channel", "batch-size-reached")
                 .parameter("count", "3")
-                .batchSize(3)
-                .onEventBatch("message", messages -> {
+                .onEvent("message", SseBatchHandler.of((List<SseMessage<String>> messages) -> {
                     batches.add(messages.stream().map(SseMessage::body).toList());
                     latch.countDown();
-                })
+                }).batchSize(3))
                 .build();
 
         try {
@@ -98,12 +97,10 @@ class ClientSseBatchTest {
                 .path("/sse/stream")
                 .parameter("channel", "batch-timeout-elapses")
                 .parameter("count", "2")
-                .batchSize(10)
-                .batchTimeout(Duration.ofMillis(200))
-                .onEventBatch("message", messages -> {
+                .onEvent("message", SseBatchHandler.of((List<SseMessage<String>> messages) -> {
                     batches.add(messages.stream().map(SseMessage::body).toList());
                     latch.countDown();
-                })
+                }).batchSize(10).batchTimeout(Duration.ofMillis(200)))
                 .build();
 
         try {

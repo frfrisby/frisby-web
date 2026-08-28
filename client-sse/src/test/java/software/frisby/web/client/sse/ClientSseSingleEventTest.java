@@ -74,10 +74,10 @@ class ClientSseSingleEventTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "single-event-in-order")
-                .onEvent("message", message -> {
+                .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
                     latch.countDown();
-                })
+                }))
                 .build();
 
         try {
@@ -124,7 +124,7 @@ class ClientSseSingleEventTest {
                 .path("/sse/stream")
                 .parameter("channel", "no-event-field-not-message")
                 .parameter("includeEventField", "false")
-                .onEvent("message", message -> messageHandlerCalls.add(message.body()))
+                .onEvent("message", SseHandler.of(message -> messageHandlerCalls.add(message.body())))
                 .onUnhandledEvent(message -> {
                     unhandled.add(message.body());
                     latch.countDown();
@@ -150,10 +150,10 @@ class ClientSseSingleEventTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "explicit-message-event-field")
-                .onEvent("message", message -> {
+                .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
                     latch.countDown();
-                })
+                }))
                 .build();
 
         try {
@@ -176,14 +176,14 @@ class ClientSseSingleEventTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "callback-exception-does-not-kill-stream")
-                .onEvent("message", message -> {
+                .onEvent("message", SseHandler.of(message -> {
                     int count = deliveryCount.incrementAndGet();
                     latch.countDown();
 
                     if (1 == count) {
                         throw new IllegalStateException("Simulated handler failure.");
                     }
-                })
+                }))
                 .onError(error -> {
                     capturedError.set(error);
                     errorLatch.countDown();
@@ -222,14 +222,14 @@ class ClientSseSingleEventTest {
             SseListener listener = SseListener.builder().client(client)
                     .path("/sse/stream")
                     .parameter("channel", "on-error-handler-throws-does-not-kill-stream")
-                    .onEvent("message", message -> {
+                    .onEvent("message", SseHandler.of(message -> {
                         int count = deliveryCount.incrementAndGet();
                         latch.countDown();
 
                         if (1 == count) {
                             throw new IllegalStateException("Simulated handler failure.");
                         }
-                    })
+                    }))
                     .onError(error -> {
                         errorHandlerCallCount.incrementAndGet();
                         throw new IllegalStateException("Simulated onError handler failure.");

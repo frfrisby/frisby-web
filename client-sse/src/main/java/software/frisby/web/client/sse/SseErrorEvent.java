@@ -10,16 +10,15 @@ import java.util.Optional;
  * <p>
  * {@link #message()} is present whenever the failure occurred while processing a specific
  * event — a deserialization failure, or an exception thrown by a registered handler's own
- * callback — and always carries the untouched wire-format {@code data} string (never a
- * partially- or fully-deserialized typed payload), since the raw string is the one
- * representation guaranteed to be available regardless of whether deserialization itself
- * succeeded. It is {@link Optional#empty()} for connection-level failures with no specific
- * event in play — a failed connect/reconnect attempt, or an {@code IOException} while
- * reading the stream.
+ * callback. It always carries the untouched wire-format {@code data} string, never a
+ * partially- or fully-deserialized typed payload — the raw string is the one representation
+ * guaranteed to be available regardless of whether deserialization itself succeeded. It is
+ * {@link Optional#empty()} for connection-level failures with no specific event in play —
+ * a failed connect/reconnect attempt, or an {@code IOException} while reading the stream.
  * <p>
- * A batch handler's own callback exception ({@code onEventBatch}) is a whole-batch
- * failure, not attributable to any single item, so {@link #message()} is also empty in
- * that case.
+ * A batch handler's own callback exception ({@code onEvent(String, SseBatchHandler)})
+ * is a whole-batch failure, not attributable to any single item, so {@link #message()}
+ * is also empty in that case.
  *
  * @param message The raw event being processed when {@code cause} occurred, if any.
  * @param cause   The failure.
