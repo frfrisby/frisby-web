@@ -428,6 +428,44 @@ metrics and observability — they are not the right tool for backpressure decis
 
 ---
 
+## Bounded-Wait Posting — `post(T, Duration)`
+
+Every `Target<T>` — and therefore every `Pipeline<T>` and `OpenPipeline<I,O>` — also
+exposes a timed overload, a direct alternative to the `inFlight()` pattern above:
+
+```java
+boolean accepted = pipeline.post(item, Duration.ofMillis(250));
+
+if (!accepted) {
+    // handle overflow: drop, reroute, record a metric, disconnect the producer, etc.
+}
+```
+
+`Duration.ZERO` means "attempt immediately, do not wait at all" — the equivalent of
+`BlockingQueue.offer(E)`.
+
+**Semantics depend entirely on the pipeline's head stage — no special-casing needed at
+the call site:**
+
+| Head stage | Behavior |
+|---|---|
+| Async block (`Buffer`, `Batch`, `Group`, `PriorityBuffer`, `Delay`) | Timeout bounds the wait for a free queue slot. |
+| Sync connector (`Transform`, `Tap`, `Router`, `Branch`) | Timeout carries through unmodified until it reaches the next async block downstream — even several sync stages later. |
+| Pure-sync chain (no async block anywhere) | Nothing to wait for; behaves exactly like `post(item)`. |
+| `Broadcast` / `Expand` | **Exception to "one shared budget."** Each target (or each list element for `Expand`) gets its own full timeout window, applied sequentially. Worst case is `timeout × N`, not one shared budget. |
+
+This only ever bounds **waiting for capacity** — never the **execution time** of
+user-supplied code invoked while delivering the item.
+
+**Custom `Target` implementations must opt in explicitly.** The default implementation
+of `post(T, Duration)` throws `UnsupportedOperationException` rather than silently
+falling back to the unbounded `post(item)`, which would defeat the purpose of asking
+for a bounded wait. Every block built into this library already overrides it correctly.
+See [Implementing a custom Target](#implementing-a-custom-target) below for the pattern
+to follow when a hand-wired `Target` needs to support this call.
+
+---
+
 ## NamedExecutorService
 
 ```java
@@ -462,6 +500,7 @@ Use manual wiring when:
 
 @FunctionalInterface
 Target<T>              // receive items:  boolean post(T item)
+                       // bounded wait:   boolean post(T item, Duration timeout)
                        // capacity:       size(), inFlight()
                        // lifecycle:      complete(), awaitCompletion(), completion()
 
@@ -538,6 +577,18 @@ public class MetricsTarget<T> implements Target<T> {
     @Override
     public boolean post(T item) {
         boolean accepted = this.delegate.post(item);
+        if (accepted) {
+            this.counter.increment();
+        }
+
+        return accepted;
+    }
+
+    // Optional — the default throws UnsupportedOperationException. Only override this
+    // if callers need to post to this target with a bounded wait.
+    @Override
+    public boolean post(T item, Duration timeout) {
+        boolean accepted = this.delegate.post(item, timeout);
         if (accepted) {
             this.counter.increment();
         }
@@ -636,6 +687,32 @@ executor.shutdown();
 .to(Branch.of(Order.class)
         .when(order -> order.isPriority(), priorityPipeline)
         .otherwise(standardPipeline))
+```
+
+### ❌ Assuming `post(item, timeout)` divides one budget across a `Broadcast`/`Expand` call
+
+```java
+// Wrong assumption — this does NOT bound the whole call to 500ms total.
+// Broadcast/Expand give each target (or each list element) its own full timeout
+// window, applied sequentially — worst case is timeout × N, not one shared budget.
+boolean accepted = broadcastPipeline.post(item, Duration.ofMillis(500));
+
+// Correct mental model: budget for the worst case explicitly if it matters
+// (N targets/elements × per-call timeout), or accept that the total wait can
+// scale with N and size the timeout accordingly.
+```
+
+### ❌ Expecting a hand-wired custom `Target` to support bounded-wait posting for free
+
+```java
+// Wrong — a custom Target that only implements post(T) inherits the throwing default;
+// this throws UnsupportedOperationException at runtime, not compile time.
+Target<Order> customTarget = order -> { store(order); return true; };
+pipeline.linkTo(customTarget);
+pipeline.post(order, Duration.ofSeconds(1));   // throws
+
+// Correct — override post(T, Duration) explicitly if bounded-wait posting is needed
+// through this target. See "Implementing a custom Target" above.
 ```
 
 ### ❌ Reusing a fluent stage instance across multiple pipelines
