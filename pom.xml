@@ -46,7 +46,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>17</java.version>
 
-        <frisby-core.version>1.4.0</frisby-core.version>
+        <frisby-core.version>1.4.1</frisby-core.version>
 
         <!-- Jersey + Jetty (server module) -->
         <jersey.version>3.1.12</jersey.version>

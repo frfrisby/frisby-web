@@ -7,7 +7,7 @@ import software.frisby.web.client.security.SecurityProvider;
 
 import java.net.HttpCookie;
 import java.time.Duration;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 /**
@@ -226,14 +226,26 @@ public interface SseListenerBuilder {
     SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler);
 
     /**
-     * Sets a custom {@link Executor} backing every registered handler's dispatch
-     * pipeline.
+     * Sets a custom {@link ExecutorService} backing the reader task and every registered
+     * handler's dispatch pipeline.
      * <p>
      * Each registered event type gets its own dedicated dispatch pipeline — capacity,
      * ordering, and concurrency are configured per handler (see {@link SseHandler} /
      * {@link SseBatchHandler}), independent of every other event type's handler. This
      * executor is simply the thread pool those per-handler pipelines draw worker
-     * threads from; it does not itself control ordering, capacity, or concurrency.
+     * threads from, and — unlike a plain {@link java.util.concurrent.Executor} — is also
+     * where the single dedicated reader task itself runs, submitted via
+     * {@link ExecutorService#submit(Runnable)} so {@link SseListener#close()} can cancel
+     * it individually and precisely via the returned {@code Future}, independent of
+     * whatever else (dispatch pipelines mid-graceful-drain, or another {@code SseListener}
+     * sharing this same executor) is also running on it. This executor does not itself
+     * control ordering, capacity, or concurrency.
+     * <p>
+     * {@code client-sse} never calls {@code shutdown()}/{@code shutdownNow()} on a
+     * caller-supplied executor — only {@code submit()}/{@code execute()}. A caller on
+     * Java 21+ wanting the reader task and every dispatch pipeline to run on virtual
+     * threads can supply {@code Executors.newVirtualThreadPerTaskExecutor()} directly;
+     * no other change is required.
      * <p>
      * Optional; defaults to a dedicated {@code NamedExecutorService} per connection,
      * shut down when the connection is {@link SseListener#close() closed}.
@@ -242,7 +254,7 @@ public interface SseListenerBuilder {
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code executor} is null.
      */
-    SseListenerBuilder executor(Executor executor);
+    SseListenerBuilder executor(ExecutorService executor);
 
     /**
      * Registers a handler for events whose {@code event} field matches {@code event}.
@@ -428,6 +440,28 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.NullValueException if {@code strategy} is null.
      */
     SseListenerBuilder reconnectDelay(RetryDelay strategy);
+
+    /**
+     * Sets how long {@link SseListener#close()} waits for every handler's dispatch
+     * pipeline to finish draining before giving up and returning anyway.
+     * <p>
+     * Exists specifically to bound {@code close()}'s wait against a scenario the
+     * pipeline's own completion signal cannot distinguish on its own: if a caller
+     * supplies their own {@link ExecutorService} via {@link #executor} and shuts it
+     * down independently, without ever calling {@code close()} first, no worker thread
+     * remains to ever resolve that pipeline's completion — an unbounded wait would
+     * therefore hang {@code close()} forever. A timeout in that situation is logged at
+     * {@code WARNING} rather than thrown, since {@code close()} declares no checked
+     * exception.
+     * <p>
+     * Optional; defaults to 30 seconds.
+     *
+     * @param timeout The maximum time to wait for dispatch pipelines to drain.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException             if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
+     */
+    SseListenerBuilder closeTimeout(Duration timeout);
 
     /**
      * Validates the configured navigation, handlers, and options, and assembles an

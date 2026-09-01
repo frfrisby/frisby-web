@@ -15,7 +15,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -99,43 +100,44 @@ import java.util.function.Function;
 final class DefaultSseListener implements SseListener {
     private static final System.Logger LOGGER = System.getLogger(DefaultSseListener.class.getName());
     private static final String EXECUTOR_THREAD_PREFIX = "sse-listener";
-    private static final String READER_THREAD_NAME = "sse-listener-reader";
 
     private final Client client;
     private final List<Consumer<SseSpec>> navigationOps;
     private final String initialLastEventId;
     private final BufferFullPolicy bufferFullPolicy;
     private final Consumer<SseMessage<String>> droppedHandler;
-    private final Executor callerExecutor;
+    private final ExecutorService callerExecutor;
     private final Map<String, SseHandler> eventHandlers;
     private final Map<String, SseBatchHandler> batchHandlers;
     private final SseHandler unhandledHandler;
     private final SseBatchHandler unhandledBatchHandler;
     private final Consumer<SseErrorEvent> errorHandler;
     private final RetryDelay reconnectDelay;
+    private final Duration closeTimeout;
 
     private final AtomicBoolean started;
     private final AtomicBoolean closed;
     private final AtomicReference<InputStream> currentStream;
 
-    private Executor pipelineExecutor;
+    private ExecutorService pipelineExecutor;
     private NamedExecutorService ownedExecutor;
     private Map<String, Pipeline<RawSseEvent>> handlerPipelines;
     private Pipeline<RawSseEvent> unhandledPipeline;
-    private Thread readerThread;
+    private Future<?> readerFuture;
 
     DefaultSseListener(Client client,
                        List<Consumer<SseSpec>> navigationOps,
                        String initialLastEventId,
                        BufferFullPolicy bufferFullPolicy,
                        Consumer<SseMessage<String>> droppedHandler,
-                       Executor callerExecutor,
+                       ExecutorService callerExecutor,
                        Map<String, SseHandler> eventHandlers,
                        Map<String, SseBatchHandler> batchHandlers,
                        SseHandler unhandledHandler,
                        SseBatchHandler unhandledBatchHandler,
                        Consumer<SseErrorEvent> errorHandler,
-                       RetryDelay reconnectDelay) {
+                       RetryDelay reconnectDelay,
+                       Duration closeTimeout) {
         this.client = client;
         this.navigationOps = navigationOps;
         this.initialLastEventId = initialLastEventId;
@@ -148,6 +150,7 @@ final class DefaultSseListener implements SseListener {
         this.unhandledBatchHandler = unhandledBatchHandler;
         this.errorHandler = errorHandler;
         this.reconnectDelay = reconnectDelay;
+        this.closeTimeout = closeTimeout;
         this.started = new AtomicBoolean(false);
         this.closed = new AtomicBoolean(false);
         this.currentStream = new AtomicReference<>();
@@ -155,7 +158,7 @@ final class DefaultSseListener implements SseListener {
         this.ownedExecutor = null;
         this.handlerPipelines = null;
         this.unhandledPipeline = null;
-        this.readerThread = null;
+        this.readerFuture = null;
     }
 
     /**
@@ -250,7 +253,7 @@ final class DefaultSseListener implements SseListener {
      * .awaitReconnectDelay}'s {@code Thread.sleep} returns normally (i.e. was
      * <em>not</em> interrupted) — {@code true} unless {@link #close()} concurrently set
      * {@code closed} in the narrow window between the sleep completing and this check
-     * running, without its accompanying {@code readerThread.interrupt()} arriving in
+     * running, without its accompanying {@code readerFuture.cancel(true)} arriving in
      * time to be observed as an {@link InterruptedException} instead. That race window
      * is real but timing-dependent enough that no realistic integration test can force
      * it on demand — extracted to a plain, directly testable static method (both a
@@ -284,7 +287,7 @@ final class DefaultSseListener implements SseListener {
         handlerPipelines = buildHandlerPipelines();
         unhandledPipeline = buildUnhandledPipeline();
 
-        readerThread = new Thread(
+        readerFuture = pipelineExecutor.submit(
                 new ReaderTask(
                         client,
                         navigationOps,
@@ -298,11 +301,8 @@ final class DefaultSseListener implements SseListener {
                         this::toRawMessage,
                         reconnectDelay,
                         closed
-                ),
-                READER_THREAD_NAME
+                )
         );
-        readerThread.setDaemon(true);
-        readerThread.start();
     }
 
     @Override
@@ -319,8 +319,8 @@ final class DefaultSseListener implements SseListener {
         InputStream stream = currentStream.getAndSet(null);
         closeStreamSafely(stream, "Failed to close the SSE input stream.");
 
-        if (null != readerThread) {
-            readerThread.interrupt();
+        if (null != readerFuture) {
+            readerFuture.cancel(true);
         }
 
         if (null != handlerPipelines) {
@@ -332,17 +332,39 @@ final class DefaultSseListener implements SseListener {
         }
 
         if (null != handlerPipelines) {
-            handlerPipelines.values().forEach(Pipeline::awaitCompletion);
+            handlerPipelines.values().forEach(this::awaitCompletionWithTimeout);
         }
 
         if (null != unhandledPipeline) {
-            unhandledPipeline.awaitCompletion();
+            awaitCompletionWithTimeout(unhandledPipeline);
         }
 
         if (null != ownedExecutor) {
             ownedExecutor.shutdown();
         }
     }
+
+    /**
+     * Bounds {@code pipeline}'s drain wait to {@link #closeTimeout} instead of the
+     * unbounded no-arg {@code awaitCompletion()} — required specifically because a
+     * pipeline worker thread killed by an external {@code ExecutorService} shutdown
+     * (rather than this listener's own graceful {@code complete()}) never resolves its
+     * {@code completion()} future, per {@code frisby-core}'s own documented behavior. A
+     * caller who supplies their own executor and shuts it down independently, without
+     * ever calling {@link #close()} first, would otherwise hang a later {@code close()}
+     * call forever. A timeout here is logged at {@code WARNING} rather than thrown,
+     * since {@code close()} declares no checked exception.
+     */
+    private void awaitCompletionWithTimeout(Pipeline<RawSseEvent> pipeline) {
+        if (!pipeline.awaitCompletion(closeTimeout)) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "A dispatch pipeline did not finish draining within the configured "
+                            + "closeTimeout of " + closeTimeout + "; close() is proceeding anyway."
+            );
+        }
+    }
+
 
     private Map<String, Pipeline<RawSseEvent>> buildHandlerPipelines() {
         Map<String, Pipeline<RawSseEvent>> pipelines = new HashMap<>();
@@ -852,7 +874,8 @@ final class DefaultSseListener implements SseListener {
          * to register under {@code "message"}.
          *
          * @return {@code true} if {@code raw} was actually handed off to a pipeline
-         * ({@link BufferFullPolicy#BLOCK} always; {@link BufferFullPolicy#DROP} /
+         * ({@link BufferFullPolicy#BLOCK} in the overwhelmingly common case — see
+         * {@link #postWithPolicy} for the one shutdown-driven exception; {@link BufferFullPolicy#DROP} /
          * {@link BufferFullPolicy#DISCONNECT} only when capacity allowed it), {@code
          * false} if it was dropped or triggered a disconnect — the caller must not
          * advance {@link #lastEventId} for an event this method reports as not posted,
@@ -878,15 +901,26 @@ final class DefaultSseListener implements SseListener {
          * "Bounded-Wait Posting" section) — an atomic, non-blocking accept-or-reject against
          * the pipeline's own real capacity gate, with no separate capacity pre-check and
          * therefore no race window between checking and posting.
+         * <p>
+         * {@code BLOCK}'s call to {@code target.post(raw)} can itself return {@code false}
+         * — not because of anything to do with {@code BLOCK}'s own semantics, but because
+         * {@code close()} now cancels this reader task via {@code Future.cancel(true)},
+         * which interrupts a thread blocked acquiring buffer capacity; {@code frisby-core}'s
+         * {@code AsyncBuffer.post(T)} catches that interrupt and returns {@code false}
+         * (item not enqueued) rather than throwing. Honoring that return value here —
+         * rather than assuming {@code BLOCK} always succeeds — is what stops the caller
+         * from incorrectly advancing {@code lastEventId} for an event that was actually
+         * silently dropped by the shutdown race, which would otherwise permanently skip
+         * replaying it on the next reconnect.
          *
          * @return {@code true} if {@code raw} was posted to {@code target}, {@code false}
-         * if it was dropped ({@link BufferFullPolicy#DROP}) or triggered a disconnect
-         * ({@link BufferFullPolicy#DISCONNECT}) instead.
+         * if it was dropped ({@link BufferFullPolicy#DROP}), triggered a disconnect
+         * ({@link BufferFullPolicy#DISCONNECT}), or — under {@link BufferFullPolicy#BLOCK}
+         * only — the reader was interrupted (via {@code close()}) while blocked posting.
          */
         private boolean postWithPolicy(Pipeline<RawSseEvent> target, RawSseEvent raw) {
             if (BufferFullPolicy.BLOCK == bufferFullPolicy) {
-                target.post(raw);
-                return true;
+                return target.post(raw);
             }
 
             if (BufferFullPolicy.DROP == bufferFullPolicy) {

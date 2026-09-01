@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 /**
@@ -41,8 +41,10 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private static final String POLICY_ARGUMENT_NAME = "policy";
     private static final String EXECUTOR_ARGUMENT_NAME = "executor";
     private static final String STRATEGY_ARGUMENT_NAME = "strategy";
+    private static final String TIMEOUT_ARGUMENT_NAME = "timeout";
 
     private static final RetryDelay DEFAULT_RECONNECT_DELAY = RetryDelay.exponential(Duration.ofSeconds(3));
+    private static final Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
     private final List<Consumer<SseSpec>> navigationOps;
     private final Map<String, SseHandler> eventHandlers;
@@ -53,11 +55,12 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private String lastEventId;
     private BufferFullPolicy bufferFullPolicy;
     private Consumer<SseMessage<String>> droppedHandler;
-    private Executor executor;
+    private ExecutorService executor;
     private SseHandler unhandledHandler;
     private SseBatchHandler unhandledBatchHandler;
     private Consumer<SseErrorEvent> errorHandler;
     private RetryDelay reconnectDelay;
+    private Duration closeTimeout;
 
     DefaultSseListenerBuilder() {
         this.navigationOps = new ArrayList<>();
@@ -73,6 +76,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         this.unhandledBatchHandler = null;
         this.errorHandler = null;
         this.reconnectDelay = null;
+        this.closeTimeout = null;
     }
 
     @Override
@@ -177,7 +181,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder executor(Executor executor) {
+    public SseListenerBuilder executor(ExecutorService executor) {
         this.executor = Values.notNull(EXECUTOR_ARGUMENT_NAME, executor);
         return this;
     }
@@ -255,6 +259,12 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
+    public SseListenerBuilder closeTimeout(Duration timeout) {
+        this.closeTimeout = Durations.positive(TIMEOUT_ARGUMENT_NAME, timeout);
+        return this;
+    }
+
+    @Override
     public SseListener build() {
         Values.notNull(CLIENT_ARGUMENT_NAME, client);
 
@@ -280,7 +290,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
                 unhandledHandler,
                 unhandledBatchHandler,
                 errorHandler,
-                null != reconnectDelay ? reconnectDelay : DEFAULT_RECONNECT_DELAY
+                null != reconnectDelay ? reconnectDelay : DEFAULT_RECONNECT_DELAY,
+                null != closeTimeout ? closeTimeout : DEFAULT_CLOSE_TIMEOUT
         );
     }
 }

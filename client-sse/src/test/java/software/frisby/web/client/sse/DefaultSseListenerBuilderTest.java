@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import software.frisby.core.validation.BlankValueException;
 import software.frisby.core.validation.DuplicateElementsException;
+import software.frisby.core.validation.DurationOutsideRangeException;
 import software.frisby.core.validation.NullValueException;
 import software.frisby.core.validation.NumericValueOutsideRangeException;
 import software.frisby.web.client.Client;
@@ -16,6 +17,8 @@ import java.net.HttpCookie;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -183,7 +186,42 @@ class DefaultSseListenerBuilderTest {
 
         @Test
         void validExecutor_returnsBuilder() {
-            assertNotNull(SseListener.builder().client(client).executor(Runnable::run));
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+
+            try {
+                assertNotNull(SseListener.builder().client(client).executor(executor));
+            } finally {
+                executor.shutdown();
+            }
+        }
+    }
+
+    @Nested
+    class CloseTimeout {
+        @Test
+        void nullTimeout_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> SseListener.builder().client(client).closeTimeout(null));
+        }
+
+        @Test
+        void zeroTimeout_throwsDurationOutsideRangeException() {
+            assertThrows(
+                    DurationOutsideRangeException.class,
+                    () -> SseListener.builder().client(client).closeTimeout(Duration.ZERO)
+            );
+        }
+
+        @Test
+        void negativeTimeout_throwsDurationOutsideRangeException() {
+            assertThrows(
+                    DurationOutsideRangeException.class,
+                    () -> SseListener.builder().client(client).closeTimeout(Duration.ofSeconds(-1))
+            );
+        }
+
+        @Test
+        void validTimeout_returnsBuilder() {
+            assertNotNull(SseListener.builder().client(client).closeTimeout(Duration.ofSeconds(5)));
         }
     }
 
