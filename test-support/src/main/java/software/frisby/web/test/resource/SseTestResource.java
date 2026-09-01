@@ -42,6 +42,20 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code GET /sse/stream?retryMs={n}} — emits a {@code retry:} field (milliseconds) on
  *       the first generated event only, for exercising a client's server-supplied reconnect
  *       delay handling</li>
+ *   <li>{@code GET /sse/stream?payload=object} — emits {@code data} as a JSON object,
+ *       {@code {"value":"event-N"}}, instead of the bare string {@code "event-N"} — for
+ *       exercising typed {@code Class<T>} deserialization</li>
+ *   <li>{@code GET /sse/stream?payload=array} — emits {@code data} as a single-element JSON
+ *       array, {@code ["event-N"]}, instead of the bare string — for exercising generically-typed
+ *       ({@code GenericType<List<T>>}) deserialization</li>
+ *   <li>{@code GET /sse/stream?malformedEventId={n}} — overrides the {@code data} field of the
+ *       event whose {@code id} equals {@code n} with a deliberately invalid JSON fragment,
+ *       regardless of {@code payload} — for exercising a single item's deserialization failure
+ *       without invalidating an entire batch</li>
+ *   <li>{@code GET /sse/stream?alternateEventTypes=true} — alternates each generated event's
+ *       {@code event} field between {@code "type-a"} (odd {@code id}) and {@code "type-b"}
+ *       (even {@code id}), overriding {@code includeEventField} — for exercising two different
+ *       {@code onEvent} registrations on one connection</li>
  *   <li>A {@code Last-Event-ID} request header causes only events with an {@code id} greater
  *       than the supplied value to be replayed, using a simple in-memory event log keyed by
  *       {@code channel}</li>
@@ -54,6 +68,7 @@ public final class SseTestResource {
     private static final String KEEP_ALIVE_COMMENT = ": keep-alive\n\n";
     private static final int DEFAULT_EVENT_COUNT = 3;
     private static final String DEFAULT_CHANNEL = "default";
+    private static final String DEFAULT_PAYLOAD = "plain";
     private static final Map<String, List<StoredEvent>> EVENT_LOGS = new ConcurrentHashMap<>();
 
     /**
@@ -69,11 +84,22 @@ public final class SseTestResource {
      *                           before writing the final event.
      * @param includeEventField  When {@code false}, generated events omit the {@code event:}
      *                           line entirely instead of writing {@code event: message}.
+     *                           Ignored when {@code alternateEventTypes} is {@code true}.
      * @param channel            Isolates the in-memory event log used for {@code Last-Event-ID}
      *                           replay.
      * @param retryMs            When present, the first generated event carries a {@code retry:}
      *                           field with this millisecond value; ignored on subsequent requests
      *                           for the same channel (the event log is generated only once).
+     * @param payload            {@code "plain"} (default) for a bare {@code "event-N"} string,
+     *                           {@code "object"} for a JSON object ({@code {"value":"event-N"}}),
+     *                           or {@code "array"} for a single-element JSON array
+     *                           ({@code ["event-N"]}).
+     * @param malformedEventId   When present, overrides the {@code data} field of the event with
+     *                           this {@code id} with a deliberately invalid JSON fragment,
+     *                           regardless of {@code payload}.
+     * @param alternateEventTypes When {@code true}, alternates each event's {@code event} field
+     *                           between {@code "type-a"} (odd {@code id}) and {@code "type-b"}
+     *                           (even {@code id}), overriding {@code includeEventField}.
      * @param lastEventId        The incoming {@code Last-Event-ID} header value, if any.
      * @return A streaming {@code text/event-stream} response.
      */
@@ -85,10 +111,20 @@ public final class SseTestResource {
                             @QueryParam("includeEventField") @DefaultValue("true") boolean includeEventField,
                             @QueryParam("channel") @DefaultValue(DEFAULT_CHANNEL) String channel,
                             @QueryParam("retryMs") Long retryMs,
+                            @QueryParam("payload") @DefaultValue(DEFAULT_PAYLOAD) String payload,
+                            @QueryParam("malformedEventId") Long malformedEventId,
+                            @QueryParam("alternateEventTypes") @DefaultValue("false") boolean alternateEventTypes,
                             @HeaderParam(LAST_EVENT_ID) String lastEventId) {
         List<StoredEvent> events = EVENT_LOGS.computeIfAbsent(
                 channel,
-                key -> generateEvents(count, includeEventField, retryMs)
+                key -> generateEvents(
+                        count,
+                        includeEventField,
+                        retryMs,
+                        payload,
+                        malformedEventId,
+                        alternateEventTypes
+                )
         );
 
         long afterId = null == lastEventId ? 0L : Long.parseLong(lastEventId);
@@ -102,16 +138,46 @@ public final class SseTestResource {
         return Response.ok(output).type(TEXT_EVENT_STREAM).build();
     }
 
-    private static List<StoredEvent> generateEvents(int count, boolean includeEventField, Long retryMs) {
+    private static List<StoredEvent> generateEvents(int count,
+                                                     boolean includeEventField,
+                                                     Long retryMs,
+                                                     String payload,
+                                                     Long malformedEventId,
+                                                     boolean alternateEventTypes) {
         List<StoredEvent> events = new ArrayList<>();
 
         for (int id = 1; id <= count; id++) {
-            String event = includeEventField ? "message" : null;
+            String event = resolveEventField(id, includeEventField, alternateEventTypes);
             Long retry = 1 == id ? retryMs : null;
-            events.add(new StoredEvent(id, event, "event-" + id, retry));
+            String data = null != malformedEventId && malformedEventId == id
+                    ? "{not-valid-json"
+                    : toPayload(payload, id);
+            events.add(new StoredEvent(id, event, data, retry));
         }
 
         return List.copyOf(events);
+    }
+
+    private static String resolveEventField(int id, boolean includeEventField, boolean alternateEventTypes) {
+        if (alternateEventTypes) {
+            return 1 == id % 2 ? "type-a" : "type-b";
+        }
+
+        return includeEventField ? "message" : null;
+    }
+
+    private static String toPayload(String payload, int id) {
+        String value = "event-" + id;
+
+        if ("object".equals(payload)) {
+            return "{\"value\":\"" + value + "\"}";
+        }
+
+        if ("array".equals(payload)) {
+            return "[\"" + value + "\"]";
+        }
+
+        return value;
     }
 
     private static void writeEvents(OutputStream out,

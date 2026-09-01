@@ -14,14 +14,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -81,11 +76,13 @@ import java.util.function.Function;
  * attempt counter resets to zero on every successful connection and increments only on
  * an actual failure. The only way this loop ever stops is {@link #close()}.
  * <p>
- * <strong>{@link BufferFullPolicy}.</strong> Every dispatch first checks
- * {@code target.inFlight()} against {@code bufferCapacity} before posting — required
- * because {@code Buffer}'s own {@code post()} has no non-blocking or reject-on-full
- * mode (see {@code concurrency.md}). {@code BLOCK} skips this check entirely and posts
- * unconditionally, relying on {@code Buffer}'s natural blocking behavior. {@code DROP}
+ * <strong>{@link BufferFullPolicy}.</strong> {@code BLOCK} posts unconditionally via the
+ * pipeline's ordinary blocking {@code post(T)}, relying on {@code Buffer}/{@code Batch}'s
+ * natural blocking behavior. {@code DROP}/{@code DISCONNECT} instead call the pipeline's
+ * bounded-wait {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s "Bounded-Wait
+ * Posting" section) — an atomic, non-blocking accept-or-reject against the pipeline's own
+ * real capacity gate, with no separate pre-check step and therefore no race window, unlike
+ * an approach that inspects {@code inFlight()} and posts as two separate calls. {@code DROP}
  * silently discards the event once the threshold is reached — logging a {@code WARNING}
  * when a run of drops begins and another when the buffer recovers (with a summary count
  * and duration), rather than one {@code WARNING} per dropped event, which would flood
@@ -123,8 +120,8 @@ final class DefaultSseListener implements SseListener {
 
     private Executor pipelineExecutor;
     private NamedExecutorService ownedExecutor;
-    private Map<String, HandlerPipeline> handlerPipelines;
-    private HandlerPipeline unhandledPipeline;
+    private Map<String, Pipeline<RawSseEvent>> handlerPipelines;
+    private Pipeline<RawSseEvent> unhandledPipeline;
     private Thread readerThread;
 
     DefaultSseListener(Client client,
@@ -159,6 +156,114 @@ final class DefaultSseListener implements SseListener {
         this.handlerPipelines = null;
         this.unhandledPipeline = null;
         this.readerThread = null;
+    }
+
+    /**
+     * Closes {@code stream}, logging {@code failureMessage} at {@code WARNING} (with the
+     * causing {@link IOException} attached) if {@code close()} itself fails, rather than
+     * letting that exception propagate. A {@code null} {@code stream} is a no-op — both
+     * call sites obtain {@code stream} via {@code currentStream.getAndSet(null)}, which is
+     * frequently already {@code null} (no connection currently open).
+     * <p>
+     * Shared by {@link #close()} (the same failure message every time) and
+     * {@link ReaderTask#postWithPolicy} (a distinct message specific to a policy-driven
+     * {@link BufferFullPolicy#DISCONNECT}) — extracted here specifically so this
+     * catch-and-log behavior is defined, and unit tested, exactly once rather than
+     * duplicated at each call site.
+     * <p>
+     * Package-private rather than {@code private}, matching {@link #throwIfFatal}'s own
+     * rationale: this is trivial to unit test directly with an ordinary throwing
+     * {@link InputStream} test double, but has no practical way to be exercised through
+     * either real call site — neither a normal JDK {@code HttpClient} response stream nor
+     * a test server can be coaxed into making {@code close()} itself throw on demand.
+     *
+     * @param stream         The stream to close; a no-op if {@code null}.
+     * @param failureMessage The message to log at {@code WARNING} if {@code close()} throws.
+     */
+    static void closeStreamSafely(InputStream stream, String failureMessage) {
+        if (null == stream) {
+            return;
+        }
+
+        try {
+            stream.close();
+        } catch (IOException e) {
+            LOGGER.log(System.Logger.Level.WARNING, failureMessage, e);
+        }
+    }
+
+    /**
+     * Rethrows {@code t} unchanged if it is fatal to the JVM — {@link VirtualMachineError}
+     * (covering {@link OutOfMemoryError}, {@link StackOverflowError}, {@link InternalError},
+     * and {@link UnknownError}) or {@link LinkageError} — otherwise returns normally. As
+     * opposed to a merely unwelcome throwable (a handler's {@link RuntimeException}, or an
+     * {@code AssertionError} escaping a test's callback), which this listener's
+     * callback-safety net ({@link #dispatchSafely}/{@link #dispatchBatchSafely}/
+     * {@link #notify}/{@link ReaderTask#notifyError}/{@link ReaderTask#notifyDropped}) is
+     * designed to swallow and report via {@code onError} rather than let kill a worker
+     * thread, a fatal error is deliberately excluded from that net.
+     * <p>
+     * Package-private rather than {@code private} specifically so it can be unit tested
+     * directly — forcing an actual {@link VirtualMachineError}/{@link LinkageError} to
+     * occur inside a test's callback is impractical, but this method's own branching is
+     * trivial to exercise in isolation with ordinary test doubles of each declared
+     * subtype.
+     */
+    static void throwIfFatal(Throwable t) {
+        if (t instanceof VirtualMachineError vme) {
+            throw vme;
+        }
+
+        if (t instanceof LinkageError le) {
+            throw le;
+        }
+    }
+
+    /**
+     * Computes how long a drop episode lasted, for {@link ReaderTask#flushDropEpisode}'s
+     * summary log message.
+     * <p>
+     * {@code start} is {@code null} only if a drop episode was never actually begun —
+     * structurally unreachable from {@code flushDropEpisode}'s only call sites, since
+     * {@code ReaderTask.recordDrop} always sets {@code dropEpisodeStart} in the same
+     * (single, reader) thread and in the same method call that first increments
+     * {@code droppedCount} from {@code 0}, and {@code flushDropEpisode} itself already
+     * returns early whenever {@code droppedCount} reads as {@code 0}. So by the time this
+     * method is ever called with a genuinely {@code null} {@code start}, {@code count}
+     * would also have to be {@code 0} — the exact case already filtered out one line
+     * earlier. Kept as honest defensive programming (a caller can't structurally prove a
+     * {@code null} will never be passed) rather than assuming the invariant always holds;
+     * package-private specifically so this branch is directly unit testable, since driving
+     * a real reader thread into this state is not practically achievable.
+     *
+     * @param start The instant the current drop episode began, or {@code null} if none is
+     *              in progress.
+     * @return The elapsed duration since {@code start}, or {@link Duration#ZERO} if
+     * {@code start} is {@code null}.
+     */
+    static Duration computeDropEpisodeDuration(Instant start) {
+        return null != start ? Duration.between(start, Instant.now()) : Duration.ZERO;
+    }
+
+    /**
+     * Reports whether the reader loop should continue after {@code ReaderTask
+     * .awaitReconnectDelay}'s {@code Thread.sleep} returns normally (i.e. was
+     * <em>not</em> interrupted) — {@code true} unless {@link #close()} concurrently set
+     * {@code closed} in the narrow window between the sleep completing and this check
+     * running, without its accompanying {@code readerThread.interrupt()} arriving in
+     * time to be observed as an {@link InterruptedException} instead. That race window
+     * is real but timing-dependent enough that no realistic integration test can force
+     * it on demand — extracted to a plain, directly testable static method (both a
+     * {@code true} and a {@code false} {@code closed} value are trivial to supply
+     * directly) rather than left as an unreachable-in-practice branch inline, per the
+     * same reasoning documented on {@link #computeDropEpisodeDuration}.
+     *
+     * @param closed The listener's shared closed flag.
+     * @return {@code true} if the reader loop should continue, {@code false} if
+     * {@code closed} was set before this check ran.
+     */
+    static boolean isStillRunningAfterDelay(AtomicBoolean closed) {
+        return !closed.get();
     }
 
     @Override
@@ -212,33 +317,26 @@ final class DefaultSseListener implements SseListener {
         }
 
         InputStream stream = currentStream.getAndSet(null);
-
-        if (null != stream) {
-            try {
-                stream.close();
-            } catch (IOException e) {
-                LOGGER.log(System.Logger.Level.WARNING, "Failed to close the SSE input stream.", e);
-            }
-        }
+        closeStreamSafely(stream, "Failed to close the SSE input stream.");
 
         if (null != readerThread) {
             readerThread.interrupt();
         }
 
         if (null != handlerPipelines) {
-            handlerPipelines.values().forEach(p -> p.pipeline().complete());
+            handlerPipelines.values().forEach(Pipeline::complete);
         }
 
         if (null != unhandledPipeline) {
-            unhandledPipeline.pipeline().complete();
+            unhandledPipeline.complete();
         }
 
         if (null != handlerPipelines) {
-            handlerPipelines.values().forEach(p -> p.pipeline().awaitCompletion());
+            handlerPipelines.values().forEach(Pipeline::awaitCompletion);
         }
 
         if (null != unhandledPipeline) {
-            unhandledPipeline.pipeline().awaitCompletion();
+            unhandledPipeline.awaitCompletion();
         }
 
         if (null != ownedExecutor) {
@@ -246,8 +344,8 @@ final class DefaultSseListener implements SseListener {
         }
     }
 
-    private Map<String, HandlerPipeline> buildHandlerPipelines() {
-        Map<String, HandlerPipeline> pipelines = new HashMap<>();
+    private Map<String, Pipeline<RawSseEvent>> buildHandlerPipelines() {
+        Map<String, Pipeline<RawSseEvent>> pipelines = new HashMap<>();
 
         for (Map.Entry<String, SseHandler> entry : eventHandlers.entrySet()) {
             pipelines.put(entry.getKey(), buildHandlerPipeline(entry.getValue()));
@@ -264,112 +362,70 @@ final class DefaultSseListener implements SseListener {
         return pipelines;
     }
 
-    private HandlerPipeline buildHandlerPipeline(SseHandler handler) {
+    private Pipeline<RawSseEvent> buildHandlerPipeline(SseHandler handler) {
         int capacity = handler.capacity();
-        AtomicInteger inFlightCount = new AtomicInteger(0);
 
         if (1 == handler.concurrency()) {
-            return new HandlerPipeline(
-                    Pipeline.<RawSseEvent>builder()
-                            .executor(pipelineExecutor)
-                            .from(Buffer.of(RawSseEvent.class)
-                                    .capacity(capacity))
-                            .then(Transform.of(RawSseEvent.class, Delivery.class)
-                                    .transform(raw -> deserializeSafely(raw, handler)))
-                            .to(delivery -> {
-                                try {
-                                    dispatchSafely(handler, delivery);
-                                } finally {
-                                    inFlightCount.decrementAndGet();
-                                }
-                            }),
-                    capacity,
-                    inFlightCount
-            );
+            return Pipeline.<RawSseEvent>builder()
+                    .executor(pipelineExecutor)
+                    .from(Buffer.of(RawSseEvent.class)
+                            .capacity(capacity))
+                    .then(Transform.of(RawSseEvent.class, Delivery.class)
+                            .transform(raw -> deserializeSafely(raw, handler)))
+                    .to(delivery -> dispatchSafely(handler, delivery));
         }
 
-        return new HandlerPipeline(
-                Pipeline.<RawSseEvent>builder()
-                        .executor(pipelineExecutor)
-                        .from(Router.of(RawSseEvent.class)
-                                .routes(handler.concurrency())
-                                .factory(() -> Pipeline.<RawSseEvent>builder()
-                                        .executor(pipelineExecutor)
-                                        .from(Buffer.of(RawSseEvent.class)
-                                                .capacity(capacity))
-                                        .then(Transform.of(RawSseEvent.class, Delivery.class)
-                                                .transform(raw -> deserializeSafely(raw, handler)))
-                                        .to(delivery -> {
-                                            try {
-                                                dispatchSafely(handler, delivery);
-                                            } finally {
-                                                inFlightCount.decrementAndGet();
-                                            }
-                                        }))),
-                capacity,
-                inFlightCount
-        );
+        return Pipeline.<RawSseEvent>builder()
+                .executor(pipelineExecutor)
+                .from(Router.of(RawSseEvent.class)
+                        .routes(handler.concurrency())
+                        .factory(() -> Pipeline.<RawSseEvent>builder()
+                                .executor(pipelineExecutor)
+                                .from(Buffer.of(RawSseEvent.class)
+                                        .capacity(capacity))
+                                .then(Transform.of(RawSseEvent.class, Delivery.class)
+                                        .transform(raw -> deserializeSafely(raw, handler)))
+                                .to(delivery -> dispatchSafely(handler, delivery))));
     }
 
-    private HandlerPipeline buildBatchHandlerPipeline(SseBatchHandler handler) {
+    private Pipeline<RawSseEvent> buildBatchHandlerPipeline(SseBatchHandler handler) {
         int capacity = handler.capacity();
         int batchSize = handler.batchSize();
         Duration batchTimeout = handler.batchTimeout();
-        AtomicInteger inFlightCount = new AtomicInteger(0);
 
         if (1 == handler.concurrency()) {
-            return new HandlerPipeline(
-                    Pipeline.<RawSseEvent>builder()
-                            .executor(pipelineExecutor)
-                            .from(Batch.of(RawSseEvent.class)
-                                    .capacity(capacity)
-                                    .batchSize(batchSize)
-                                    .timeout(batchTimeout))
-                            .then(Transform.of(
-                                            new GenericType<List<RawSseEvent>>() {
-                                            },
-                                            new GenericType<BatchPayload>() {
-                                            })
-                                    .transform(raws -> new BatchPayload(deserializeBatchSafely(raws, handler), raws.size())))
-                            .to(payload -> {
-                                try {
-                                    dispatchBatchSafely(handler, payload.deliveries());
-                                } finally {
-                                    inFlightCount.addAndGet(-payload.rawCount());
-                                }
-                            }),
-                    capacity,
-                    inFlightCount
-            );
+            return Pipeline.<RawSseEvent>builder()
+                    .executor(pipelineExecutor)
+                    .from(Batch.of(RawSseEvent.class)
+                            .capacity(capacity)
+                            .batchSize(batchSize)
+                            .timeout(batchTimeout))
+                    .then(Transform.of(
+                                    new GenericType<List<RawSseEvent>>() {
+                                    },
+                                    new GenericType<List<Delivery>>() {
+                                    })
+                            .transform(raws -> deserializeBatchSafely(raws, handler)))
+                    .to(deliveries -> dispatchBatchSafely(handler, deliveries));
         }
 
-        return new HandlerPipeline(
-                Pipeline.<RawSseEvent>builder()
-                        .executor(pipelineExecutor)
-                        .from(Router.of(RawSseEvent.class)
-                                .routes(handler.concurrency())
-                                .factory(() -> Pipeline.<RawSseEvent>builder()
-                                        .executor(pipelineExecutor)
-                                        .from(Batch.of(RawSseEvent.class)
-                                                .capacity(capacity)
-                                                .batchSize(batchSize)
-                                                .timeout(batchTimeout))
-                                        .then(Transform.of(
-                                                        new GenericType<List<RawSseEvent>>() {
-                                                        },
-                                                        new GenericType<BatchPayload>() {
-                                                        })
-                                                .transform(raws -> new BatchPayload(deserializeBatchSafely(raws, handler), raws.size())))
-                                        .to(payload -> {
-                                            try {
-                                                dispatchBatchSafely(handler, payload.deliveries());
-                                            } finally {
-                                                inFlightCount.addAndGet(-payload.rawCount());
-                                            }
-                                        }))),
-                capacity,
-                inFlightCount
-        );
+        return Pipeline.<RawSseEvent>builder()
+                .executor(pipelineExecutor)
+                .from(Router.of(RawSseEvent.class)
+                        .routes(handler.concurrency())
+                        .factory(() -> Pipeline.<RawSseEvent>builder()
+                                .executor(pipelineExecutor)
+                                .from(Batch.of(RawSseEvent.class)
+                                        .capacity(capacity)
+                                        .batchSize(batchSize)
+                                        .timeout(batchTimeout))
+                                .then(Transform.of(
+                                                new GenericType<List<RawSseEvent>>() {
+                                                },
+                                                new GenericType<List<Delivery>>() {
+                                                })
+                                        .transform(raws -> deserializeBatchSafely(raws, handler)))
+                                .to(deliveries -> dispatchBatchSafely(handler, deliveries))));
     }
 
     /**
@@ -383,15 +439,14 @@ final class DefaultSseListener implements SseListener {
      * {@code onUnhandledEvent} batch handler was registered, so {@code #dispatch} always
      * has a pipeline to fall back to.
      */
-    private HandlerPipeline buildUnhandledPipeline() {
+    private Pipeline<RawSseEvent> buildUnhandledPipeline() {
         if (null != unhandledBatchHandler) {
             return buildBatchHandlerPipeline(unhandledBatchHandler);
         }
 
         SseHandler handler = null != unhandledHandler
                 ? unhandledHandler
-                : SseHandler.of(message -> {
-                });
+                : SseHandler.of(message -> { });
 
         return buildHandlerPipeline(handler);
     }
@@ -490,8 +545,18 @@ final class DefaultSseListener implements SseListener {
      * events on this worker thread risks worse outcomes (e.g. quietly-wrong behavior)
      * than letting the thread die — the same trade-off made by
      * {@code Exceptions.throwIfFatal} in RxJava/Reactor.
+     * <p>
+     * The {@code null == delivery} guard is structurally unreachable through the real
+     * {@code Buffer → Transform → Action} pipeline — {@code concurrency}'s own
+     * {@code TargetManager.postToTarget} never forwards a {@code null} item to a linked
+     * target at all (verified directly against its source), so {@link #deserializeSafely}
+     * returning {@code null} on a failed deserialization already stops that item from
+     * ever reaching this method, let alone with a null {@code delivery} argument. The
+     * guard is kept anyway as honest defensive programming against a direct call (this
+     * method is package-private specifically so a test can make one), rather than
+     * assuming a caller can never violate the assumption.
      */
-    private void dispatchSafely(SseHandler handler, Delivery delivery) {
+    void dispatchSafely(SseHandler handler, Delivery delivery) {
         if (null == delivery) {
             return;
         }
@@ -510,8 +575,21 @@ final class DefaultSseListener implements SseListener {
      * See {@link #dispatchSafely(SseHandler, Delivery)} — same rationale for catching
      * {@link Throwable} rather than only {@link RuntimeException}, and the same
      * {@link #throwIfFatal} carve-out for JVM-level errors.
+     * <p>
+     * Unlike {@link #dispatchSafely}'s {@code null == delivery} guard, this method's
+     * {@code deliveries.isEmpty()} half is genuinely reachable through the real
+     * {@code Batch → Transform → Action} pipeline: {@link #deserializeBatchSafely} filters
+     * a failed item out of the batch individually rather than failing the whole batch, so
+     * a batch whose <em>every</em> item fails to deserialize produces a non-null, empty
+     * list — nothing to deliver, but not an unreachable state. {@code null == deliveries},
+     * on the other hand, is unreachable for the same reason documented on
+     * {@link #dispatchSafely}: {@code deserializeBatchSafely} always returns a list, never
+     * {@code null}, and {@code concurrency}'s {@code TargetManager.postToTarget} would not
+     * forward a null item downstream even if it somehow did. Kept for the same
+     * defensive-programming reason, and this method is package-private for the same
+     * direct-testability reason.
      */
-    private void dispatchBatchSafely(SseBatchHandler handler, List<Delivery> deliveries) {
+    void dispatchBatchSafely(SseBatchHandler handler, List<Delivery> deliveries) {
         if (null == deliveries || deliveries.isEmpty()) {
             return;
         }
@@ -527,33 +605,6 @@ final class DefaultSseListener implements SseListener {
 
             LOGGER.log(System.Logger.Level.WARNING, "SSE batch handler callback failed.", e);
             notifyError(e);
-        }
-    }
-
-    /**
-     * Rethrows {@code t} unchanged if it is fatal to the JVM — {@link VirtualMachineError}
-     * (covering {@link OutOfMemoryError}, {@link StackOverflowError}, {@link InternalError},
-     * and {@link UnknownError}) or {@link LinkageError} — otherwise returns normally. As
-     * opposed to a merely unwelcome throwable (a handler's {@link RuntimeException}, or an
-     * {@code AssertionError} escaping a test's callback), which this listener's
-     * callback-safety net ({@link #dispatchSafely}/{@link #dispatchBatchSafely}/
-     * {@link #notify}/{@link ReaderTask#notifyError}/{@link ReaderTask#notifyDropped}) is
-     * designed to swallow and report via {@code onError} rather than let kill a worker
-     * thread, a fatal error is deliberately excluded from that net.
-     * <p>
-     * Package-private rather than {@code private} specifically so it can be unit tested
-     * directly — forcing an actual {@link VirtualMachineError}/{@link LinkageError} to
-     * occur inside a test's callback is impractical, but this method's own branching is
-     * trivial to exercise in isolation with ordinary test doubles of each declared
-     * subtype.
-     */
-    static void throwIfFatal(Throwable t) {
-        if (t instanceof VirtualMachineError vme) {
-            throw vme;
-        }
-
-        if (t instanceof LinkageError le) {
-            throw le;
         }
     }
 
@@ -614,50 +665,6 @@ final class DefaultSseListener implements SseListener {
     }
 
     /**
-     * Carries a batch handler pipeline's deserialized {@link Delivery} list alongside the
-     * number of raw events ({@code rawCount}) that were originally batched together to
-     * produce it. {@code deliveries.size()} can be smaller than {@code rawCount} — an
-     * individual item's deserialization failure is filtered out of {@code deliveries}
-     * ({@link #deserializeBatchSafely}) without shrinking the batch's original raw count —
-     * so {@code rawCount} is what {@link HandlerPipeline#inFlightCount()} must be decremented
-     * by once this batch has fully finished processing, not {@code deliveries.size()}.
-     */
-    private record BatchPayload(List<Delivery> deliveries, int rawCount) {
-    }
-
-    /**
-     * Pairs a built dispatch {@link Pipeline} with the capacity it was built with and this
-     * connection's own explicit in-flight counter for it.
-     * <p>
-     * {@code inFlightCount} exists because {@code Pipeline#inFlight()} — the concurrency
-     * library's own built-in inspection method — under-reports for a pipeline whose tail is
-     * a synchronous, lambda-backed terminal {@code Action}, which every {@code onEvent}/
-     * {@code onUnhandledEvent} handler's pipeline is: {@code Target}'s default
-     * {@code inFlight()} implementation delegates to {@code size()}, which defaults to
-     * {@code 0} for a target holding no internal queue. That means a handler currently
-     * blocked inside a slow callback is invisible to {@code pipeline.inFlight()}, even
-     * though the pipeline's real capacity gate (an internal {@code Semaphore}) is still
-     * fully held. Relying on {@code pipeline.inFlight()} for {@link BufferFullPolicy#DROP}/
-     * {@link BufferFullPolicy#DISCONNECT}'s non-blocking pre-check
-     * (see {@link ReaderTask#postWithPolicy}) would therefore let the reader thread believe
-     * capacity is available when it is not, causing it to call the real, blocking
-     * {@code post()} and hang on a slow handler — exactly the outcome {@code DROP}/
-     * {@code DISCONNECT} exist to prevent.
-     * <p>
-     * {@code inFlightCount} is incremented by {@link ReaderTask#postWithPolicy} immediately
-     * before every accepted {@code post()} call and decremented once that item (or, for a
-     * batch handler, every item in that batch — see {@link BatchPayload#rawCount()}) has
-     * fully finished processing, including a failed deserialization or a callback exception,
-     * so it always reflects the same "accepted but not yet fully delivered" window the
-     * pipeline's internal capacity gate itself enforces. It is a single counter shared across
-     * every {@link Router} arm when {@code concurrency() > 1}, matching
-     * {@link SseHandler#capacity(int)} / {@link SseBatchHandler#capacity(int)}'s existing
-     * single, aggregate-across-arms meaning, rather than one counter per arm.
-     */
-    private record HandlerPipeline(Pipeline<RawSseEvent> pipeline, int capacity, AtomicInteger inFlightCount) {
-    }
-
-    /**
      * Reads {@code text/event-stream} bytes off the wire and posts each assembled event to
      * the appropriate handler pipeline; owns the reconnect loop and {@link BufferFullPolicy}
      * enforcement.
@@ -668,8 +675,8 @@ final class DefaultSseListener implements SseListener {
     private static final class ReaderTask implements Runnable {
         private final Client client;
         private final List<Consumer<SseSpec>> navigationOps;
-        private final Map<String, HandlerPipeline> handlerPipelines;
-        private final HandlerPipeline unhandledPipeline;
+        private final Map<String, Pipeline<RawSseEvent>> handlerPipelines;
+        private final Pipeline<RawSseEvent> unhandledPipeline;
         private final Consumer<SseErrorEvent> errorHandler;
         private final AtomicReference<InputStream> currentStream;
         private final BufferFullPolicy bufferFullPolicy;
@@ -687,8 +694,8 @@ final class DefaultSseListener implements SseListener {
         private ReaderTask(Client client,
                            List<Consumer<SseSpec>> navigationOps,
                            String initialLastEventId,
-                           Map<String, HandlerPipeline> handlerPipelines,
-                           HandlerPipeline unhandledPipeline,
+                           Map<String, Pipeline<RawSseEvent>> handlerPipelines,
+                           Pipeline<RawSseEvent> unhandledPipeline,
                            Consumer<SseErrorEvent> errorHandler,
                            AtomicReference<InputStream> currentStream,
                            BufferFullPolicy bufferFullPolicy,
@@ -714,11 +721,46 @@ final class DefaultSseListener implements SseListener {
             this.dropEpisodeStart = new AtomicReference<>();
         }
 
+        /**
+         * Invokes the caller's {@code onError} handler from the reader thread, isolating it
+         * from any non-fatal failure — same rationale and {@link DefaultSseListener#throwIfFatal}
+         * carve-out as {@link DefaultSseListener#dispatchSafely}. A narrower catch here would
+         * let a buggy {@code onError} handler kill the reader thread itself, silently ending
+         * the entire reconnect loop with no further reconnect attempts ever being made.
+         */
+        private static void notifyError(Consumer<SseErrorEvent> errorHandler, Throwable error) {
+            if (null == errorHandler) {
+                return;
+            }
+
+            try {
+                errorHandler.accept(SseErrorEvent.of(error));
+            } catch (Throwable ex) {
+                throwIfFatal(ex);
+
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "The SSE onError handler threw an unexpected exception.",
+                        ex
+                );
+            }
+        }
+
         @Override
         public void run() {
             int consecutiveFailures = 0;
 
-            while (!closed.get()) {
+            // The loop's own exit condition is intentionally "while (true)" rather than
+            // "while (!closed.get())" — every real exit path already goes through one of
+            // the two explicit break statements below (the post-attempt closed.get()
+            // check, or awaitReconnectDelay returning false). A "while (!closed.get())"
+            // condition here would only ever evaluate false inside the narrow,
+            // non-deterministic race between this loop's own top-of-loop check and the
+            // post-attempt check just a few lines below it — structurally unreachable
+            // through any normal (or realistically test-driven) call path, and therefore
+            // permanently uncoverable branch coverage if left in. See SseEventParser's
+            // analogous cleanup from Chunk 5 for the same reasoning.
+            while (true) {
                 try (InputStream in = openStream()) {
                     currentStream.set(in);
                     consecutiveFailures = 0;
@@ -766,7 +808,7 @@ final class DefaultSseListener implements SseListener {
                 return false;
             }
 
-            return !closed.get();
+            return isStillRunningAfterDelay(closed);
         }
 
         private Duration resolveDelay(int consecutiveFailures) {
@@ -778,32 +820,6 @@ final class DefaultSseListener implements SseListener {
 
             return reconnectDelay.delayFor(Math.max(consecutiveFailures, 1));
         }
-
-        /**
-         * Invokes the caller's {@code onError} handler from the reader thread, isolating it
-         * from any non-fatal failure — same rationale and {@link DefaultSseListener#throwIfFatal}
-         * carve-out as {@link DefaultSseListener#dispatchSafely}. A narrower catch here would
-         * let a buggy {@code onError} handler kill the reader thread itself, silently ending
-         * the entire reconnect loop with no further reconnect attempts ever being made.
-         */
-        private static void notifyError(Consumer<SseErrorEvent> errorHandler, Throwable error) {
-            if (null == errorHandler) {
-                return;
-            }
-
-            try {
-                errorHandler.accept(SseErrorEvent.of(error));
-            } catch (Throwable ex) {
-                throwIfFatal(ex);
-
-                LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "The SSE onError handler threw an unexpected exception.",
-                        ex
-                );
-            }
-        }
-
 
         private InputStream openStream() {
             SseSpec spec = client.sse();
@@ -848,44 +864,34 @@ final class DefaultSseListener implements SseListener {
                 return postWithPolicy(unhandledPipeline, raw);
             }
 
-            HandlerPipeline target = handlerPipelines.getOrDefault(raw.event().get(), unhandledPipeline);
+            Pipeline<RawSseEvent> target = handlerPipelines.getOrDefault(raw.event().get(), unhandledPipeline);
             return postWithPolicy(target, raw);
         }
 
         /**
-         * Applies {@link BufferFullPolicy} before posting. {@code Buffer}'s own
-         * {@code post()} has no non-blocking or reject-on-full variant, so
-         * {@code DROP}/{@code DISCONNECT} must pre-check {@code target}'s own
-         * {@link HandlerPipeline#inFlightCount()} — not {@code target.pipeline().inFlight()},
-         * which under-reports for a pipeline ending in a synchronous lambda {@code Action};
-         * see {@link HandlerPipeline}'s javadoc for the full rationale — against
-         * {@code target}'s own capacity, and avoid calling {@code post()} at all once the
-         * threshold is reached; {@code BLOCK} posts unconditionally and simply relies on
-         * {@code Buffer}'s natural blocking behavior — it is deliberately checked first and
-         * returns immediately, so it pays no cost for the drop-tracking machinery below.
-         * Every actual {@code post()} call increments {@code inFlightCount} immediately
-         * beforehand; the corresponding decrement happens once that item has fully finished
-         * processing, inside the pipeline's own terminal stage (see
-         * {@link #buildHandlerPipeline} / {@link #buildBatchHandlerPipeline}).
+         * Applies {@link BufferFullPolicy} before posting. {@code BLOCK} posts
+         * unconditionally via the pipeline's ordinary blocking {@code post(T)}, relying on
+         * {@code Buffer}/{@code Batch}'s natural blocking behavior — it is deliberately
+         * checked first and returns immediately, so it pays no cost for the drop-tracking
+         * machinery below. {@code DROP}/{@code DISCONNECT} instead call the pipeline's
+         * bounded-wait {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s
+         * "Bounded-Wait Posting" section) — an atomic, non-blocking accept-or-reject against
+         * the pipeline's own real capacity gate, with no separate capacity pre-check and
+         * therefore no race window between checking and posting.
          *
          * @return {@code true} if {@code raw} was posted to {@code target}, {@code false}
          * if it was dropped ({@link BufferFullPolicy#DROP}) or triggered a disconnect
          * ({@link BufferFullPolicy#DISCONNECT}) instead.
          */
-        private boolean postWithPolicy(HandlerPipeline target, RawSseEvent raw) {
+        private boolean postWithPolicy(Pipeline<RawSseEvent> target, RawSseEvent raw) {
             if (BufferFullPolicy.BLOCK == bufferFullPolicy) {
-                target.inFlightCount().incrementAndGet();
-                target.pipeline().post(raw);
+                target.post(raw);
                 return true;
             }
 
-            boolean hasCapacity = target.inFlightCount().get() < target.capacity();
-
             if (BufferFullPolicy.DROP == bufferFullPolicy) {
-                if (hasCapacity) {
+                if (target.post(raw, Duration.ZERO)) {
                     recordRecoveryIfNeeded();
-                    target.inFlightCount().incrementAndGet();
-                    target.pipeline().post(raw);
                     return true;
                 }
 
@@ -893,9 +899,7 @@ final class DefaultSseListener implements SseListener {
                 return false;
             }
 
-            if (hasCapacity) {
-                target.inFlightCount().incrementAndGet();
-                target.pipeline().post(raw);
+            if (target.post(raw, Duration.ZERO)) {
                 return true;
             }
 
@@ -907,18 +911,7 @@ final class DefaultSseListener implements SseListener {
             disconnectRequested.set(true);
 
             InputStream stream = currentStream.getAndSet(null);
-
-            if (null != stream) {
-                try {
-                    stream.close();
-                } catch (IOException e) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "Failed to close the SSE input stream for a policy-driven disconnect.",
-                            e
-                    );
-                }
-            }
+            closeStreamSafely(stream, "Failed to close the SSE input stream for a policy-driven disconnect.");
 
             return false;
         }
@@ -978,7 +971,7 @@ final class DefaultSseListener implements SseListener {
             }
 
             Instant start = dropEpisodeStart.getAndSet(null);
-            Duration episodeDuration = null != start ? Duration.between(start, Instant.now()) : Duration.ZERO;
+            Duration episodeDuration = computeDropEpisodeDuration(start);
 
             LOGGER.log(System.Logger.Level.WARNING, String.format(messageFormat, count, episodeDuration));
         }
