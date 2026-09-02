@@ -481,7 +481,7 @@ after they become idle.  There is no pool-size limit to configure.
 - `executor.activeCount()` — threads currently executing a task.
 - `executor.shutdown()` — interrupts all worker threads (use after `awaitCompletion()`).
 
-Any `Executor` is accepted by stage builders; `NamedExecutorService` is preferred because
+Any `ExecutorService` is accepted by stage builders; `NamedExecutorService` is preferred because
 its `shutdown()` unblocks workers that are waiting on an empty queue.
 
 ---
