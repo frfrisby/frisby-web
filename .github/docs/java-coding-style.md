@@ -787,8 +787,7 @@ reminder of the rules above:
 "The '<name>' value is invalid. <Sentence describing what is required>."
 ```
 
-**Two spaces** between the first sentence and the description — intentional; must be
-preserved exactly.
+**One space** between the first sentence and the description.
 
 Examples:
 - `"The 'email' value is invalid. The value must not be null."`
@@ -870,7 +869,7 @@ clearly at every assertion site.
 
 ```java
 private static final String INVALID_PATH_MSG =
-        "The 'path' value is invalid.  The placeholder '{id}' is not present in the template '/orders'.";
+        "The 'path' value is invalid. The placeholder '{id}' is not present in the template '/orders'.";
 
 UriSyntaxException ex = assertThrows(
         UriSyntaxException.class,

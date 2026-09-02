@@ -30,6 +30,7 @@ mandatory external dependencies beyond the JDK.
 18. [TLS / custom SSLContext](#18-tls--custom-sslcontext)
 19. [Exception hierarchy](#19-exception-hierarchy)
 20. [Complete examples](#20-complete-examples)
+21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 
 ---
 
@@ -864,14 +865,14 @@ RetryPolicy.builder()
 
 ### Idempotency and multipart
 
-By default only idempotent methods (`GET`, `HEAD`, `DELETE`) are retried.  Call
+By default, only idempotent methods (`GET`, `HEAD`, `DELETE`) are retried.  Call
 `allowNonIdempotent()` to also retry `POST`, `PUT`, and `PATCH` — only do this when
 you are certain the server operation is safe to execute more than once.
 
 **Multipart form-data requests are never retried**, regardless of any policy setting.
 The body is streamed and cannot be replayed after the first attempt.
 
-### Sync vs. async behaviour
+### Sync vs. async behavior
 
 | Path        | Retry mechanism                                                    |
 |-------------|--------------------------------------------------------------------|
@@ -1113,6 +1114,27 @@ Client client = Client.builder()
         )
         .eventListener(new MyMetricsListener())
         .build();
+```
+
+---
+
+## 21. Server-Sent Events (SSE)
+
+`client` includes `SseSpec` (via `Client.sse()`) for raw SSE stream access — no
+additional dependency. For typed, per-event-type callback dispatch with automatic
+reconnection, `Last-Event-ID` replay, and backpressure handling, add
+`software.frisby.web:client-sse`.
+
+**See [`docs/sse.md`](sse.md) for the complete guide** — quick starts for both the raw
+stream and the typed `client-sse` dispatch API, `SseHandler`/`SseBatchHandler`
+per-handler tuning, `BufferFullPolicy`, reconnect/`Last-Event-ID` behavior, virtual
+threads, and worked examples.
+
+```java
+HttpResponse<InputStream> response = client.sse()
+        .path("/notifications/stream")
+        .parameter("clientId", myClientId)
+        .stream();
 ```
 
 

@@ -12,12 +12,20 @@ They are not fetched automatically — they must be explicitly attached to the c
 Without these files in context, the AI will not have the complete validation method
 signatures, utility class behavior, or style rules needed to generate correct code.
 
+When working on a module that depends on `software.frisby.core:concurrency` (e.g.
+`client-sse`), also attach:
+
+- `.github/docs/concurrency.md` — full API reference for `software.frisby.core.concurrency`
+  (`Pipeline`, `Buffer`, `Group`, `Action`, `NamedExecutorService`, etc.)
+
 When working on a specific area, also attach the relevant AI reference doc from `docs/ai/`:
 
 - `docs/ai/serialization.md` — `JsonSerializer`, `GenericType`, `JacksonSerializer`
 - `docs/ai/client.md` — HTTP client: `Client`, verb specs, body types, compression, events, exceptions
+- `docs/ai/client-sse.md` — Client SSE: `SseSpec`, `SseListener`, `SseListenerBuilder`, `SseHandler`/`SseBatchHandler`, `SseMessage`, `BufferFullPolicy`
 - `docs/ai/client-security.md` — Client auth providers: Basic, Bearer Token, OAuth2 client-credentials
 - `docs/ai/server.md` — HTTP server: `Server`, `ServerConfiguration`, CORS, health check, logging, events
+- `docs/ai/server-sse.md` — Server SSE: `SseEvent`, `SseEventBuilder`, `SseEmitter`, `SseEmitterBuilder`, `SseEvents`, heartbeat behavior
 - `docs/ai/server-security.md` — Server auth: Basic, Bearer Token, RBAC, mixed authentication
 
 ---
@@ -124,9 +132,9 @@ Full guide: attach `.github/docs/java-coding-style.md` at session start. Essenti
 
 ## Exception Message Format
 
-Value failures: `"The '<name>' value is invalid.  <Sentence>."`  (two spaces between sentences)
+Value failures: `"The '<name>' value is invalid. <Sentence>."`  (one space between sentences)
 
-Configuration failures: `"The '<name>' value of '<actual>' is invalid.  <Sentence>."`
+Configuration failures: `"The '<name>' value of '<actual>' is invalid. <Sentence>."`
 
 ## Test Conventions
 
