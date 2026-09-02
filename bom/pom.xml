@@ -93,6 +93,12 @@
 
             <dependency>
                 <groupId>software.frisby.web</groupId>
+                <artifactId>server-sse</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>software.frisby.web</groupId>
                 <artifactId>server-basic-security</artifactId>
                 <version>${project.version}</version>
             </dependency>

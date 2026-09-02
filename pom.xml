@@ -131,6 +131,7 @@
         <module>basic-security</module>
         <module>oauth2-security</module>
         <module>server</module>
+        <module>server-sse</module>
         <module>server-basic-security</module>
         <module>server-oauth2-security</module>
         <module>jackson-serializer</module>

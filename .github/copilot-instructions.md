@@ -131,9 +131,9 @@ Full guide: attach `.github/docs/java-coding-style.md` at session start. Essenti
 
 ## Exception Message Format
 
-Value failures: `"The '<name>' value is invalid.  <Sentence>."`  (two spaces between sentences)
+Value failures: `"The '<name>' value is invalid. <Sentence>."`  (one space between sentences)
 
-Configuration failures: `"The '<name>' value of '<actual>' is invalid.  <Sentence>."`
+Configuration failures: `"The '<name>' value of '<actual>' is invalid. <Sentence>."`
 
 ## Test Conventions
 
