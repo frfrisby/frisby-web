@@ -30,6 +30,7 @@ mandatory external dependencies beyond the JDK.
 18. [TLS / custom SSLContext](#18-tls--custom-sslcontext)
 19. [Exception hierarchy](#19-exception-hierarchy)
 20. [Complete examples](#20-complete-examples)
+21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 
 ---
 
@@ -1113,6 +1114,27 @@ Client client = Client.builder()
         )
         .eventListener(new MyMetricsListener())
         .build();
+```
+
+---
+
+## 21. Server-Sent Events (SSE)
+
+`client` includes `SseSpec` (via `Client.sse()`) for raw SSE stream access — no
+additional dependency. For typed, per-event-type callback dispatch with automatic
+reconnection, `Last-Event-ID` replay, and backpressure handling, add
+`software.frisby.web:client-sse`.
+
+**See [`docs/sse.md`](sse.md) for the complete guide** — quick starts for both the raw
+stream and the typed `client-sse` dispatch API, `SseHandler`/`SseBatchHandler`
+per-handler tuning, `BufferFullPolicy`, reconnect/`Last-Event-ID` behavior, virtual
+threads, and worked examples.
+
+```java
+HttpResponse<InputStream> response = client.sse()
+        .path("/notifications/stream")
+        .parameter("clientId", myClientId)
+        .stream();
 ```
 
 

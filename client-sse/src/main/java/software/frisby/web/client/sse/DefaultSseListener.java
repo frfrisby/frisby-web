@@ -525,7 +525,7 @@ final class DefaultSseListener implements SseListener {
             body = raw.data();
         }
 
-        return new DefaultSseMessage<>(raw.id(), raw.event(), body, Instant.now());
+        return new DefaultSseMessage<>(raw.id(), raw.event(), body, raw.receivedAt());
     }
 
     private SseMessage<?> toMessage(RawSseEvent raw, SseBatchHandler handler) {
@@ -540,11 +540,11 @@ final class DefaultSseListener implements SseListener {
             body = raw.data();
         }
 
-        return new DefaultSseMessage<>(raw.id(), raw.event(), body, Instant.now());
+        return new DefaultSseMessage<>(raw.id(), raw.event(), body, raw.receivedAt());
     }
 
     private SseMessage<String> toRawMessage(RawSseEvent raw) {
-        return new DefaultSseMessage<>(raw.id(), raw.event(), raw.data(), Instant.now());
+        return new DefaultSseMessage<>(raw.id(), raw.event(), raw.data(), raw.receivedAt());
     }
 
     /**

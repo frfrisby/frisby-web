@@ -22,6 +22,7 @@ When working on a specific area, also attach the relevant AI reference doc from 
 
 - `docs/ai/serialization.md` — `JsonSerializer`, `GenericType`, `JacksonSerializer`
 - `docs/ai/client.md` — HTTP client: `Client`, verb specs, body types, compression, events, exceptions
+- `docs/ai/client-sse.md` — Client SSE: `SseSpec`, `SseListener`, `SseListenerBuilder`, `SseHandler`/`SseBatchHandler`, `SseMessage`, `BufferFullPolicy`
 - `docs/ai/client-security.md` — Client auth providers: Basic, Bearer Token, OAuth2 client-credentials
 - `docs/ai/server.md` — HTTP server: `Server`, `ServerConfiguration`, CORS, health check, logging, events
 - `docs/ai/server-security.md` — Server auth: Basic, Bearer Token, RBAC, mixed authentication

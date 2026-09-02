@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -24,6 +25,11 @@ import java.util.Optional;
  * {@link RawSseEvent#id()} models {@code id} per-event rather than as connection-level
  * state, tracking the last received {@code id} across events (for {@code Last-Event-ID}
  * reconnect purposes) is the responsibility of the connection layer, not this parser.
+ * <p>
+ * {@link RawSseEvent#receivedAt()} is stamped here, in {@link #dispatch()}, the moment an
+ * event finishes assembling (the blank-line terminator is read) — this is the true
+ * wire-receipt instant, unaffected by any buffering/batching delay further downstream in
+ * the dispatch pipeline.
  */
 final class SseEventParser {
     private static final String COMMENT_PREFIX = ":";
@@ -124,7 +130,8 @@ final class SseEventParser {
                 Optional.ofNullable(idBuffer),
                 Optional.ofNullable(eventBuffer),
                 data,
-                Optional.ofNullable(retryMillisBuffer).map(Duration::ofMillis)
+                Optional.ofNullable(retryMillisBuffer).map(Duration::ofMillis),
+                Instant.now()
         );
 
         reset();

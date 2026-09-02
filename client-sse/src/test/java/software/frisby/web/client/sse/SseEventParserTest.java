@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,6 +82,43 @@ class SseEventParserTest {
 
             assertTrue(event.isPresent());
             assertEquals("real event", event.get().data());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // receivedAt() — stamped at parse time, not at dispatch time
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ReceivedAt {
+        @Test
+        void isStampedAtParseTime_withinABoundedWindowOfTheCall() throws IOException {
+            SseEventParser parser = parserFor("data: hello\n\n");
+
+            Instant before = Instant.now();
+            Optional<RawSseEvent> event = parser.next();
+            Instant after = Instant.now();
+
+            assertTrue(event.isPresent());
+            Instant receivedAt = event.get().receivedAt();
+
+            assertFalse(receivedAt.isBefore(before), "Expected receivedAt not to precede the call to next()");
+            assertFalse(receivedAt.isAfter(after), "Expected receivedAt not to follow the call to next()");
+        }
+
+        @Test
+        void twoEventsInOneRead_eachGetsItsOwnNonDecreasingTimestamp() throws IOException {
+            SseEventParser parser = parserFor("data: first\n\ndata: second\n\n");
+
+            Optional<RawSseEvent> first = parser.next();
+            Optional<RawSseEvent> second = parser.next();
+
+            assertTrue(first.isPresent());
+            assertTrue(second.isPresent());
+            assertFalse(
+                    second.get().receivedAt().isBefore(first.get().receivedAt()),
+                    "Expected the second event's receivedAt to not precede the first's"
+            );
         }
     }
 
