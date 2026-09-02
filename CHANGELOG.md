@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/frfrisby/frisby-web/compare/v1.4.0...v1.5.0) (2026-09-02)
+
+
+### Features
+
+* **server:** Implement static assets API and logging enhancements ([#53](https://github.com/frfrisby/frisby-web/issues/53)) ([5f4b037](https://github.com/frfrisby/frisby-web/commit/5f4b037c4fdcb2f0ccdf6f987c03f67bde745e03))
+* **sse:** Add end-to-end SSE support across client and server modules. ([#57](https://github.com/frfrisby/frisby-web/issues/57)) ([bfed895](https://github.com/frfrisby/frisby-web/commit/bfed895056dcfe8fc37de8a29053d0285777e864))
+
 ## [1.4.0](https://github.com/frfrisby/frisby-web/compare/v1.3.4...v1.4.0) (2026-07-29)
 
 
