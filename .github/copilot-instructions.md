@@ -25,6 +25,7 @@ When working on a specific area, also attach the relevant AI reference doc from 
 - `docs/ai/client-sse.md` — Client SSE: `SseSpec`, `SseListener`, `SseListenerBuilder`, `SseHandler`/`SseBatchHandler`, `SseMessage`, `BufferFullPolicy`
 - `docs/ai/client-security.md` — Client auth providers: Basic, Bearer Token, OAuth2 client-credentials
 - `docs/ai/server.md` — HTTP server: `Server`, `ServerConfiguration`, CORS, health check, logging, events
+- `docs/ai/server-sse.md` — Server SSE: `SseEvent`, `SseEventBuilder`, `SseEmitter`, `SseEmitterBuilder`, `SseEvents`, heartbeat behavior
 - `docs/ai/server-security.md` — Server auth: Basic, Bearer Token, RBAC, mixed authentication
 
 ---

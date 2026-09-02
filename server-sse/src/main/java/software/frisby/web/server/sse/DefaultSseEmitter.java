@@ -21,6 +21,7 @@ final class DefaultSseEmitter implements SseEmitter {
     private static final String SINK_ARGUMENT_NAME = "sink";
     private static final String SSE_ARGUMENT_NAME = "sse";
     private static final String HEARTBEAT_TEXT = "keep-alive";
+    private static final String ABSENT_VALUE = "<none>";
 
     private final SseEventSink sink;
     private final Sse sse;
@@ -53,6 +54,13 @@ final class DefaultSseEmitter implements SseEmitter {
 
         this.heartbeatExecutor = executor;
         this.heartbeatFuture = future;
+
+        if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
+            LOGGER.log(
+                    System.Logger.Level.INFO,
+                    "SSE stream opened."
+            );
+        }
     }
 
     @Override
@@ -65,6 +73,7 @@ final class DefaultSseEmitter implements SseEmitter {
 
             sink.send(outboundEvent).whenComplete((ignored, throwable) -> {
                 if (null == throwable) {
+                    logSentEvent(event);
                     result.complete(null);
                     return;
                 }
@@ -98,6 +107,13 @@ final class DefaultSseEmitter implements SseEmitter {
         }
 
         sink.close();
+
+        if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
+            LOGGER.log(
+                    System.Logger.Level.INFO,
+                    "SSE stream closed."
+            );
+        }
     }
 
     private OutboundSseEvent toOutboundEvent(SseEvent event) {
@@ -122,6 +138,24 @@ final class DefaultSseEmitter implements SseEmitter {
         }
 
         return cause;
+    }
+
+    private void logSentEvent(SseEvent event) {
+        if (!LOGGER.isLoggable(System.Logger.Level.TRACE)) {
+            return;
+        }
+
+        String id = event.id().orElse(ABSENT_VALUE);
+        String name = event.event().orElse(ABSENT_VALUE);
+        String retry = event.retry().map(Duration::toMillis).map(String::valueOf).orElse(ABSENT_VALUE);
+
+        LOGGER.log(
+                System.Logger.Level.TRACE,
+                "SSE event sent. id=''{0}'', event=''{1}'', retryMs=''{2}''.",
+                id,
+                name,
+                retry
+        );
     }
 
     private void sendHeartbeatSafely() {

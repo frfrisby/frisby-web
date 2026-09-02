@@ -31,6 +31,7 @@ support — with zero framework magic and a minimal, explicit API.
 19. [Static assets](#19-static-assets)
 20. [Comparison with alternatives](#20-comparison-with-alternatives)
 21. [Complete examples](#21-complete-examples)
+22. [Server-Sent Events (SSE)](#22-server-sent-events-sse)
 
 ---
 
@@ -1334,6 +1335,29 @@ URI baseUri = URI.create("http://localhost:" + server.port());
 // ... send requests to baseUri ...
 
 server.stop();
+```
+
+---
+
+## 22. Server-Sent Events (SSE)
+
+`server` focuses on ordinary request/response endpoints. For SSE endpoints, add
+`software.frisby.web:server-sse`, which provides `SseEvent` / `SseEmitter` wrappers over
+Jersey's SSE primitives and a typed serialization helper (`SseEvents`).
+
+**See [`docs/sse.md`](sse.md) for the complete guide** - outbound event modeling,
+heartbeat semantics, `Last-Event-ID` replay patterns, and end-to-end server/client
+interaction.
+
+```java
+@GET
+@Path("/stream")
+@Produces(MediaType.SERVER_SENT_EVENTS)
+public void stream(@Context SseEventSink sink, @Context Sse sse) {
+    try (SseEmitter emitter = SseEmitter.builder().sink(sink).sse(sse).build()) {
+        emitter.send(SseEvent.builder().event("message").data("hello").build()).join();
+    }
+}
 ```
 
 

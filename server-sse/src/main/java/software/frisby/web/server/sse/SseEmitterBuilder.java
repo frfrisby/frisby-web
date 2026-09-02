@@ -35,7 +35,12 @@ public interface SseEmitterBuilder {
     SseEmitterBuilder sse(Sse sse);
 
     /**
-     * Enables heartbeat comments at a fixed interval.
+     * Configures an optional heartbeat comment interval.
+     * <p>
+     * If this method is not called, heartbeat emission remains disabled.
+     * Heartbeats are emitted as SSE comment frames (for example, {@code : keep-alive}),
+     * not as named events, so no {@code id}, {@code event}, {@code data}, or
+     * {@code retry} fields are included.
      *
      * @param heartbeatInterval The heartbeat interval. Must be positive.
      * @return This builder.

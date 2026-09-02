@@ -141,6 +141,53 @@ class DefaultSseEmitterTest {
         }
 
         @Test
+        void sinkSendCompletionExceptionWithNullCause_preservesCompletionException() {
+            CompletionException completionException = new CompletionException((Throwable) null);
+            CapturingSink sink = new CapturingSink();
+            sink.sendResult = CompletableFuture.failedFuture(completionException);
+
+            DefaultSseEmitter emitter = new DefaultSseEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null
+            );
+
+            CompletionException ex = assertThrows(
+                    CompletionException.class,
+                    () -> emitter.send(
+                            software.frisby.web.server.sse.SseEvent.builder()
+                                    .data("payload")
+                                    .build()
+                    ).join()
+            );
+
+            assertSame(completionException, ex);
+            assertEquals(null, ex.getCause());
+        }
+
+        @Test
+        void loggerAtInfo_sendDoesNotLogTraceEvent() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.INFO)
+                    .build();
+                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                         new CapturingSink(),
+                         new CapturingSse(),
+                         null
+                 )) {
+                emitter.send(
+                        software.frisby.web.server.sse.SseEvent.builder()
+                                .id("id-1")
+                                .event("type-1")
+                                .data("payload")
+                                .build()
+                ).join();
+
+                assertEquals(0, verifier.traceCount());
+            }
+        }
+
+        @Test
         void outboundBuilderFailure_returnsFailedFuture() {
             IllegalArgumentException failure = new IllegalArgumentException("builder failed");
             CapturingSse sse = new CapturingSse();
@@ -261,6 +308,20 @@ class DefaultSseEmitterTest {
                          Duration.ofMillis(20)
                  )) {
                 verifier.assertExpectations(Duration.ofSeconds(2));
+            }
+        }
+
+        @Test
+        void loggerAtWarning_infoLifecycleMessagesAreNotLogged() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.WARNING)
+                    .build();
+                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                         new CapturingSink(),
+                         new CapturingSse(),
+                         null
+                 )) {
+                assertEquals(0, verifier.infoCount());
             }
         }
 

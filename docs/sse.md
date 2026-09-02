@@ -8,8 +8,7 @@ SSE on **both sides** of the wire:
   per-event-type callback dispatch, automatic reconnection, `Last-Event-ID` replay, and
   configurable backpressure. **Available now.**
 - **Server** (`server-sse` module) — emit SSE events from a Jersey resource method with
-  a typed, builder-based API and optional heartbeat. **Coming soon** — this section will
-  be filled in once `server-sse` ships.
+  a typed, builder-based API and optional heartbeat. **Available now.**
 
 This single document covers the whole feature, both sides, in one place — the two
 halves share a wire format and a reconnect contract (`Last-Event-ID`, the server's
@@ -72,8 +71,7 @@ Typed callback dispatch, automatic reconnection, and backpressure handling — a
 </dependency>
 ```
 
-(See [§13](#13-server-side-sse--server-sse) for the server-side `server-sse` module,
-once it ships.)
+(See [Section 13](#13-server-side-sse--server-sse) for the server-side `server-sse` module.)
 
 ---
 
@@ -505,16 +503,120 @@ listener.close();
 
 ## 13. Server-side SSE — `server-sse`
 
-Not yet released. Once `server-sse` ships, this section will cover:
+`server-sse` is the server-side companion to the client APIs above. It keeps the public
+surface wire-focused:
 
-- `SseEvent` / `SseEventBuilder` — the outbound event value type (`id`, `event`, `data`,
-  `retry`).
-- `SseEmitter` / `SseEmitterBuilder` — the server-side wrapper around Jersey's
-  `SseEventSink`/`Sse`, including typed `send(String, T)` and optional heartbeat.
-- A worked resource-method example, including how an incoming `Last-Event-ID` header
-  (via `@HeaderParam`) drives server-side replay of missed events.
-- How the server's `retry` field and heartbeat comment lines interact with the client
-  behavior documented in [§9](#9-reconnection-and-last-event-id-replay) and
-  [§8](#8-backpressure--bufferfullpolicy) above.
+- `SseEvent` / `SseEventBuilder` model outbound `text/event-stream` fields.
+- `SseEmitter` / `SseEmitterBuilder` wrap Jersey's `SseEventSink` and `Sse`.
+- `SseEvents` is a convenience helper for serializer-backed typed payloads.
+
+### Dependency
+
+```xml
+<dependency>
+    <groupId>software.frisby.web</groupId>
+    <artifactId>server-sse</artifactId>
+</dependency>
+```
+
+### Outbound event model
+
+Build wire-ready events with `SseEvent.builder()`:
+
+```java
+SseEvent event = SseEvent.builder()
+        .id("42")
+        .event("price-update")
+        .data("{\"symbol\":\"ACME\",\"price\":101.25}")
+        .retry(Duration.ofSeconds(2))
+        .build();
+```
+
+Field behavior:
+
+- `data` is required.
+- `id`, `event`, and `retry` are optional.
+- `retry` accepts non-negative durations (`Duration.ZERO` is valid).
+
+### `SseEmitter`
+
+`SseEmitter` is intentionally wire-level only: `send(SseEvent)`.
+
+- `send(...)` returns `CompletableFuture<Void>` and completes exceptionally on send
+  failure.
+- `isOpen()` reflects `SseEventSink` state.
+- `close()` is idempotent and also stops the optional heartbeat scheduler.
+
+### Typed data convenience with `SseEvents`
+
+For typed payloads, serialize at event construction time:
+
+```java
+SseEvent event = SseEvents.of(serializer)
+        .id("42")
+        .event("price-update")
+        .data(new PriceUpdate("ACME", 101.25))
+        .retry(Duration.ofSeconds(2))
+        .toEvent();
+```
+
+### Heartbeat behavior
+
+`heartbeat(Duration)` emits SSE comment frames (for example `: keep-alive`).
+
+- Heartbeats are transport keep-alives, not application events.
+- They do not include `id`, `event`, `data`, or `retry` fields.
+- As documented in the client parser behavior, comment frames are ignored.
+
+### Worked resource-method example
+
+```java
+@Path("/notifications")
+public final class NotificationResource {
+    private final JsonSerializer serializer;
+    private final NotificationService service;
+
+    public NotificationResource(JsonSerializer serializer, NotificationService service) {
+        this.serializer = serializer;
+        this.service = service;
+    }
+
+    @GET
+    @Path("/stream")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    public void stream(@Context SseEventSink sink,
+                       @Context Sse sse,
+                       @HeaderParam("Last-Event-ID") String lastEventId) {
+        List<Notification> pending = service.eventsAfter(lastEventId);
+
+        try (SseEmitter emitter = SseEmitter.builder()
+                .sink(sink)
+                .sse(sse)
+                .heartbeat(Duration.ofSeconds(15))
+                .build()) {
+            for (Notification notification : pending) {
+                emitter.send(
+                        SseEvents.of(serializer)
+                                .id(notification.id())
+                                .event(notification.type())
+                                .data(notification)
+                                .retry(Duration.ofSeconds(2))
+                                .toEvent()
+                ).join();
+            }
+        }
+    }
+}
+```
+
+### Server/client interaction notes
+
+- The server can send `retry` hints per event; the client uses that as documented in
+  [Section 9](#9-reconnection-and-last-event-id-replay).
+- If a client reconnects with `Last-Event-ID`, expose it via `@HeaderParam` and replay
+  only newer events.
+- Heartbeat comment lines help keep idle connections alive and are ignored by client
+  dispatch, as documented in [Section 8](#8-backpressure--bufferfullpolicy) and
+  [Section 9](#9-reconnection-and-last-event-id-replay).
 
 
