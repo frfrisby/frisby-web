@@ -51,6 +51,13 @@
             <scope>test</scope>
         </dependency>
 
+        <dependency>
+            <groupId>software.frisby.web</groupId>
+            <artifactId>server-sse</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <!--
             Provides the embedded Jersey+Jetty server and JAX-RS resources (including
             SseTestResource) used by client-sse integration tests.  Not deployed to any
