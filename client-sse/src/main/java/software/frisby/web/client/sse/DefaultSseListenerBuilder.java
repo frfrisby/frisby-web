@@ -47,8 +47,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private static final Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
     private final List<Consumer<SseSpec>> navigationOps;
-    private final Map<String, SseHandler> eventHandlers;
-    private final Map<String, SseBatchHandler> batchHandlers;
+    private final Map<String, SseHandler<?>> eventHandlers;
+    private final Map<String, SseBatchHandler<?>> batchHandlers;
 
     private Client client;
     private SseSpec navigationTemplate;
@@ -56,8 +56,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private BufferFullPolicy bufferFullPolicy;
     private Consumer<SseMessage<String>> droppedHandler;
     private ExecutorService executor;
-    private SseHandler unhandledHandler;
-    private SseBatchHandler unhandledBatchHandler;
+    private SseHandler<String> unhandledHandler;
+    private SseBatchHandler<String> unhandledBatchHandler;
     private Consumer<SseErrorEvent> errorHandler;
     private RetryDelay reconnectDelay;
     private Duration closeTimeout;
@@ -187,7 +187,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onEvent(String event, SseHandler handler) {
+    public <T> SseListenerBuilder onEvent(String event, SseHandler<T> handler) {
         Strings.notBlank(EVENT_ARGUMENT_NAME, event);
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
         checkEventNotRegistered(event);
@@ -205,15 +205,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onUnhandledEvent(SseHandler handler) {
+    public SseListenerBuilder onUnhandledEvent(SseHandler<String> handler) {
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-
-        if (handler.type().isPresent() || handler.genericType().isPresent()) {
-            throw new IllegalArgumentException(
-                    "The '" + HANDLER_ARGUMENT_NAME + "' value is invalid.  An onUnhandledEvent handler must be "
-                            + "raw; it cannot declare a type() or genericType()."
-            );
-        }
 
         this.unhandledHandler = handler;
         this.unhandledBatchHandler = null;
@@ -221,15 +214,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onUnhandledEvent(SseBatchHandler handler) {
+    public SseListenerBuilder onUnhandledEvent(SseBatchHandler<String> handler) {
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-
-        if (handler.type().isPresent() || handler.genericType().isPresent()) {
-            throw new IllegalArgumentException(
-                    "The '" + HANDLER_ARGUMENT_NAME + "' value is invalid.  An onUnhandledEvent handler must be "
-                            + "raw; it cannot declare a type() or genericType()."
-            );
-        }
 
         this.unhandledBatchHandler = handler;
         this.unhandledHandler = null;
@@ -237,7 +223,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onEvent(String event, SseBatchHandler handler) {
+    public <T> SseListenerBuilder onEvent(String event, SseBatchHandler<T> handler) {
         Strings.notBlank(EVENT_ARGUMENT_NAME, event);
         Values.notNull(HANDLER_ARGUMENT_NAME, handler);
         checkEventNotRegistered(event);

@@ -267,6 +267,8 @@ public interface SseListenerBuilder {
      * {@code concurrency} independent worker arms, so a later event may be delivered
      * before an earlier one, and {@code handler}'s callback must be thread-safe.
      *
+     * @param <T>     The body type — a deserialized payload type for typed handlers, or
+     *                {@link String} for raw handlers.
      * @param event   The event type to handle; matched against an event's explicit
      *                {@code event} field. Events with no {@code event} field at all are
      *                never matched here — they are always routed to
@@ -280,7 +282,7 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException        if {@code event} is blank.
      * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already registered.
      */
-    SseListenerBuilder onEvent(String event, SseHandler handler);
+    <T> SseListenerBuilder onEvent(String event, SseHandler<T> handler);
 
     /**
      * Registers a batch handler for events whose {@code event} field matches
@@ -311,6 +313,8 @@ public interface SseListenerBuilder {
      * rather than {@link SseHandler}), mirroring {@link #onUnhandledEvent}'s existing
      * {@code Consumer}/{@code SseHandler} overload pair.
      *
+     * @param <T>     The body type — a deserialized payload type for typed handlers, or
+     *                {@link String} for raw handlers.
      * @param event   The event type to handle; matched against an event's explicit
      *                {@code event} field. Events with no {@code event} field at all are
      *                never matched here — they are always routed to
@@ -325,7 +329,7 @@ public interface SseListenerBuilder {
      * @throws software.frisby.core.validation.BlankValueException        if {@code event} is blank.
      * @throws software.frisby.core.validation.DuplicateElementsException if {@code event} is already registered.
      */
-    SseListenerBuilder onEvent(String event, SseBatchHandler handler);
+    <T> SseListenerBuilder onEvent(String event, SseBatchHandler<T> handler);
 
     /**
      * Registers a catch-all handler invoked for any event whose {@code event} field
@@ -335,7 +339,7 @@ public interface SseListenerBuilder {
      * a real async dispatch pipeline, using {@link SseHandler}'s default capacity
      * ({@code 1024}) and concurrency ({@code 1}), not a degraded path.
      *
-     * @param handler The callback invoked with the raw, unhandled message.
+     * @param handler The callback invoked with the unhandled {@code String} message.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
      */
@@ -346,16 +350,11 @@ public interface SseListenerBuilder {
      * for any event whose {@code event} field (or {@code "message"} default) has no
      * handler registered via {@link #onEvent}.
      *
-     * @param handler The handler configuration; must be raw — built via
-     *                {@link SseHandler#of(Consumer)} — since an unhandled event has no
-     *                known type to deserialize into.
+     * @param handler The handler configuration for unhandled {@code String} messages.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
-     * @throws IllegalArgumentException                           if {@code handler} was built with a
-     *                                                            {@code type()} or {@code genericType()}
-     *                                                            present.
      */
-    SseListenerBuilder onUnhandledEvent(SseHandler handler);
+    SseListenerBuilder onUnhandledEvent(SseHandler<String> handler);
 
     /**
      * Registers a catch-all batch handler, with its own capacity/concurrency/batch
@@ -367,24 +366,17 @@ public interface SseListenerBuilder {
      * batchSize} is reached or {@link SseBatchHandler#batchTimeout(Duration) batchTimeout}
      * elapses, whichever comes first, and an individual item's deserialization failure is
      * omitted from the delivered batch rather than discarding the whole batch. Since this
-     * is the catch-all path, {@code handler} must be raw — built via
-     * {@link SseBatchHandler#of(Consumer)} — there is no known type to deserialize an
-     * unhandled event's data into.
+     * is the catch-all path, {@code handler} carries {@code String} bodies.
      * <p>
      * Overloads {@link #onUnhandledEvent(SseHandler)} / {@link #onUnhandledEvent(Consumer)}
      * — only one catch-all registration is active at a time; the most recent call among
      * all three {@code onUnhandledEvent} overloads wins.
      *
-     * @param handler The handler configuration; must be raw — built via
-     *                {@link SseBatchHandler#of(Consumer)} — since an unhandled event has
-     *                no known type to deserialize into.
+     * @param handler The handler configuration for unhandled {@code String} messages.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
-     * @throws IllegalArgumentException                           if {@code handler} was built with a
-     *                                                            {@code type()} or {@code genericType()}
-     *                                                            present.
      */
-    SseListenerBuilder onUnhandledEvent(SseBatchHandler handler);
+    SseListenerBuilder onUnhandledEvent(SseBatchHandler<String> handler);
 
     /**
      * Registers a handler invoked when a callback exception, deserialization failure,
@@ -458,7 +450,7 @@ public interface SseListenerBuilder {
      *
      * @param timeout The maximum time to wait for dispatch pipelines to drain.
      * @return This builder instance.
-     * @throws software.frisby.core.validation.NullValueException             if {@code timeout} is null.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
     SseListenerBuilder closeTimeout(Duration timeout);

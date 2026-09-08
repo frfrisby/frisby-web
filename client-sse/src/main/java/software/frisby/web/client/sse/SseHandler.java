@@ -14,7 +14,7 @@ import java.util.function.Consumer;
  * {@code onEvent}'s original overload shapes: {@link #of(Class, Consumer)} for
  * {@code Class}-typed deserialization, {@link #of(GenericType, Consumer)} for
  * generically-typed deserialization (e.g. {@code List<Item>}), and {@link #of(Consumer)}
- * for a raw handler operating directly on the untouched wire-format {@code data} string.
+ * for a {@code String}-body handler operating directly on the untouched wire-format {@code data} string.
  * A factory is the <em>only</em> way to obtain an instance — there is no no-argument
  * builder — so a callback is always present; {@link #capacity(int)} and
  * {@link #concurrency(int)} are optional fluent overrides of this handler's own
@@ -22,7 +22,7 @@ import java.util.function.Consumer;
  * this handler's own dispatch pipeline, never shared with any other registered handler.
  * <p>
  * At most one of {@link #type()} / {@link #genericType()} is present. Both absent means
- * this is a raw handler.
+ * this is a {@code String}-body handler.
  * <p>
  * Deliberately mirrors {@code software.frisby.core.concurrency.fluent}'s
  * {@code Buffer.of(X.class).capacity(...)} idiom rather than this module's own
@@ -37,10 +37,12 @@ import java.util.function.Consumer;
  * for reusing a {@code Buffer}/{@code Transform} fluent stage instance across multiple
  * pipelines.
  *
+ * @param <T> The body type — a deserialized payload type for typed handlers, or
+ *            {@link String} for {@code String}-body handlers.
  * @see SseBatchHandler
  * @see SseListenerBuilder
  */
-public interface SseHandler {
+public interface SseHandler<T> {
     /**
      * Creates a handler that deserializes each event's {@code data} into {@code type}
      * via the connection's configured {@code JsonSerializer}.
@@ -51,7 +53,7 @@ public interface SseHandler {
      * @return A new handler, with default capacity ({@code 1024}) and concurrency ({@code 1}).
      * @throws software.frisby.core.validation.NullValueException if {@code type} or {@code handler} is null.
      */
-    static <T> SseHandler of(Class<T> type, Consumer<SseMessage<T>> handler) {
+    static <T> SseHandler<T> of(Class<T> type, Consumer<SseMessage<T>> handler) {
         return DefaultSseHandler.ofType(type, handler);
     }
 
@@ -65,19 +67,19 @@ public interface SseHandler {
      * @return A new handler, with default capacity ({@code 1024}) and concurrency ({@code 1}).
      * @throws software.frisby.core.validation.NullValueException if {@code type} or {@code handler} is null.
      */
-    static <T> SseHandler of(GenericType<T> type, Consumer<SseMessage<T>> handler) {
+    static <T> SseHandler<T> of(GenericType<T> type, Consumer<SseMessage<T>> handler) {
         return DefaultSseHandler.ofGenericType(type, handler);
     }
 
     /**
-     * Creates a raw handler operating directly on the untouched wire-format {@code data}
+     * Creates a {@code String}-body handler operating directly on the untouched wire-format {@code data}
      * string — no deserialization occurs.
      *
-     * @param handler The callback invoked with the raw message.
+     * @param handler The callback invoked with the untouched wire-format message.
      * @return A new handler, with default capacity ({@code 1024}) and concurrency ({@code 1}).
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
      */
-    static SseHandler of(Consumer<SseMessage<String>> handler) {
+    static SseHandler<String> of(Consumer<SseMessage<String>> handler) {
         return DefaultSseHandler.ofRaw(handler);
     }
 
@@ -91,7 +93,7 @@ public interface SseHandler {
      * @return This handler instance.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code capacity} is not positive.
      */
-    SseHandler capacity(int capacity);
+    SseHandler<T> capacity(int capacity);
 
     /**
      * Sets the number of concurrent worker arms dispatching to this handler's callback.
@@ -106,7 +108,7 @@ public interface SseHandler {
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
      *                                                                          positive.
      */
-    SseHandler concurrency(int concurrency);
+    SseHandler<T> concurrency(int concurrency);
 
     /**
      * Returns this handler's dispatch buffer capacity.
@@ -126,24 +128,24 @@ public interface SseHandler {
      * Returns the {@link Class} this handler deserializes into, if it was created via
      * {@link #of(Class, Consumer)}.
      *
-     * @return The target type, or empty if this handler is generically-typed or raw.
+     * @return The target type, or empty if this handler is generically-typed or a {@code String}-body handler.
      */
-    Optional<Class<?>> type();
+    Optional<Class<T>> type();
 
     /**
      * Returns the {@link GenericType} this handler deserializes into, if it was created
      * via {@link #of(GenericType, Consumer)}.
      *
-     * @return The target generic type, or empty if this handler is {@code Class}-typed or raw.
+     * @return The target generic type, or empty if this handler is {@code Class}-typed or a {@code String}-body handler.
      */
-    Optional<GenericType<?>> genericType();
+    Optional<GenericType<T>> genericType();
 
     /**
      * Returns the registered callback.
      *
      * @return The callback; always an {@code SseMessage} consumer.
      */
-    Consumer<?> callback();
+    Consumer<SseMessage<T>> callback();
 }
 
 

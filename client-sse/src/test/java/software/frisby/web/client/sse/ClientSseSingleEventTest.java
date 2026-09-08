@@ -21,10 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Chunk 7 integration tests — single-event delivery ({@code onEvent}, no batching, no
@@ -243,24 +240,26 @@ class ClientSseSingleEventTest {
         // falls back to a plain no-op SseHandler in that case. Every other unhandled-event
         // scenario in this suite registers onUnhandledEvent explicitly, so that fallback
         // lambda's own body was never actually invoked by any existing test.
-        SseListener listener = SseListener.builder().client(client)
+        try (SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "no-unhandled-handler-registered-at-all")
                 .parameter("includeEventField", "false")
-                .onEvent("message", SseHandler.of(message -> { }))
-                .build();
+                .onEvent("message", SseHandler.of(message -> {
+                }))
+                .build()
+        ) {
+            try {
+                listener.connectAsync();
 
-        try {
-            listener.connectAsync();
-
-            // No latch to await — the fallback handler intentionally does nothing
-            // observable. close() below blocks on the fallback pipeline's own
-            // awaitCompletion(), so a brief sleep first just gives the reader thread time
-            // to actually post all three events (which all lack an event field, per
-            // includeEventField=false) into that pipeline beforehand.
-            Thread.sleep(500);
-        } finally {
-            assertDoesNotThrow(listener::close);
+                // No latch to await — the fallback handler intentionally does nothing
+                // observable. close() below blocks on the fallback pipeline's own
+                // awaitCompletion(), so a brief sleep first just gives the reader thread time
+                // to actually post all three events (which all lack an event field, per
+                // includeEventField=false) into that pipeline beforehand.
+                Thread.sleep(500);
+            } finally {
+                assertDoesNotThrow(listener::close);
+            }
         }
     }
 

@@ -34,7 +34,7 @@ import java.util.function.Function;
  * <p>
  * Every handler's pipeline starts the same way — {@code Buffer<RawSseEvent> →
  * Transform<RawSseEvent, Delivery>} (deserializing, or passing the raw {@code data}
- * string through unchanged for a raw handler; {@link Delivery} pairs the resulting
+ * string through unchanged for a {@code String}-body handler; {@link Delivery} pairs the resulting
  * {@link SseMessage} with the {@link RawSseEvent} it came from, so a handler callback
  * exception can still report the untouched wire-format {@code data} string as
  * {@link SseErrorEvent} context) — a failed deserialization is caught inside the
@@ -107,10 +107,10 @@ final class DefaultSseListener implements SseListener {
     private final BufferFullPolicy bufferFullPolicy;
     private final Consumer<SseMessage<String>> droppedHandler;
     private final ExecutorService callerExecutor;
-    private final Map<String, SseHandler> eventHandlers;
-    private final Map<String, SseBatchHandler> batchHandlers;
-    private final SseHandler unhandledHandler;
-    private final SseBatchHandler unhandledBatchHandler;
+    private final Map<String, SseHandler<?>> eventHandlers;
+    private final Map<String, SseBatchHandler<?>> batchHandlers;
+    private final SseHandler<String> unhandledHandler;
+    private final SseBatchHandler<String> unhandledBatchHandler;
     private final Consumer<SseErrorEvent> errorHandler;
     private final RetryDelay reconnectDelay;
     private final Duration closeTimeout;
@@ -125,16 +125,17 @@ final class DefaultSseListener implements SseListener {
     private Pipeline<RawSseEvent> unhandledPipeline;
     private Future<?> readerFuture;
 
+    @SuppressWarnings("java:S107")
     DefaultSseListener(Client client,
                        List<Consumer<SseSpec>> navigationOps,
                        String initialLastEventId,
                        BufferFullPolicy bufferFullPolicy,
                        Consumer<SseMessage<String>> droppedHandler,
                        ExecutorService callerExecutor,
-                       Map<String, SseHandler> eventHandlers,
-                       Map<String, SseBatchHandler> batchHandlers,
-                       SseHandler unhandledHandler,
-                       SseBatchHandler unhandledBatchHandler,
+                       Map<String, SseHandler<?>> eventHandlers,
+                       Map<String, SseBatchHandler<?>> batchHandlers,
+                       SseHandler<String> unhandledHandler,
+                       SseBatchHandler<String> unhandledBatchHandler,
                        Consumer<SseErrorEvent> errorHandler,
                        RetryDelay reconnectDelay,
                        Duration closeTimeout) {
@@ -369,7 +370,7 @@ final class DefaultSseListener implements SseListener {
     private Map<String, Pipeline<RawSseEvent>> buildHandlerPipelines() {
         Map<String, Pipeline<RawSseEvent>> pipelines = new HashMap<>();
 
-        for (Map.Entry<String, SseHandler> entry : eventHandlers.entrySet()) {
+        for (Map.Entry<String, SseHandler<?>> entry : eventHandlers.entrySet()) {
             pipelines.put(entry.getKey(), buildHandlerPipeline(entry.getValue()));
         }
 
@@ -377,14 +378,14 @@ final class DefaultSseListener implements SseListener {
         // registered via both onEvent(String, SseHandler) and onEvent(String,
         // SseBatchHandler) resolves to its batch pipeline — an edge case neither
         // builder rejects, but not an expected usage pattern.
-        for (Map.Entry<String, SseBatchHandler> entry : batchHandlers.entrySet()) {
+        for (Map.Entry<String, SseBatchHandler<?>> entry : batchHandlers.entrySet()) {
             pipelines.put(entry.getKey(), buildBatchHandlerPipeline(entry.getValue()));
         }
 
         return pipelines;
     }
 
-    private Pipeline<RawSseEvent> buildHandlerPipeline(SseHandler handler) {
+    private Pipeline<RawSseEvent> buildHandlerPipeline(SseHandler<?> handler) {
         int capacity = handler.capacity();
 
         if (1 == handler.concurrency()) {
@@ -410,7 +411,7 @@ final class DefaultSseListener implements SseListener {
                                 .to(delivery -> dispatchSafely(handler, delivery))));
     }
 
-    private Pipeline<RawSseEvent> buildBatchHandlerPipeline(SseBatchHandler handler) {
+    private Pipeline<RawSseEvent> buildBatchHandlerPipeline(SseBatchHandler<?> handler) {
         int capacity = handler.capacity();
         int batchSize = handler.batchSize();
         Duration batchTimeout = handler.batchTimeout();
@@ -456,8 +457,8 @@ final class DefaultSseListener implements SseListener {
      * ({@link #buildBatchHandlerPipeline}); a registered {@link #unhandledHandler} (or
      * neither being registered) takes the single-event shape
      * ({@link #buildHandlerPipeline(SseHandler)}) — {@link SseListenerBuilder}
-     * guarantees at most one of the two is ever set, and both are always raw. Falls back
-     * to a no-op raw handler when neither an {@code onUnhandledEvent} handler nor an
+     * guarantees at most one of the two is ever set, and both are always {@code String}-body handlers. Falls back
+     * to a no-op raw {@code String} handler when neither an {@code onUnhandledEvent} handler nor an
      * {@code onUnhandledEvent} batch handler was registered, so {@code #dispatch} always
      * has a pipeline to fall back to.
      */
@@ -466,14 +467,15 @@ final class DefaultSseListener implements SseListener {
             return buildBatchHandlerPipeline(unhandledBatchHandler);
         }
 
-        SseHandler handler = null != unhandledHandler
+        SseHandler<String> handler = null != unhandledHandler
                 ? unhandledHandler
-                : SseHandler.of(message -> { });
+                : SseHandler.of(message -> {
+        });
 
         return buildHandlerPipeline(handler);
     }
 
-    private Delivery deserializeSafely(RawSseEvent raw, SseHandler handler) {
+    private Delivery deserializeSafely(RawSseEvent raw, SseHandler<?> handler) {
         try {
             return new Delivery(raw, toMessage(raw, handler));
         } catch (RuntimeException e) {
@@ -483,7 +485,7 @@ final class DefaultSseListener implements SseListener {
         }
     }
 
-    private Delivery deserializeSafely(RawSseEvent raw, SseBatchHandler handler) {
+    private Delivery deserializeSafely(RawSseEvent raw, SseBatchHandler<?> handler) {
         try {
             return new Delivery(raw, toMessage(raw, handler));
         } catch (RuntimeException e) {
@@ -499,7 +501,7 @@ final class DefaultSseListener implements SseListener {
      * rather than discarding the whole batch — a single malformed event should never
      * take an entire batch's worth of good events down with it.
      */
-    private List<Delivery> deserializeBatchSafely(List<RawSseEvent> raws, SseBatchHandler handler) {
+    private List<Delivery> deserializeBatchSafely(List<RawSseEvent> raws, SseBatchHandler<?> handler) {
         List<Delivery> deliveries = new ArrayList<>(raws.size());
 
         for (RawSseEvent raw : raws) {
@@ -513,14 +515,19 @@ final class DefaultSseListener implements SseListener {
         return deliveries;
     }
 
-    private SseMessage<?> toMessage(RawSseEvent raw, SseHandler handler) {
-        byte[] data = raw.data().getBytes(StandardCharsets.UTF_8);
+    private SseMessage<?> toMessage(RawSseEvent raw, SseHandler<?> handler) {
         Object body;
 
         if (handler.type().isPresent()) {
-            body = client.configuration().serializer().deserialize(data, handler.type().get());
+            body = client.configuration().serializer().deserialize(
+                    raw.data().getBytes(StandardCharsets.UTF_8),
+                    handler.type().get()
+            );
         } else if (handler.genericType().isPresent()) {
-            body = client.configuration().serializer().deserialize(data, handler.genericType().get());
+            body = client.configuration().serializer().deserialize(
+                    raw.data().getBytes(StandardCharsets.UTF_8),
+                    handler.genericType().get()
+            );
         } else {
             body = raw.data();
         }
@@ -528,14 +535,19 @@ final class DefaultSseListener implements SseListener {
         return new DefaultSseMessage<>(raw.id(), raw.event(), body, raw.receivedAt());
     }
 
-    private SseMessage<?> toMessage(RawSseEvent raw, SseBatchHandler handler) {
-        byte[] data = raw.data().getBytes(StandardCharsets.UTF_8);
+    private SseMessage<?> toMessage(RawSseEvent raw, SseBatchHandler<?> handler) {
         Object body;
 
         if (handler.type().isPresent()) {
-            body = client.configuration().serializer().deserialize(data, handler.type().get());
+            body = client.configuration().serializer().deserialize(
+                    raw.data().getBytes(StandardCharsets.UTF_8),
+                    handler.type().get()
+            );
         } else if (handler.genericType().isPresent()) {
-            body = client.configuration().serializer().deserialize(data, handler.genericType().get());
+            body = client.configuration().serializer().deserialize(
+                    raw.data().getBytes(StandardCharsets.UTF_8),
+                    handler.genericType().get()
+            );
         } else {
             body = raw.data();
         }
@@ -578,7 +590,8 @@ final class DefaultSseListener implements SseListener {
      * method is package-private specifically so a test can make one), rather than
      * assuming a caller can never violate the assumption.
      */
-    void dispatchSafely(SseHandler handler, Delivery delivery) {
+    @SuppressWarnings("java:S1181")
+    void dispatchSafely(SseHandler<?> handler, Delivery delivery) {
         if (null == delivery) {
             return;
         }
@@ -611,14 +624,16 @@ final class DefaultSseListener implements SseListener {
      * defensive-programming reason, and this method is package-private for the same
      * direct-testability reason.
      */
-    void dispatchBatchSafely(SseBatchHandler handler, List<Delivery> deliveries) {
+    @SuppressWarnings("java:S1181")
+    void dispatchBatchSafely(SseBatchHandler<?> handler, List<Delivery> deliveries) {
         if (null == deliveries || deliveries.isEmpty()) {
             return;
         }
 
-        List<?> messages = deliveries.stream()
-                .map(Delivery::message)
-                .toList();
+        List<SseMessage<?>> messages = new ArrayList<>(deliveries.size());
+        for (Delivery delivery : deliveries) {
+            messages.add(delivery.message());
+        }
 
         try {
             invokeBatchCallback(handler.callback(), messages);
@@ -631,8 +646,8 @@ final class DefaultSseListener implements SseListener {
     }
 
     @SuppressWarnings("unchecked")
-    private void invokeBatchCallback(Consumer<?> callback, List<?> messages) {
-        ((Consumer<List<?>>) callback).accept(messages);
+    private void invokeBatchCallback(Consumer<?> callback, List<SseMessage<?>> messages) {
+        ((Consumer<List<SseMessage<?>>>) callback).accept(messages);
     }
 
     @SuppressWarnings("unchecked")
@@ -657,6 +672,7 @@ final class DefaultSseListener implements SseListener {
      * reopen the exact worker-thread-death/{@code close()}-hang problem those methods exist
      * to prevent, just one call frame removed.
      */
+    @SuppressWarnings("java:S1181")
     private void notify(SseErrorEvent event) {
         if (null == errorHandler) {
             return;
@@ -713,6 +729,7 @@ final class DefaultSseListener implements SseListener {
         private final AtomicLong droppedCount;
         private final AtomicReference<Instant> dropEpisodeStart;
 
+        @SuppressWarnings("java:S107")
         private ReaderTask(Client client,
                            List<Consumer<SseSpec>> navigationOps,
                            String initialLastEventId,
@@ -750,6 +767,7 @@ final class DefaultSseListener implements SseListener {
          * let a buggy {@code onError} handler kill the reader thread itself, silently ending
          * the entire reconnect loop with no further reconnect attempts ever being made.
          */
+        @SuppressWarnings("java:S1181")
         private static void notifyError(Consumer<SseErrorEvent> errorHandler, Throwable error) {
             if (null == errorHandler) {
                 return;
@@ -769,6 +787,7 @@ final class DefaultSseListener implements SseListener {
         }
 
         @Override
+        @SuppressWarnings({"java:S3776", "java:S125"})
         public void run() {
             int consecutiveFailures = 0;
 
@@ -810,11 +829,7 @@ final class DefaultSseListener implements SseListener {
                     flushDropEpisodeAtConnectionEnd();
                 }
 
-                if (closed.get()) {
-                    break;
-                }
-
-                if (!awaitReconnectDelay(consecutiveFailures)) {
+                if (closed.get() || !awaitReconnectDelay(consecutiveFailures)) {
                     break;
                 }
             }
@@ -1018,6 +1033,7 @@ final class DefaultSseListener implements SseListener {
          * {@code onDropped} handler kill the reader thread itself under exactly the
          * sustained-high-volume conditions {@link BufferFullPolicy#DROP} is meant to survive.
          */
+        @SuppressWarnings("java:S1181")
         private void notifyDropped(RawSseEvent raw) {
             if (null == droppedHandler) {
                 return;

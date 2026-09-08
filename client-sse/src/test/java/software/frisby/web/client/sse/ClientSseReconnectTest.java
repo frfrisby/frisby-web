@@ -24,8 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Chunk 9 integration tests — reconnect loop, {@code Last-Event-ID} replay, server
@@ -303,7 +302,7 @@ class ClientSseReconnectTest {
                     "Expected at least one event to be dropped while the handler was blocked"
             );
 
-            assertTrue(!droppedBodies.isEmpty(), "Expected onDropped to fire at least once");
+            assertFalse(droppedBodies.isEmpty(), "Expected onDropped to fire at least once");
             assertTrue(
                     deliveredCount.get() < totalEvents,
                     "Expected DROP to discard at least some of the burst, delivered " + deliveredCount.get()

@@ -39,15 +39,16 @@ class DefaultSseListenerDispatchBatchSafelyTest {
                 .build();
 
         AtomicBoolean callbackInvoked = new AtomicBoolean(false);
-        SseBatchHandler handler = SseBatchHandler.of(messages -> callbackInvoked.set(true));
+        SseBatchHandler<String> handler = SseBatchHandler.of(messages -> callbackInvoked.set(true));
 
-        DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
+        try (DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
                 .path("/sse/stream")
                 .onEvent("message", handler)
-                .build();
-
-        assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, null));
-        assertFalse(callbackInvoked.get(), "Expected null deliveries to never invoke the handler's callback");
+                .build()
+        ) {
+            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, null));
+            assertFalse(callbackInvoked.get(), "Expected null deliveries to never invoke the handler's callback");
+        }
     }
 
     @Test
@@ -62,15 +63,16 @@ class DefaultSseListenerDispatchBatchSafelyTest {
                 .build();
 
         AtomicBoolean callbackInvoked = new AtomicBoolean(false);
-        SseBatchHandler handler = SseBatchHandler.of(messages -> callbackInvoked.set(true));
+        SseBatchHandler<String> handler = SseBatchHandler.of(messages -> callbackInvoked.set(true));
 
-        DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
+        try (DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
                 .path("/sse/stream")
                 .onEvent("message", handler)
-                .build();
-
-        assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, List.of()));
-        assertFalse(callbackInvoked.get(), "Expected empty deliveries to never invoke the handler's callback");
+                .build()
+        ) {
+            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, List.of()));
+            assertFalse(callbackInvoked.get(), "Expected empty deliveries to never invoke the handler's callback");
+        }
     }
 }
 

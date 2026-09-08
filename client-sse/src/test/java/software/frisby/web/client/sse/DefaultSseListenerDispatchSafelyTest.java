@@ -39,15 +39,16 @@ class DefaultSseListenerDispatchSafelyTest {
                 .build();
 
         AtomicBoolean callbackInvoked = new AtomicBoolean(false);
-        SseHandler handler = SseHandler.of(message -> callbackInvoked.set(true));
+        SseHandler<String> handler = SseHandler.of(message -> callbackInvoked.set(true));
 
-        DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
+        try (DefaultSseListener listener = (DefaultSseListener) SseListener.builder().client(client)
                 .path("/sse/stream")
                 .onEvent("message", handler)
-                .build();
-
-        assertDoesNotThrow(() -> listener.dispatchSafely(handler, null));
-        assertFalse(callbackInvoked.get(), "Expected a null delivery to never invoke the handler's callback");
+                .build()
+        ) {
+            assertDoesNotThrow(() -> listener.dispatchSafely(handler, null));
+            assertFalse(callbackInvoked.get(), "Expected a null delivery to never invoke the handler's callback");
+        }
     }
 }
 

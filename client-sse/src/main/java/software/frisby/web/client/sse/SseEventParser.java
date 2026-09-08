@@ -77,11 +77,9 @@ final class SseEventParser {
                 continue;
             }
 
-            if (line.startsWith(COMMENT_PREFIX)) {
-                continue;
+            if (!line.startsWith(COMMENT_PREFIX)) {
+                processField(line);
             }
-
-            processField(line);
         }
 
         return Optional.empty();
