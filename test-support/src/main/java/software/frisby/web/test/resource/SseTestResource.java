@@ -20,41 +20,43 @@ import java.util.concurrent.ConcurrentHashMap;
  * Hand-written {@code text/event-stream} JAX-RS resource used to unblock {@code client} /
  * {@code client-sse} integration testing before the {@code server-sse} module exists.
  * <p>
- * This is intentionally primitive — it writes the SSE wire format directly to the response
+ * This is intentionally primitive -- it writes the SSE wire format directly to the response
  * {@link OutputStream} rather than depending on {@code jersey-media-sse}, and it does not model
  * or preview any {@code server-sse} type.
  *
  * <ul>
- *   <li>{@code GET /sse/stream} — writes {@code count} events (default {@value #DEFAULT_EVENT_COUNT}),
+ *   <li>{@code GET /sse/stream} -- writes {@code count} events (default {@value #DEFAULT_EVENT_COUNT}),
  *       each with {@code id}, {@code event}, and {@code data} fields, flushing after each, then
  *       closes the stream normally</li>
- *   <li>{@code GET /sse/stream?heartbeat=true} — interleaves a {@code : keep-alive} comment line
+ *   <li>{@code GET /sse/stream?heartbeat=true} -- interleaves a {@code : keep-alive} comment line
  *       before each event</li>
- *   <li>{@code GET /sse/stream?closeAfterMs={n}} — sleeps for {@code n} milliseconds immediately
+ *   <li>{@code GET /sse/stream?closeAfterMs={n}} -- sleeps for {@code n} milliseconds immediately
  *       before writing the final event, holding the connection open for that duration</li>
- *   <li>{@code GET /sse/stream?includeEventField=false} — omits the {@code event:} line entirely
- *       for every generated event, rather than writing {@code event: message} — used to
+ *   <li>{@code GET /sse/stream?includeEventField=false} -- omits the {@code event:} line entirely
+ *       for every generated event, rather than writing {@code event: message} -- used to
  *       distinguish "the producer never set an event type" from "the producer explicitly chose
  *       the name message" in client-side dispatch tests</li>
- *   <li>{@code GET /sse/stream?channel={name}} — isolates the in-memory event log used for
+ *   <li>{@code GET /sse/stream?maxEventsPerConnection={n}} -- writes at most {@code n}
+ *       replay-eligible events per HTTP response, then closes normally</li>
+ *   <li>{@code GET /sse/stream?channel={name}} -- isolates the in-memory event log used for
  *       {@code Last-Event-ID} replay so concurrent tests do not interfere with one another;
  *       defaults to {@value #DEFAULT_CHANNEL}</li>
- *   <li>{@code GET /sse/stream?retryMs={n}} — emits a {@code retry:} field (milliseconds) on
+ *   <li>{@code GET /sse/stream?retryMs={n}} -- emits a {@code retry:} field (milliseconds) on
  *       the first generated event only, for exercising a client's server-supplied reconnect
  *       delay handling</li>
- *   <li>{@code GET /sse/stream?payload=object} — emits {@code data} as a JSON object,
- *       {@code {"value":"event-N"}}, instead of the bare string {@code "event-N"} — for
+ *   <li>{@code GET /sse/stream?payload=object} -- emits {@code data} as a JSON object,
+ *       {@code {"value":"event-N"}}, instead of the bare string {@code "event-N"} -- for
  *       exercising typed {@code Class<T>} deserialization</li>
- *   <li>{@code GET /sse/stream?payload=array} — emits {@code data} as a single-element JSON
- *       array, {@code ["event-N"]}, instead of the bare string — for exercising generically-typed
+ *   <li>{@code GET /sse/stream?payload=array} -- emits {@code data} as a single-element JSON
+ *       array, {@code ["event-N"]}, instead of the bare string -- for exercising generically-typed
  *       ({@code GenericType<List<T>>}) deserialization</li>
- *   <li>{@code GET /sse/stream?malformedEventId={n}} — overrides the {@code data} field of the
+ *   <li>{@code GET /sse/stream?malformedEventId={n}} -- overrides the {@code data} field of the
  *       event whose {@code id} equals {@code n} with a deliberately invalid JSON fragment,
- *       regardless of {@code payload} — for exercising a single item's deserialization failure
+ *       regardless of {@code payload} -- for exercising a single item's deserialization failure
  *       without invalidating an entire batch</li>
- *   <li>{@code GET /sse/stream?alternateEventTypes=true} — alternates each generated event's
+ *   <li>{@code GET /sse/stream?alternateEventTypes=true} -- alternates each generated event's
  *       {@code event} field between {@code "type-a"} (odd {@code id}) and {@code "type-b"}
- *       (even {@code id}), overriding {@code includeEventField} — for exercising two different
+ *       (even {@code id}), overriding {@code includeEventField} -- for exercising two different
  *       {@code onEvent} registrations on one connection</li>
  *   <li>A {@code Last-Event-ID} request header causes only events with an {@code id} greater
  *       than the supplied value to be replayed, using a simple in-memory event log keyed by
@@ -75,46 +77,49 @@ public final class SseTestResource {
      * Writes a configurable sequence of SSE events, optionally replaying only those events
      * whose {@code id} is greater than the supplied {@code Last-Event-ID} header value.
      *
-     * @param count              The number of events to generate for this channel the first
-     *                           time it is requested; ignored on subsequent requests for the
-     *                           same channel.
-     * @param heartbeat          When {@code true}, a {@code : keep-alive} comment line precedes
-     *                           every event.
-     * @param closeAfterMs       When present, the number of milliseconds to sleep immediately
-     *                           before writing the final event.
-     * @param includeEventField  When {@code false}, generated events omit the {@code event:}
-     *                           line entirely instead of writing {@code event: message}.
-     *                           Ignored when {@code alternateEventTypes} is {@code true}.
-     * @param channel            Isolates the in-memory event log used for {@code Last-Event-ID}
-     *                           replay.
-     * @param retryMs            When present, the first generated event carries a {@code retry:}
-     *                           field with this millisecond value; ignored on subsequent requests
-     *                           for the same channel (the event log is generated only once).
-     * @param payload            {@code "plain"} (default) for a bare {@code "event-N"} string,
-     *                           {@code "object"} for a JSON object ({@code {"value":"event-N"}}),
-     *                           or {@code "array"} for a single-element JSON array
-     *                           ({@code ["event-N"]}).
-     * @param malformedEventId   When present, overrides the {@code data} field of the event with
-     *                           this {@code id} with a deliberately invalid JSON fragment,
-     *                           regardless of {@code payload}.
-     * @param alternateEventTypes When {@code true}, alternates each event's {@code event} field
-     *                           between {@code "type-a"} (odd {@code id}) and {@code "type-b"}
-     *                           (even {@code id}), overriding {@code includeEventField}.
-     * @param lastEventId        The incoming {@code Last-Event-ID} header value, if any.
+     * @param count                  The number of events to generate for this channel the first
+     *                               time it is requested; ignored on subsequent requests for the
+     *                               same channel.
+     * @param heartbeat              When {@code true}, a {@code : keep-alive} comment line precedes
+     *                               every event.
+     * @param closeAfterMs           When present, the number of milliseconds to sleep immediately
+     *                               before writing the final event.
+     * @param includeEventField      When {@code false}, generated events omit the {@code event:}
+     *                               line entirely instead of writing {@code event: message}.
+     *                               Ignored when {@code alternateEventTypes} is {@code true}.
+     * @param maxEventsPerConnection When present and positive, caps how many replay-eligible
+     *                               events are written on this connection before the response closes.
+     * @param channel                Isolates the in-memory event log used for {@code Last-Event-ID}
+     *                               replay.
+     * @param retryMs                When present, the first generated event carries a {@code retry:}
+     *                               field with this millisecond value; ignored on subsequent requests
+     *                               for the same channel (the event log is generated only once).
+     * @param payload                {@code "plain"} (default) for a bare {@code "event-N"} string,
+     *                               {@code "object"} for a JSON object ({@code {"value":"event-N"}}),
+     *                               or {@code "array"} for a single-element JSON array
+     *                               ({@code ["event-N"]}).
+     * @param malformedEventId       When present, overrides the {@code data} field of the event with
+     *                               this {@code id} with a deliberately invalid JSON fragment,
+     *                               regardless of {@code payload}.
+     * @param alternateEventTypes    When {@code true}, alternates each event's {@code event} field
+     *                               between {@code "type-a"} (odd {@code id}) and {@code "type-b"}
+     *                               (even {@code id}), overriding {@code includeEventField}.
+     * @param lastEventId            The incoming {@code Last-Event-ID} header value, if any.
      * @return A streaming {@code text/event-stream} response.
      */
     @GET
     @Path("/stream")
     public Response stream(@QueryParam("count") @DefaultValue("" + DEFAULT_EVENT_COUNT) int count,
-                            @QueryParam("heartbeat") @DefaultValue("false") boolean heartbeat,
-                            @QueryParam("closeAfterMs") Long closeAfterMs,
-                            @QueryParam("includeEventField") @DefaultValue("true") boolean includeEventField,
-                            @QueryParam("channel") @DefaultValue(DEFAULT_CHANNEL) String channel,
-                            @QueryParam("retryMs") Long retryMs,
-                            @QueryParam("payload") @DefaultValue(DEFAULT_PAYLOAD) String payload,
-                            @QueryParam("malformedEventId") Long malformedEventId,
-                            @QueryParam("alternateEventTypes") @DefaultValue("false") boolean alternateEventTypes,
-                            @HeaderParam(LAST_EVENT_ID) String lastEventId) {
+                           @QueryParam("heartbeat") @DefaultValue("false") boolean heartbeat,
+                           @QueryParam("closeAfterMs") Long closeAfterMs,
+                           @QueryParam("includeEventField") @DefaultValue("true") boolean includeEventField,
+                           @QueryParam("maxEventsPerConnection") Integer maxEventsPerConnection,
+                           @QueryParam("channel") @DefaultValue(DEFAULT_CHANNEL) String channel,
+                           @QueryParam("retryMs") Long retryMs,
+                           @QueryParam("payload") @DefaultValue(DEFAULT_PAYLOAD) String payload,
+                           @QueryParam("malformedEventId") Long malformedEventId,
+                           @QueryParam("alternateEventTypes") @DefaultValue("false") boolean alternateEventTypes,
+                           @HeaderParam(LAST_EVENT_ID) String lastEventId) {
         List<StoredEvent> events = EVENT_LOGS.computeIfAbsent(
                 channel,
                 key -> generateEvents(
@@ -129,11 +134,18 @@ public final class SseTestResource {
 
         long afterId = null == lastEventId ? 0L : Long.parseLong(lastEventId);
 
-        List<StoredEvent> toSend = events.stream()
+        List<StoredEvent> replay = events.stream()
                 .filter(event -> event.id() > afterId)
                 .toList();
 
-        StreamingOutput output = out -> writeEvents(out, toSend, heartbeat, closeAfterMs);
+        List<StoredEvent> toSend = replay;
+
+        if (null != maxEventsPerConnection && maxEventsPerConnection > 0) {
+            toSend = replay.stream().limit(maxEventsPerConnection).toList();
+        }
+
+        List<StoredEvent> eventsToSend = toSend;
+        StreamingOutput output = out -> writeEvents(out, eventsToSend, heartbeat, closeAfterMs);
 
         return Response.ok(output).type(TEXT_EVENT_STREAM).build();
     }
@@ -181,9 +193,9 @@ public final class SseTestResource {
     }
 
     private static void writeEvents(OutputStream out,
-                                     List<StoredEvent> events,
-                                     boolean heartbeat,
-                                     Long closeAfterMs) throws IOException {
+                                    List<StoredEvent> events,
+                                    boolean heartbeat,
+                                    Long closeAfterMs) throws IOException {
         for (int i = 0; i < events.size(); i++) {
             if (heartbeat) {
                 out.write(KEEP_ALIVE_COMMENT.getBytes(StandardCharsets.UTF_8));
