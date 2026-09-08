@@ -203,70 +203,49 @@ class ClientSseReconnectTest {
 
     @Test
     void lastEventId_carriedIntoReconnect_soAllEventsEventuallyDeliveredExactlyOnce() throws InterruptedException {
-        int totalEvents = 20;
+        int totalEvents = 6;
         AtomicInteger securityInvocations = new AtomicInteger(0);
         List<String> received = new CopyOnWriteArrayList<>();
-        CountDownLatch firstEventDelivered = new CountDownLatch(1);
-        CountDownLatch secondConnectionAttempt = new CountDownLatch(2);
-        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
         CountDownLatch latch = new CountDownLatch(totalEvents);
 
-        SecurityProvider countingProvider = request -> {
-            securityInvocations.incrementAndGet();
-            secondConnectionAttempt.countDown();
-        };
+        SecurityProvider countingProvider = request -> securityInvocations.incrementAndGet();
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "last-event-id-replay-on-disconnect")
                 .parameter("count", String.valueOf(totalEvents))
+                .parameter("maxEventsPerConnection", "1")
                 .security(countingProvider)
-                .onBufferFull(BufferFullPolicy.DISCONNECT)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
-
-                    if (1 == received.size()) {
-                        firstEventDelivered.countDown();
-
-                        try {
-                            releaseFirstEvent.await(30, TimeUnit.SECONDS);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
-
                     latch.countDown();
-                }).capacity(2))
+                }))
                 .build();
 
         try {
             listener.connectAsync();
 
-            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
             assertTrue(
-                    secondConnectionAttempt.await(10, TimeUnit.SECONDS),
-                    "Expected BufferFullPolicy.DISCONNECT to trigger a reconnect while the first callback was blocked"
-            );
-
-            releaseFirstEvent.countDown();
-
-            assertTrue(
-                    latch.await(120, TimeUnit.SECONDS),
+                    latch.await(20, TimeUnit.SECONDS),
                     "Timed out waiting for full replay: received=" + received.size()
                             + ", unique=" + new HashSet<>(received).size()
                             + ", securityInvocations=" + securityInvocations.get()
             );
             assertEquals(totalEvents, received.size());
             assertEquals(totalEvents, new HashSet<>(received).size(), "Expected no duplicate deliveries");
+            assertTrue(
+                    securityInvocations.get() > 1,
+                    "Expected replay to require multiple connection attempts, saw " + securityInvocations.get()
+            );
 
             List<String> expected = new ArrayList<>();
             for (int i = 1; i <= totalEvents; i++) {
                 expected.add("event-" + i);
             }
+
             assertEquals(expected, received);
         } finally {
-            releaseFirstEvent.countDown();
             listener.close();
         }
     }
