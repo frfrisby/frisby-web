@@ -237,17 +237,14 @@ class ClientSseReconnectTest {
                     }
 
                     latch.countDown();
-                }).capacity(2))
+                }).capacity(1))
                 .build();
 
         try {
             listener.connectAsync();
 
             assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
-            assertTrue(
-                    secondConnectionAttempt.await(10, TimeUnit.SECONDS),
-                    "Expected BufferFullPolicy.DISCONNECT to trigger a reconnect while the first callback was blocked"
-            );
+            assertTrue(secondConnectionAttempt.await(10, TimeUnit.SECONDS), "Expected a reconnect attempt");
 
             releaseFirstEvent.countDown();
 

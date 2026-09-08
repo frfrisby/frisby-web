@@ -276,9 +276,11 @@ final class DefaultClientCredentialsSecurityProvider implements ClientCredential
         Number expiresIn = (Number) body.get(EXPIRES_IN_FIELD);
         long expirySeconds = null != expiresIn ? expiresIn.longValue() : 0L;
 
-        Instant expiresAt = expirySeconds > expiryBufferSeconds
-                ? now.plusSeconds(expirySeconds - expiryBufferSeconds)
-                : now.plusSeconds(expirySeconds);
+        if (expirySeconds > expiryBufferSeconds) {
+            expirySeconds -= expiryBufferSeconds;
+        }
+
+        Instant expiresAt = now.plusSeconds(expirySeconds);
 
         return new AccessToken(expiresAt, accessToken);
     }
