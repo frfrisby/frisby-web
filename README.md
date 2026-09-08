@@ -11,7 +11,8 @@ A lightweight, production-ready Java library for building HTTP clients and embed
 servers.  The HTTP client depends only on the JDK — no external libraries required.  The
 embedded server is built on JAX-RS (Jersey + Jetty), giving you a mature, spec-compliant
 foundation without Spring Boot's weight.  Both modules let you bring your own serializer,
-plug in your own metrics backend, and take only the modules you actually use.
+plug in your own metrics backend, and take only the modules you actually use.  First-class
+SSE support is available for both client and server use cases via dedicated modules.
 
 ---
 
@@ -21,9 +22,11 @@ plug in your own metrics backend, and take only the modules you actually use.
 |--------------------------|-----------------------------------------------------------------------------|
 | `serial`                 | `JsonSerializer` and `GenericType` interfaces — shared by client and server |
 | `client`                 | HTTP client built on JDK `java.net.http.HttpClient`                         |
+| `client-sse`             | Typed SSE listener with reconnect, replay, and backpressure handling        |
 | `basic-security`         | Client-side HTTP Basic Auth and Bearer Token providers                      |
 | `oauth2-security`        | Client-side OAuth 2.0 client-credentials provider                           |
 | `server`                 | Embedded HTTP server (Jersey 3.x + Jetty 12)                                |
+| `server-sse`             | Server-side SSE emitters and event builders                                 |
 | `server-basic-security`  | Server-side Basic Auth authentication                                       |
 | `server-oauth2-security` | Server-side Bearer Token authentication                                     |
 | `jackson-serializer`     | Jackson-backed `JsonSerializer` with sensible defaults                      |
@@ -61,6 +64,12 @@ badge above:
     <artifactId>client</artifactId>
 </dependency>
 
+<!-- Typed SSE client listener -->
+<dependency>
+    <groupId>software.frisby.web</groupId>
+    <artifactId>client-sse</artifactId>
+</dependency>
+
 <!-- Client Basic Auth / Bearer Token authentication -->
 <dependency>
     <groupId>software.frisby.web</groupId>
@@ -77,6 +86,12 @@ badge above:
 <dependency>
     <groupId>software.frisby.web</groupId>
     <artifactId>server</artifactId>
+</dependency>
+
+<!-- Server-side SSE support -->
+<dependency>
+    <groupId>software.frisby.web</groupId>
+    <artifactId>server-sse</artifactId>
 </dependency>
 
 <!-- Server Basic Auth / Bearer Token authentication -->
@@ -212,6 +227,7 @@ assets, virtual threads, graceful shutdown, structured logging, and more.
 |--------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | [HTTP Client](docs/client.md)        | `Client`, `Configuration`, verb specs, compression, auth, logging, events, exception hierarchy               |
 | [HTTP Server](docs/server.md)        | `Server`, `ServerConfiguration`, concurrency, TLS, HTTP/2, CORS, static assets, auth, logging, observability |
+| [SSE](docs/sse.md)                   | `client-sse` and `server-sse` overview, reconnect/replay, heartbeat, and end-to-end usage patterns           |
 | [Architecture](docs/architecture.md) | Design decisions, module structure, extension points                                                         |
 
 ### AI agent reference docs
@@ -224,8 +240,10 @@ defaults, and complete usage examples.
 |--------------------------------------------------|---------------------------------------------------------------------------------------------|
 | [serialization.md](docs/ai/serialization.md)     | `JsonSerializer`, `GenericType`, `JacksonSerializer`                                        |
 | [client.md](docs/ai/client.md)                   | `Client`, all verb specs, body types, compression, decompression, events, exceptions        |
+| [client-sse.md](docs/ai/client-sse.md)           | `SseListener`, `SseListenerBuilder`, `SseHandler`/`SseBatchHandler`, replay and backpressure |
 | [client-security.md](docs/ai/client-security.md) | `BasicSecurityProvider`, `BearerTokenSecurityProvider`, `ClientCredentialsSecurityProvider` |
 | [server.md](docs/ai/server.md)                   | `Server`, `ServerConfiguration`, static assets, CORS, health check, logging, events         |
+| [server-sse.md](docs/ai/server-sse.md)           | `SseEmitter`, `SseEmitterBuilder`, events, heartbeat, and disconnect handling guidance       |
 | [server-security.md](docs/ai/server-security.md) | `BasicAuthAuthenticationProvider`, `BearerTokenAuthenticationProvider`, RBAC, mixed auth    |
 
 ---
