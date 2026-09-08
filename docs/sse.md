@@ -546,6 +546,9 @@ Field behavior:
   failure.
 - `isOpen()` reflects `SseEventSink` state.
 - `close()` is idempotent and also stops the optional heartbeat scheduler.
+- `isOpen()` is a point-in-time signal only; the connection may still close immediately
+  after it returns `true`, so callers should still handle exceptional completion from
+  `send(...).join()`.
 
 ### Typed data convenience with `SseEvents`
 
@@ -567,6 +570,17 @@ SseEvent event = SseEvents.of(serializer)
 - Heartbeats are transport keep-alives, not application events.
 - They do not include `id`, `event`, `data`, or `retry` fields.
 - As documented in the client parser behavior, comment frames are ignored.
+- Heartbeat send is best-effort: if the sink is already closed, the heartbeat is skipped;
+  if a heartbeat send races with close and fails, the failure is logged internally and
+  is not propagated to resource code.
+
+### Handling disconnect races in resource methods
+
+- For long-lived streams, loop while `emitter.isOpen()` is `true`.
+- Wrap each `emitter.send(...).join()` in try/catch (`CompletionException`), log as
+  appropriate, and exit the resource method cleanly on failure.
+- Treat a failed send as terminal for that stream; do not rely on heartbeat failures for
+  control flow.
 
 ### Worked resource-method example
 
