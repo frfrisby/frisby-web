@@ -2,19 +2,11 @@ package software.frisby.web.server.sse;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import software.frisby.core.validation.BlankValueException;
-import software.frisby.core.validation.DurationOutsideRangeException;
-import software.frisby.core.validation.NullValueException;
-import software.frisby.core.validation.PatternMismatchException;
-import software.frisby.core.validation.StringLengthOutsideRangeException;
+import software.frisby.core.validation.*;
 
 import java.time.Duration;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class SseEventBuilderTest {
     private static final String NULL_DATA_MESSAGE = "The 'data' value is invalid. The value must not be null.";

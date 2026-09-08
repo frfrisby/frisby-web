@@ -106,7 +106,7 @@ public interface SseHandler<T> {
      * @param concurrency The number of concurrent worker arms; must be positive.
      * @return This handler instance.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
-     *                                                                          positive.
+     *                                                                           positive.
      */
     SseHandler<T> concurrency(int concurrency);
 

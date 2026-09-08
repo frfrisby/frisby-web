@@ -6,12 +6,7 @@ import jakarta.ws.rs.sse.SseEventSink;
 import software.frisby.core.validation.Values;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class DefaultSseEmitter implements SseEmitter {
@@ -61,6 +56,15 @@ final class DefaultSseEmitter implements SseEmitter {
                     "SSE stream opened."
             );
         }
+    }
+
+    private static Throwable unwrapCompletionException(Throwable cause) {
+        if (cause instanceof CompletionException completionException
+                && null != completionException.getCause()) {
+            return completionException.getCause();
+        }
+
+        return cause;
     }
 
     @Override
@@ -129,15 +133,6 @@ final class DefaultSseEmitter implements SseEmitter {
         );
 
         return builder.build();
-    }
-
-    private static Throwable unwrapCompletionException(Throwable cause) {
-        if (cause instanceof CompletionException completionException
-                && null != completionException.getCause()) {
-            return completionException.getCause();
-        }
-
-        return cause;
     }
 
     private void logSentEvent(SseEvent event) {

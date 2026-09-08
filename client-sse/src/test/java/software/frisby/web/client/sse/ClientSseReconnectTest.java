@@ -141,7 +141,8 @@ class ClientSseReconnectTest {
                 .parameter("count", "1")
                 .security(countingProvider)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", SseHandler.of(message -> { }))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
                 .build();
 
         try {
@@ -171,7 +172,8 @@ class ClientSseReconnectTest {
                 .parameter("retryMs", "50")
                 .security(timestampingProvider)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofSeconds(4)))
-                .onEvent("message", SseHandler.of(message -> { }))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
                 .build();
 
         try {
@@ -202,18 +204,38 @@ class ClientSseReconnectTest {
     @Test
     void lastEventId_carriedIntoReconnect_soAllEventsEventuallyDeliveredExactlyOnce() throws InterruptedException {
         int totalEvents = 20;
+        AtomicInteger securityInvocations = new AtomicInteger(0);
         List<String> received = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch secondConnectionAttempt = new CountDownLatch(2);
+        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
         CountDownLatch latch = new CountDownLatch(totalEvents);
+
+        SecurityProvider countingProvider = request -> {
+            securityInvocations.incrementAndGet();
+            secondConnectionAttempt.countDown();
+        };
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "last-event-id-replay-on-disconnect")
                 .parameter("count", String.valueOf(totalEvents))
+                .security(countingProvider)
                 .onBufferFull(BufferFullPolicy.DISCONNECT)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
-                    sleepBriefly();
+
+                    if (1 == received.size()) {
+                        firstEventDelivered.countDown();
+
+                        try {
+                            releaseFirstEvent.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
                     latch.countDown();
                 }).capacity(2))
                 .build();
@@ -221,12 +243,20 @@ class ClientSseReconnectTest {
         try {
             listener.connectAsync();
 
-            // capacity(2) with a 50 ms-per-event handler and a burst of 20 events forces
-            // BufferFullPolicy.DISCONNECT to trigger repeatedly (roughly every couple of
-            // events) — that repeated disconnect/Last-Event-ID-replay cycle is exactly what
-            // this test exists to exercise, so a generous timeout is required to let every
-            // reconnect round-trip complete.
-            assertTrue(latch.await(60, TimeUnit.SECONDS));
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+            assertTrue(
+                    secondConnectionAttempt.await(10, TimeUnit.SECONDS),
+                    "Expected BufferFullPolicy.DISCONNECT to trigger a reconnect while the first callback was blocked"
+            );
+
+            releaseFirstEvent.countDown();
+
+            assertTrue(
+                    latch.await(120, TimeUnit.SECONDS),
+                    "Timed out waiting for full replay: received=" + received.size()
+                            + ", unique=" + new HashSet<>(received).size()
+                            + ", securityInvocations=" + securityInvocations.get()
+            );
             assertEquals(totalEvents, received.size());
             assertEquals(totalEvents, new HashSet<>(received).size(), "Expected no duplicate deliveries");
 
@@ -236,6 +266,7 @@ class ClientSseReconnectTest {
             }
             assertEquals(expected, received);
         } finally {
+            releaseFirstEvent.countDown();
             listener.close();
         }
     }
@@ -383,7 +414,7 @@ class ClientSseReconnectTest {
         int totalEvents = 20;
         AtomicInteger deliveredCount = new AtomicInteger(0);
         CountDownLatch firstDelivered = new CountDownLatch(1);
-        CountDownLatch allDelivered = new CountDownLatch(totalEvents);
+        CountDownLatch releaseFirstDelivery = new CountDownLatch(1);
 
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                 .expect(LogExpectation.builder()
@@ -405,16 +436,17 @@ class ClientSseReconnectTest {
                     .parameter("count", String.valueOf(totalEvents))
                     .onBufferFull(BufferFullPolicy.DROP)
                     .onEvent("message", SseHandler.of(message -> {
-                        // The first delivery races ahead of the burst so the reader thread
-                        // fills the capacity-1 buffer and starts dropping; slowing down only
-                        // the first delivery lets the remaining backlog (if any survives)
-                        // drain quickly once the reader is done producing.
+                        // Block the first delivery to deterministically keep the capacity-1
+                        // worker occupied while the reader continues posting, forcing DROP.
                         if (0 == deliveredCount.getAndIncrement()) {
-                            sleepBriefly();
                             firstDelivered.countDown();
-                        }
 
-                        allDelivered.countDown();
+                            try {
+                                releaseFirstDelivery.await(30, TimeUnit.SECONDS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
                     }).capacity(1))
                     .build();
 
@@ -423,7 +455,10 @@ class ClientSseReconnectTest {
 
                 assertTrue(firstDelivered.await(10, TimeUnit.SECONDS));
                 verifier.assertExpectations(Duration.ofSeconds(10));
+
+                releaseFirstDelivery.countDown();
             } finally {
+                releaseFirstDelivery.countDown();
                 listener.close();
             }
         }
@@ -439,7 +474,8 @@ class ClientSseReconnectTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/this-path-does-not-exist")
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", SseHandler.of(message -> { }))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
                 .onError(error -> {
                     errorCount.incrementAndGet();
                     firstError.countDown();
@@ -488,7 +524,8 @@ class ClientSseReconnectTest {
             SseListener listener = SseListener.builder().client(client)
                     .path("/sse/this-path-does-not-exist-either")
                     .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                    .onEvent("message", SseHandler.of(message -> { }))
+                    .onEvent("message", SseHandler.of(message -> {
+                    }))
                     .onError(error -> {
                         errorCount.incrementAndGet();
                         secondError.countDown();
@@ -532,7 +569,8 @@ class ClientSseReconnectTest {
                 .path("/sse/this-path-does-not-exist-at-all")
                 .security(countingProvider)
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
-                .onEvent("message", SseHandler.of(message -> { }))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
                 .build();
 
         try {
@@ -554,9 +592,15 @@ class ClientSseReconnectTest {
         int totalEvents = 20;
         AtomicInteger securityInvocations = new AtomicInteger(0);
         List<String> received = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch secondConnectionAttempt = new CountDownLatch(2);
+        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
         CountDownLatch latch = new CountDownLatch(totalEvents);
 
-        SecurityProvider countingProvider = request -> securityInvocations.incrementAndGet();
+        SecurityProvider countingProvider = request -> {
+            securityInvocations.incrementAndGet();
+            secondConnectionAttempt.countDown();
+        };
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
@@ -567,7 +611,17 @@ class ClientSseReconnectTest {
                 .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
-                    sleepBriefly();
+
+                    if (1 == received.size()) {
+                        firstEventDelivered.countDown();
+
+                        try {
+                            releaseFirstEvent.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
                     latch.countDown();
                 }).capacity(2))
                 .build();
@@ -575,12 +629,23 @@ class ClientSseReconnectTest {
         try {
             listener.connectAsync();
 
-            // capacity(2) with a 50 ms-per-event handler and a burst of 20 events forces
-            // BufferFullPolicy.DISCONNECT to trigger repeatedly — this test exists
-            // specifically to assert that repeated-disconnect behavior explicitly (via the
-            // security provider's invocation count, one per connection attempt), rather
-            // than only incidentally as a side effect of the Last-Event-ID replay test.
-            assertTrue(latch.await(60, TimeUnit.SECONDS));
+            // Deterministically block the first callback to force the dispatch pipeline to
+            // back up and trigger DISCONNECT; then verify at least one reconnect attempt
+            // happened before releasing and allowing the full stream to drain.
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+            assertTrue(
+                    secondConnectionAttempt.await(10, TimeUnit.SECONDS),
+                    "Expected BufferFullPolicy.DISCONNECT to trigger a reconnect while the first callback was blocked"
+            );
+
+            releaseFirstEvent.countDown();
+
+            assertTrue(
+                    latch.await(120, TimeUnit.SECONDS),
+                    "Timed out waiting for full replay: received=" + received.size()
+                            + ", unique=" + new HashSet<>(received).size()
+                            + ", securityInvocations=" + securityInvocations.get()
+            );
             assertEquals(totalEvents, received.size());
             assertEquals(totalEvents, new HashSet<>(received).size(), "Expected no duplicate deliveries");
             assertTrue(
@@ -589,6 +654,7 @@ class ClientSseReconnectTest {
                             + securityInvocations.get()
             );
         } finally {
+            releaseFirstEvent.countDown();
             listener.close();
         }
     }
@@ -598,6 +664,8 @@ class ClientSseReconnectTest {
         int totalEvents = 20;
         AtomicInteger securityInvocations = new AtomicInteger(0);
         List<String> received = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
         CountDownLatch latch = new CountDownLatch(totalEvents);
 
         SecurityProvider countingProvider = request -> securityInvocations.incrementAndGet();
@@ -613,7 +681,17 @@ class ClientSseReconnectTest {
                 .onBufferFull(BufferFullPolicy.BLOCK)
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
-                    sleepBriefly();
+
+                    if (1 == received.size()) {
+                        firstEventDelivered.countDown();
+
+                        try {
+                            releaseFirstEvent.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
                     latch.countDown();
                 }).capacity(1))
                 .build();
@@ -621,14 +699,15 @@ class ClientSseReconnectTest {
         try {
             listener.connectAsync();
 
-            // capacity(1) with a slow handler and a burst of 20 events forces the reader
-            // thread to stall repeatedly on Buffer's own blocking post() — the defining
-            // behavior of BLOCK. Proven here by two things a dropping/disconnecting policy
-            // could not produce: every event survives (none dropped) in the exact order
-            // generated (single in-order pipeline, never fanned out), and the connection
-            // never reconnects (securityInvocations stays at 1) — BLOCK never closes the
-            // stream, unlike DISCONNECT.
-            assertTrue(latch.await(20, TimeUnit.SECONDS));
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+
+            releaseFirstEvent.countDown();
+
+            assertTrue(
+                    latch.await(60, TimeUnit.SECONDS),
+                    "Timed out waiting for full BLOCK delivery: received=" + received.size()
+                            + ", securityInvocations=" + securityInvocations.get()
+            );
 
             List<String> expected = new ArrayList<>();
             for (int i = 1; i <= totalEvents; i++) {
@@ -638,15 +717,8 @@ class ClientSseReconnectTest {
             assertEquals(expected, received);
             assertEquals(1, securityInvocations.get(), "Expected BLOCK to never force a reconnect");
         } finally {
+            releaseFirstEvent.countDown();
             listener.close();
-        }
-    }
-
-    private static void sleepBriefly() {
-        try {
-            Thread.sleep(50);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

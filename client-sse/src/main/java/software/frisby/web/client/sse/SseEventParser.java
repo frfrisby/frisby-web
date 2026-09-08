@@ -53,6 +53,24 @@ final class SseEventParser {
         this.reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
     }
 
+    private static String stripSingleLeadingSpace(String value) {
+        return value.startsWith(" ") ? value.substring(1) : value;
+    }
+
+    private static boolean isAsciiDigits(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Blocks until a complete event has been assembled or the stream ends.
      * <p>
@@ -143,24 +161,6 @@ final class SseEventParser {
         eventBuffer = null;
         retryMillisBuffer = null;
         hasData = false;
-    }
-
-    private static String stripSingleLeadingSpace(String value) {
-        return value.startsWith(" ") ? value.substring(1) : value;
-    }
-
-    private static boolean isAsciiDigits(String value) {
-        if (value.isEmpty()) {
-            return false;
-        }
-
-        for (int i = 0; i < value.length(); i++) {
-            if (!Character.isDigit(value.charAt(i))) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
 

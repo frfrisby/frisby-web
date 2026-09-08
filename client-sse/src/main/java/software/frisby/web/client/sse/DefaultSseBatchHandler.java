@@ -18,18 +18,16 @@ import java.util.function.Consumer;
  * their own.
  */
 final class DefaultSseBatchHandler<T> implements SseBatchHandler<T> {
+    static final int DEFAULT_CAPACITY = 1024;
+    static final int DEFAULT_CONCURRENCY = 1;
+    static final int DEFAULT_BATCH_SIZE = 100;
+    static final Duration DEFAULT_BATCH_TIMEOUT = Duration.ofMillis(250);
     private static final String TYPE_ARGUMENT_NAME = "type";
     private static final String HANDLER_ARGUMENT_NAME = "handler";
     private static final String CAPACITY_ARGUMENT_NAME = "capacity";
     private static final String CONCURRENCY_ARGUMENT_NAME = "concurrency";
     private static final String BATCH_SIZE_ARGUMENT_NAME = "batchSize";
     private static final String BATCH_TIMEOUT_ARGUMENT_NAME = "batchTimeout";
-
-    static final int DEFAULT_CAPACITY = 1024;
-    static final int DEFAULT_CONCURRENCY = 1;
-    static final int DEFAULT_BATCH_SIZE = 100;
-    static final Duration DEFAULT_BATCH_TIMEOUT = Duration.ofMillis(250);
-
     private final Class<T> type;
     private final GenericType<T> genericType;
     private final Consumer<List<SseMessage<T>>> callback;

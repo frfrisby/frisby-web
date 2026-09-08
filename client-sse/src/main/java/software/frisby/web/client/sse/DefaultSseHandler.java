@@ -14,14 +14,12 @@ import java.util.function.Consumer;
  * matching this codebase's convention of interfaces carrying no logic of their own.
  */
 final class DefaultSseHandler<T> implements SseHandler<T> {
+    static final int DEFAULT_CAPACITY = 1024;
+    static final int DEFAULT_CONCURRENCY = 1;
     private static final String TYPE_ARGUMENT_NAME = "type";
     private static final String HANDLER_ARGUMENT_NAME = "handler";
     private static final String CAPACITY_ARGUMENT_NAME = "capacity";
     private static final String CONCURRENCY_ARGUMENT_NAME = "concurrency";
-
-    static final int DEFAULT_CAPACITY = 1024;
-    static final int DEFAULT_CONCURRENCY = 1;
-
     private final Class<T> type;
     private final GenericType<T> genericType;
     private final Consumer<SseMessage<T>> callback;

@@ -11,10 +11,8 @@ import software.frisby.web.serial.jackson.JacksonSerializer;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 

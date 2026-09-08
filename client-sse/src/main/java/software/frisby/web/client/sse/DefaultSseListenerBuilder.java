@@ -1,6 +1,9 @@
 package software.frisby.web.client.sse;
 
-import software.frisby.core.validation.*;
+import software.frisby.core.validation.DuplicateElementsException;
+import software.frisby.core.validation.Durations;
+import software.frisby.core.validation.Strings;
+import software.frisby.core.validation.Values;
 import software.frisby.web.client.Client;
 import software.frisby.web.client.PathParameter;
 import software.frisby.web.client.RetryDelay;
