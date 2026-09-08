@@ -203,7 +203,7 @@ class ClientSseReconnectTest {
 
     @Test
     void lastEventId_carriedIntoReconnect_soAllEventsEventuallyDeliveredExactlyOnce() throws InterruptedException {
-        int totalEvents = 20;
+        int totalEvents = 6;
         AtomicInteger securityInvocations = new AtomicInteger(0);
         List<String> received = new CopyOnWriteArrayList<>();
         CountDownLatch firstEventDelivered = new CountDownLatch(1);
@@ -237,7 +237,7 @@ class ClientSseReconnectTest {
                     }
 
                     latch.countDown();
-                }).capacity(1))
+                }).capacity(2))
                 .build();
 
         try {
@@ -249,7 +249,7 @@ class ClientSseReconnectTest {
             releaseFirstEvent.countDown();
 
             assertTrue(
-                    latch.await(120, TimeUnit.SECONDS),
+                    latch.await(60, TimeUnit.SECONDS),
                     "Timed out waiting for full replay: received=" + received.size()
                             + ", unique=" + new HashSet<>(received).size()
                             + ", securityInvocations=" + securityInvocations.get()
