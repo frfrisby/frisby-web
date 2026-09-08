@@ -33,10 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ClientServerSseCapstoneTest {
     private static final String TEXT_SINGLE_EVENT = "text-single";
@@ -147,22 +144,45 @@ class ClientServerSseCapstoneTest {
     public static final class CapstoneSseResource {
         private static final String LAST_EVENT_ID_HEADER = "Last-Event-ID";
         private static final List<String> LAST_EVENT_IDS = new CopyOnWriteArrayList<>();
-        private static CountDownLatch CONNECTIONS = new CountDownLatch(2);
         private static final AtomicBoolean PRETTY_JSON_CONTAINED_LINE_FEEDS = new AtomicBoolean(false);
-
         private static final List<OutboundRecord> OUTBOUND = List.of(
                 OutboundRecord.text(1, TEXT_SINGLE_EVENT, "single-line"),
                 OutboundRecord.text(2, TEXT_MULTILINE_EVENT, "line-1\nline-2"),
                 OutboundRecord.payload(3, JSON_COMPACT_EVENT, new JsonPayload("compact", 101, "alpha")),
                 OutboundRecord.payload(4, JSON_PRETTY_EVENT, new JsonPayload("pretty", 202, "beta"))
         );
-
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
+        private static CountDownLatch CONNECTIONS = new CountDownLatch(2);
         private final JsonSerializer serializer;
 
         private CapstoneSseResource(JsonSerializer serializer) {
             this.serializer = serializer;
+        }
+
+        private static void resetState() {
+            LAST_EVENT_IDS.clear();
+            CONNECTIONS = new CountDownLatch(2);
+            PRETTY_JSON_CONTAINED_LINE_FEEDS.set(false);
+        }
+
+        private static boolean awaitAtLeastTwoConnections(Duration timeout) throws InterruptedException {
+            return CONNECTIONS.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        private static List<String> lastEventIdsSnapshot() {
+            return new ArrayList<>(LAST_EVENT_IDS);
+        }
+
+        private static boolean prettyJsonContainedLineFeeds() {
+            return PRETTY_JSON_CONTAINED_LINE_FEEDS.get();
+        }
+
+        private static void sleepForHeartbeat() {
+            try {
+                Thread.sleep(70L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         @GET
@@ -227,32 +247,6 @@ class ClientServerSseCapstoneTest {
                     .data(record.data())
                     .retry(Duration.ofMillis(25))
                     .build();
-        }
-
-        private static void resetState() {
-            LAST_EVENT_IDS.clear();
-            CONNECTIONS = new CountDownLatch(2);
-            PRETTY_JSON_CONTAINED_LINE_FEEDS.set(false);
-        }
-
-        private static boolean awaitAtLeastTwoConnections(Duration timeout) throws InterruptedException {
-            return CONNECTIONS.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        }
-
-        private static List<String> lastEventIdsSnapshot() {
-            return new ArrayList<>(LAST_EVENT_IDS);
-        }
-
-        private static boolean prettyJsonContainedLineFeeds() {
-            return PRETTY_JSON_CONTAINED_LINE_FEEDS.get();
-        }
-
-        private static void sleepForHeartbeat() {
-            try {
-                Thread.sleep(70L);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
         }
 
         private record OutboundRecord(long id,

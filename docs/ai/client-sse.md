@@ -180,11 +180,11 @@ available. Once connected, the connection tracks the most recently processed eve
 
 | Method | Notes |
 |---|---|
-| `onEvent(String event, SseHandler handler)` | Registers a single-event handler for `event`. |
-| `onEvent(String event, SseBatchHandler handler)` | Registers a batch handler for `event`. Overload disambiguated by `handler`'s type. |
+| `onEvent(String event, SseHandler<T> handler)` | Registers a single-event handler for `event`. |
+| `onEvent(String event, SseBatchHandler<T> handler)` | Registers a batch handler for `event`. Overload disambiguated by `handler`'s type. |
 | `onUnhandledEvent(Consumer<SseMessage<String>> handler)` | Catch-all shorthand for `onUnhandledEvent(SseHandler.of(handler))` — a real dispatch pipeline with default tuning, not a degraded path. |
-| `onUnhandledEvent(SseHandler handler)` | Catch-all with custom tuning. Must be raw — throws `IllegalArgumentException` if `handler` carries a `type()`/`genericType()`. |
-| `onUnhandledEvent(SseBatchHandler handler)` | Catch-all, batched. Same raw-only restriction. Only one of the three `onUnhandledEvent` overloads is active at a time — the most recent call wins. |
+| `onUnhandledEvent(SseHandler<String> handler)` | Catch-all with custom tuning. Handles unhandled events as `String` bodies. |
+| `onUnhandledEvent(SseBatchHandler<String> handler)` | Catch-all, batched. Handles unhandled events as `String` bodies. Only one of the three `onUnhandledEvent` overloads is active at a time — the most recent call wins. |
 
 `event` is matched against an event's **explicit** `event` field only — an event with
 no `event` field at all is never matched here, even against a handler registered for
@@ -269,9 +269,9 @@ per `onEvent` call.
 ### `SseHandler` — single-event delivery
 
 ```java
-static <T> SseHandler of(Class<T> type, Consumer<SseMessage<T>> handler)
-static <T> SseHandler of(GenericType<T> type, Consumer<SseMessage<T>> handler)
-static      SseHandler of(Consumer<SseMessage<String>> handler)   // raw — no deserialization
+static <T> SseHandler<T> of(Class<T> type, Consumer<SseMessage<T>> handler)
+static <T> SseHandler<T> of(GenericType<T> type, Consumer<SseMessage<T>> handler)
+static SseHandler<String> of(Consumer<SseMessage<String>> handler)   // String-body — no deserialization
 
 SseHandler capacity(int capacity)       // default 1024
 SseHandler concurrency(int concurrency) // default 1
@@ -280,15 +280,15 @@ SseHandler concurrency(int concurrency) // default 1
 ### `SseBatchHandler` — burst-grouped delivery
 
 ```java
-static <T> SseBatchHandler of(Class<T> type, Consumer<List<SseMessage<T>>> handler)
-static <T> SseBatchHandler of(GenericType<T> type, Consumer<List<SseMessage<T>>> handler)
-static      SseBatchHandler of(Consumer<List<SseMessage<String>>> handler)   // raw
+static <T> SseBatchHandler<T> of(Class<T> type, Consumer<List<SseMessage<T>>> handler)
+static <T> SseBatchHandler<T> of(GenericType<T> type, Consumer<List<SseMessage<T>>> handler)
+static SseBatchHandler<String> of(Consumer<List<SseMessage<String>>> handler)   // String-body
 
-SseBatchHandler capacity(int capacity)             // default 1024
+SseBatchHandler capacity(int capacity)              // default 1024
 SseBatchHandler concurrency(int concurrency)        // default 1
 SseBatchHandler batchSize(int batchSize)            // default 100 — a ceiling, not a
-                                                     // target; low volume still delivers
-                                                     // smaller batches, down to size 1
+                                                    // target; low volume still delivers
+                                                    // smaller batches, down to size 1
 SseBatchHandler batchTimeout(Duration batchTimeout) // default 250ms
 ```
 

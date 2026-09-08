@@ -92,8 +92,10 @@ Methods:
   - completes when sink send completes
   - completes exceptionally on send failures
   - unwraps `CompletionException` when it has a non-null cause
+  - treat exceptional completion as terminal for the current stream; log/cleanup and return from the resource method
 - `boolean isOpen()`
   - reflects `!sink.isClosed()`
+  - point-in-time only; always still handle send failure races after an `isOpen()` check
 - `void close()`
   - idempotent
   - cancels heartbeat future
@@ -114,6 +116,7 @@ Optional:
   - if not called, heartbeat disabled
   - emits comment frames (for example `: keep-alive`)
   - does not emit `id`/`event`/`data`/`retry`
+  - heartbeat send is best-effort: closed sinks are skipped; heartbeat send failures are logged internally and not thrown to callers
 
 Terminal:
 
@@ -195,6 +198,15 @@ public final class NotificationResource {
 - Client reconnect replay uses `Last-Event-ID`; server should replay events newer than that id.
 - Server `retry` hints are consumed by client reconnect delay logic.
 - Heartbeat comments are ignored by the client parser and are not dispatched to handlers.
+
+---
+
+## Disconnect Handling Guidance
+
+- For long-lived streams (for example SQS long polling), loop while `emitter.isOpen()` is true.
+- Still guard every `send(...).join()` with try/catch (`CompletionException`) because the sink can close after the `isOpen()` check.
+- On send failure, treat the stream as closed/terminal, perform any logging/cleanup, and exit the resource method.
+- Do not use heartbeat failures as control flow; heartbeat is internal best-effort keep-alive behavior.
 
 ---
 

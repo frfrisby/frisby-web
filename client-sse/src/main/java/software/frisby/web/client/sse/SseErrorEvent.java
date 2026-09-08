@@ -29,7 +29,7 @@ public record SseErrorEvent(Optional<SseMessage<String>> message, Throwable caus
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
      * @throws software.frisby.core.validation.NullValueException if {@code message} or
-     *                                                             {@code cause} is {@code null}.
+     *                                                            {@code cause} is {@code null}.
      */
     public SseErrorEvent {
         Values.notNull("message", message);

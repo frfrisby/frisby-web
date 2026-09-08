@@ -24,17 +24,19 @@ import java.util.function.Consumer;
  * handler.
  * <p>
  * At most one of {@link #type()} / {@link #genericType()} is present. Both absent means
- * this is a raw handler.
+ * this is a {@code String}-body handler.
  * <p>
  * See {@link SseHandler} for the full rationale behind this idiom (mirrors
  * {@code software.frisby.core.concurrency.fluent}'s {@code Buffer.of(X.class)
  * .capacity(...)} shape) and the same "not intended to be reused across registrations"
  * caution.
  *
+ * @param <T> The body type — a deserialized payload type for typed handlers, or
+ *            {@link String} for {@code String}-body handlers.
  * @see SseHandler
  * @see SseListenerBuilder
  */
-public interface SseBatchHandler {
+public interface SseBatchHandler<T> {
     /**
      * Creates a batch handler that deserializes each event's {@code data} into
      * {@code type} via the connection's configured {@code JsonSerializer}.
@@ -46,7 +48,7 @@ public interface SseBatchHandler {
      * ({@code 1}), batch size ({@code 100}), and batch timeout ({@code 250ms}).
      * @throws software.frisby.core.validation.NullValueException if {@code type} or {@code handler} is null.
      */
-    static <T> SseBatchHandler of(Class<T> type, Consumer<List<SseMessage<T>>> handler) {
+    static <T> SseBatchHandler<T> of(Class<T> type, Consumer<List<SseMessage<T>>> handler) {
         return DefaultSseBatchHandler.ofType(type, handler);
     }
 
@@ -62,7 +64,7 @@ public interface SseBatchHandler {
      * ({@code 1}), batch size ({@code 100}), and batch timeout ({@code 250ms}).
      * @throws software.frisby.core.validation.NullValueException if {@code type} or {@code handler} is null.
      */
-    static <T> SseBatchHandler of(GenericType<T> type, Consumer<List<SseMessage<T>>> handler) {
+    static <T> SseBatchHandler<T> of(GenericType<T> type, Consumer<List<SseMessage<T>>> handler) {
         return DefaultSseBatchHandler.ofGenericType(type, handler);
     }
 
@@ -75,7 +77,7 @@ public interface SseBatchHandler {
      * ({@code 1}), batch size ({@code 100}), and batch timeout ({@code 250ms}).
      * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
      */
-    static SseBatchHandler of(Consumer<List<SseMessage<String>>> handler) {
+    static SseBatchHandler<String> of(Consumer<List<SseMessage<String>>> handler) {
         return DefaultSseBatchHandler.ofRaw(handler);
     }
 
@@ -89,7 +91,7 @@ public interface SseBatchHandler {
      * @return This handler instance.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code capacity} is not positive.
      */
-    SseBatchHandler capacity(int capacity);
+    SseBatchHandler<T> capacity(int capacity);
 
     /**
      * Sets the number of concurrent worker arms dispatching to this handler's callback.
@@ -103,9 +105,9 @@ public interface SseBatchHandler {
      * @param concurrency The number of concurrent worker arms; must be positive.
      * @return This handler instance.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code concurrency} is not
-     *                                                                          positive.
+     *                                                                           positive.
      */
-    SseBatchHandler concurrency(int concurrency);
+    SseBatchHandler<T> concurrency(int concurrency);
 
     /**
      * Sets the maximum number of events collected into a single batch before it is
@@ -121,9 +123,9 @@ public interface SseBatchHandler {
      * @param batchSize The maximum batch size; must be positive.
      * @return This handler instance.
      * @throws software.frisby.core.validation.NumericValueOutsideRangeException if {@code batchSize} is not
-     *                                                                          positive.
+     *                                                                           positive.
      */
-    SseBatchHandler batchSize(int batchSize);
+    SseBatchHandler<T> batchSize(int batchSize);
 
     /**
      * Sets the maximum time a partially filled batch waits before being flushed to
@@ -137,7 +139,7 @@ public interface SseBatchHandler {
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code batchTimeout} is not
      *                                                                       positive.
      */
-    SseBatchHandler batchTimeout(Duration batchTimeout);
+    SseBatchHandler<T> batchTimeout(Duration batchTimeout);
 
     /**
      * Returns this handler's dispatch buffer capacity.
@@ -173,7 +175,7 @@ public interface SseBatchHandler {
      *
      * @return The target type, or empty if this handler is generically-typed or raw.
      */
-    Optional<Class<?>> type();
+    Optional<Class<T>> type();
 
     /**
      * Returns the {@link GenericType} this handler deserializes into, if it was created
@@ -181,13 +183,13 @@ public interface SseBatchHandler {
      *
      * @return The target generic type, or empty if this handler is {@code Class}-typed or raw.
      */
-    Optional<GenericType<?>> genericType();
+    Optional<GenericType<T>> genericType();
 
     /**
      * Returns the registered callback.
      *
-     * @return The callback; always a {@code List<SseMessage<?>>} consumer.
+     * @return The callback; always a {@code List<SseMessage<T>>} consumer.
      */
-    Consumer<?> callback();
+    Consumer<List<SseMessage<T>>> callback();
 }
 

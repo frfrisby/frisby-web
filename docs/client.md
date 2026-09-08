@@ -1126,7 +1126,7 @@ reconnection, `Last-Event-ID` replay, and backpressure handling, add
 `software.frisby.web:client-sse`.
 
 **See [`docs/sse.md`](sse.md) for the complete guide** — quick starts for both the raw
-stream and the typed `client-sse` dispatch API, `SseHandler`/`SseBatchHandler`
+stream and the typed `client-sse` dispatch API, generic `SseHandler<T>` / `SseBatchHandler<T>`
 per-handler tuning, `BufferFullPolicy`, reconnect/`Last-Event-ID` behavior, virtual
 threads, and worked examples.
 

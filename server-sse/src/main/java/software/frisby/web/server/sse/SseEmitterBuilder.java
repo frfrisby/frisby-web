@@ -41,6 +41,10 @@ public interface SseEmitterBuilder {
      * Heartbeats are emitted as SSE comment frames (for example, {@code : keep-alive}),
      * not as named events, so no {@code id}, {@code event}, {@code data}, or
      * {@code retry} fields are included.
+     * <p>
+     * Heartbeats are best-effort keep-alive events. If the sink is already closed, a heartbeat
+     * is skipped. If a heartbeat send races with a close and fails, the failure is logged
+     * internally and not propagated to the resource method.
      *
      * @param heartbeatInterval The heartbeat interval. Must be positive.
      * @return This builder.

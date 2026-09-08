@@ -11,9 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class SseEventParserTest {
     private static SseEventParser parserFor(String wireFormat) {
@@ -26,6 +24,32 @@ class SseEventParserTest {
 
     // -------------------------------------------------------------------------
     // Basic single-event framing
+    // -------------------------------------------------------------------------
+
+    /**
+     * An {@link InputStream} that only ever returns a single byte per {@code read()} call,
+     * used to simulate an event whose bytes arrive across many underlying network reads.
+     */
+    private static final class OneByteAtATimeInputStream extends InputStream {
+        private final byte[] data;
+        private int position;
+
+        OneByteAtATimeInputStream(String content) {
+            this.data = content.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public int read() {
+            if (position >= data.length) {
+                return -1;
+            }
+
+            return data[position++] & 0xFF;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // receivedAt() — stamped at parse time, not at dispatch time
     // -------------------------------------------------------------------------
 
     @Nested
@@ -86,7 +110,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // receivedAt() — stamped at parse time, not at dispatch time
+    // Comments
     // -------------------------------------------------------------------------
 
     @Nested
@@ -123,7 +147,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // Comments
+    // retry field
     // -------------------------------------------------------------------------
 
     @Nested
@@ -151,7 +175,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // retry field
+    // id field
     // -------------------------------------------------------------------------
 
     @Nested
@@ -208,7 +232,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // id field
+    // Unrecognized fields
     // -------------------------------------------------------------------------
 
     @Nested
@@ -225,7 +249,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // Unrecognized fields
+    // Multiple events
     // -------------------------------------------------------------------------
 
     @Nested
@@ -242,7 +266,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // Multiple events
+    // Line endings
     // -------------------------------------------------------------------------
 
     @Nested
@@ -264,7 +288,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // Line endings
+    // Field value whitespace handling
     // -------------------------------------------------------------------------
 
     @Nested
@@ -295,7 +319,7 @@ class SseEventParserTest {
     }
 
     // -------------------------------------------------------------------------
-    // Field value whitespace handling
+    // Streaming behavior — reads split across multiple underlying read() calls
     // -------------------------------------------------------------------------
 
     @Nested
@@ -341,10 +365,6 @@ class SseEventParserTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Streaming behavior — reads split across multiple underlying read() calls
-    // -------------------------------------------------------------------------
-
     @Nested
     class ChunkedReads {
         @Test
@@ -359,28 +379,6 @@ class SseEventParserTest {
             assertEquals(Optional.of("1"), event.get().id());
             assertEquals(Optional.of("chunked"), event.get().event());
             assertEquals("hello world", event.get().data());
-        }
-    }
-
-    /**
-     * An {@link InputStream} that only ever returns a single byte per {@code read()} call,
-     * used to simulate an event whose bytes arrive across many underlying network reads.
-     */
-    private static final class OneByteAtATimeInputStream extends InputStream {
-        private final byte[] data;
-        private int position;
-
-        OneByteAtATimeInputStream(String content) {
-            this.data = content.getBytes(StandardCharsets.UTF_8);
-        }
-
-        @Override
-        public int read() {
-            if (position >= data.length) {
-                return -1;
-            }
-
-            return data[position++] & 0xFF;
         }
     }
 }

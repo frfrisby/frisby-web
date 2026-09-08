@@ -34,10 +34,10 @@ import java.util.Optional;
  *                   {@code null}.
  */
 record RawSseEvent(Optional<String> id,
-                    Optional<String> event,
-                    String data,
-                    Optional<Duration> retry,
-                    Instant receivedAt) {
+                   Optional<String> event,
+                   String data,
+                   Optional<Duration> retry,
+                   Instant receivedAt) {
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *

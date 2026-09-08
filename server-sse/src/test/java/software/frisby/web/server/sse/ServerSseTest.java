@@ -2,11 +2,7 @@ package software.frisby.web.server.sse;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.Sse;
@@ -32,9 +28,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ServerSseTest {
     private static final String HEARTBEAT_COMMENT = "keep-alive";
@@ -73,6 +67,16 @@ class ServerSseTest {
         if (null != server) {
             server.stop();
         }
+    }
+
+    private static String stripPrefix(String line, String prefix) {
+        String value = line.substring(prefix.length());
+
+        if (value.startsWith(" ")) {
+            return value.substring(1);
+        }
+
+        return value;
     }
 
     @Test
@@ -213,16 +217,6 @@ class ServerSseTest {
         }
     }
 
-    private static String stripPrefix(String line, String prefix) {
-        String value = line.substring(prefix.length());
-
-        if (value.startsWith(" ")) {
-            return value.substring(1);
-        }
-
-        return value;
-    }
-
     private record ParsedEvent(String id, String event, String data, Long retryMs) {
     }
 
@@ -231,6 +225,14 @@ class ServerSseTest {
 
     @Path("/server-sse")
     public static final class ServerSseTestResource {
+        private static void sleep(long millis) {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
         @GET
         @Path("/single")
         @Produces(MediaType.SERVER_SENT_EVENTS)
@@ -331,14 +333,6 @@ class ServerSseTest {
                                 .data("delayed")
                                 .build()
                 ).join();
-            }
-        }
-
-        private static void sleep(long millis) {
-            try {
-                Thread.sleep(millis);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
             }
         }
     }

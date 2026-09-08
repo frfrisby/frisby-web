@@ -15,16 +15,16 @@ import java.util.Optional;
  * @param <T>        The body type.
  */
 record DefaultSseMessage<T>(Optional<String> id,
-                             Optional<String> event,
-                             T body,
-                             Instant receivedAt) implements SseMessage<T> {
+                            Optional<String> event,
+                            T body,
+                            Instant receivedAt) implements SseMessage<T> {
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
      * @throws software.frisby.core.validation.NullValueException if {@code id}, {@code event},
-     *                                                             {@code body}, or
-     *                                                             {@code receivedAt} is
-     *                                                             {@code null}.
+     *                                                            {@code body}, or
+     *                                                            {@code receivedAt} is
+     *                                                            {@code null}.
      */
     DefaultSseMessage {
         Values.notNull("id", id);

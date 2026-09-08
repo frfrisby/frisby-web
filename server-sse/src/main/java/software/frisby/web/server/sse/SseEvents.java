@@ -80,10 +80,10 @@ public final class SseEvents {
      * Serializes a typed value to UTF-8 JSON and sets it as event data.
      *
      * @param value The value to serialize.
-     * @param <T> The value type.
+     * @param <T>   The value type.
      * @return This helper.
      * @throws software.frisby.core.validation.NullValueException if {@code value} is null.
-     * @throws IllegalArgumentException if serialization fails.
+     * @throws IllegalArgumentException                           if serialization fails.
      */
     public <T> SseEvents data(T value) {
         Values.notNull(VALUE_ARGUMENT_NAME, value);

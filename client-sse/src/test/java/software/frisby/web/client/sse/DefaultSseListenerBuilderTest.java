@@ -3,29 +3,18 @@ package software.frisby.web.client.sse;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import software.frisby.core.validation.BlankValueException;
-import software.frisby.core.validation.DuplicateElementsException;
-import software.frisby.core.validation.DurationOutsideRangeException;
-import software.frisby.core.validation.NullValueException;
-import software.frisby.core.validation.NumericValueOutsideRangeException;
+import software.frisby.core.validation.*;
 import software.frisby.web.client.Client;
 import software.frisby.web.client.PathParameter;
-import software.frisby.web.serial.GenericType;
 import software.frisby.web.serial.jackson.JacksonSerializer;
 
 import java.net.HttpCookie;
 import java.net.URI;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Consumer;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Chunk 7 unit tests — {@link DefaultSseListenerBuilder} validation.
@@ -92,7 +81,7 @@ class DefaultSseListenerBuilderTest {
     class Path {
         @Test
         void nullPath_throwsNullValueException() {
-            assertThrows(NullValueException.class, () -> SseListener.builder().client(client).path((String) null));
+            assertThrows(NullValueException.class, () -> SseListener.builder().client(client).path(null));
         }
 
         @Test
@@ -241,7 +230,7 @@ class DefaultSseListenerBuilderTest {
         void nullHandler_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> SseListener.builder().client(client).onEvent("event", (SseHandler) null)
+                    () -> SseListener.builder().client(client).onEvent("event", (SseHandler<String>) null)
             );
         }
 
@@ -249,7 +238,7 @@ class DefaultSseListenerBuilderTest {
         void zeroConcurrency_throwsNumericValueOutsideRangeException() {
             assertThrows(
                     NumericValueOutsideRangeException.class,
-                    () -> SseHandler.of(String.class, (Consumer<SseMessage<String>>) message -> {
+                    () -> SseHandler.of(String.class, message -> {
                     }).concurrency(0)
             );
         }
@@ -258,7 +247,7 @@ class DefaultSseListenerBuilderTest {
         void negativeConcurrency_throwsNumericValueOutsideRangeException() {
             assertThrows(
                     NumericValueOutsideRangeException.class,
-                    () -> SseHandler.of(String.class, (Consumer<SseMessage<String>>) message -> {
+                    () -> SseHandler.of(String.class, message -> {
                     }).concurrency(-1)
             );
         }
@@ -267,7 +256,7 @@ class DefaultSseListenerBuilderTest {
         void batchHandlerZeroCapacity_throwsNumericValueOutsideRangeException() {
             assertThrows(
                     NumericValueOutsideRangeException.class,
-                    () -> SseBatchHandler.of(String.class, (Consumer<List<SseMessage<String>>>) messages -> {
+                    () -> SseBatchHandler.of(String.class, messages -> {
                     }).capacity(0)
             );
         }
@@ -276,7 +265,7 @@ class DefaultSseListenerBuilderTest {
         void batchHandlerNegativeCapacity_throwsNumericValueOutsideRangeException() {
             assertThrows(
                     NumericValueOutsideRangeException.class,
-                    () -> SseBatchHandler.of(String.class, (Consumer<List<SseMessage<String>>>) messages -> {
+                    () -> SseBatchHandler.of(String.class, messages -> {
                     }).capacity(-1)
             );
         }
@@ -375,14 +364,15 @@ class DefaultSseListenerBuilderTest {
         void build_startsNoThreadsAndPerformsNoIo() {
             int threadCountBefore = Thread.activeCount();
 
-            SseListener listener = SseListener.builder().client(client)
+            try (SseListener listener = SseListener.builder().client(client)
                     .path("/sse/stream")
                     .onEvent("message", SseHandler.of(message -> {
                     }))
-                    .build();
-
-            assertEquals(threadCountBefore, Thread.activeCount());
-            assertFalse(listener.isOpen());
+                    .build()
+            ) {
+                assertEquals(threadCountBefore, Thread.activeCount());
+                assertFalse(listener.isOpen());
+            }
         }
 
         @Test
@@ -392,14 +382,15 @@ class DefaultSseListenerBuilderTest {
             // null-guarded fields (readerThread, handlerPipelines, unhandledPipeline,
             // ownedExecutor) all still being null, rather than assuming connectAsync()
             // was always called first.
-            SseListener listener = SseListener.builder().client(client)
+            try (SseListener listener = SseListener.builder().client(client)
                     .path("/sse/stream")
                     .onEvent("message", SseHandler.of(message -> {
                     }))
-                    .build();
-
-            assertDoesNotThrow(listener::close);
-            assertFalse(listener.isOpen());
+                    .build()
+            ) {
+                assertDoesNotThrow(listener::close);
+                assertFalse(listener.isOpen());
+            }
         }
 
         @Test
@@ -452,28 +443,7 @@ class DefaultSseListenerBuilderTest {
         void nullHandler_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> SseListener.builder().client(client).onUnhandledEvent((SseHandler) null)
-            );
-        }
-
-        @Test
-        void typedHandler_throwsIllegalArgumentException() {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> SseListener.builder().client(client)
-                            .onUnhandledEvent(SseHandler.of(String.class, message -> {
-                            }))
-            );
-        }
-
-        @Test
-        void genericallyTypedHandler_throwsIllegalArgumentException() {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> SseListener.builder().client(client)
-                            .onUnhandledEvent(SseHandler.of(new GenericType<List<String>>() {
-                            }, message -> {
-                            }))
+                    () -> SseListener.builder().client(client).onUnhandledEvent((SseHandler<String>) null)
             );
         }
 
@@ -490,28 +460,7 @@ class DefaultSseListenerBuilderTest {
         void nullBatchHandler_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> SseListener.builder().client(client).onUnhandledEvent((SseBatchHandler) null)
-            );
-        }
-
-        @Test
-        void typedBatchHandler_throwsIllegalArgumentException() {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> SseListener.builder().client(client)
-                            .onUnhandledEvent(SseBatchHandler.of(String.class, messages -> {
-                            }))
-            );
-        }
-
-        @Test
-        void genericallyTypedBatchHandler_throwsIllegalArgumentException() {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> SseListener.builder().client(client)
-                            .onUnhandledEvent(SseBatchHandler.of(new GenericType<List<String>>() {
-                            }, messages -> {
-                            }))
+                    () -> SseListener.builder().client(client).onUnhandledEvent((SseBatchHandler<String>) null)
             );
         }
 

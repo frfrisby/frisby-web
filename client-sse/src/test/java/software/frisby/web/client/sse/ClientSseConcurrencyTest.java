@@ -69,6 +69,14 @@ class ClientSseConcurrencyTest {
         }
     }
 
+    private static void sleepBriefly() {
+        try {
+            Thread.sleep(20);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     @Test
     void onEventConcurrencyGreaterThanOne_invokesHandlerFromMultipleThreads() throws InterruptedException {
         int totalEvents = 40;
@@ -137,14 +145,6 @@ class ClientSseConcurrencyTest {
             );
         } finally {
             listener.close();
-        }
-    }
-
-    private static void sleepBriefly() {
-        try {
-            Thread.sleep(20);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

@@ -8,10 +8,7 @@ import software.frisby.web.serial.JsonSerializer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class SseEventsTest {
     private static final String NULL_SERIALIZER_MESSAGE = "The 'serializer' value is invalid. The value must not be null.";
