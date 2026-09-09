@@ -188,6 +188,12 @@ public interface SseListenerBuilder {
      * thread has a new event ready to enqueue.
      * <p>
      * Optional; defaults to {@link BufferFullPolicy#BLOCK}.
+     * <p>
+     * <strong>Pitfall when choosing {@link BufferFullPolicy#DISCONNECT}:</strong> pairing
+     * it with too small an {@link SseHandler#capacity(int)}/{@link SseBatchHandler#capacity(int)}
+     * for a handler's real throughput, or with a non-escalating {@link #reconnectDelay},
+     * can produce an unbounded reconnect loop rather than genuine backpressure relief —
+     * see {@link BufferFullPolicy#DISCONNECT} for the full explanation.
      *
      * @param policy The backpressure policy to apply.
      * @return This builder instance.
@@ -426,6 +432,15 @@ public interface SseListenerBuilder {
      * <p>
      * Optional; defaults to the server's {@code retry} value when present, otherwise
      * {@link RetryDelay#exponential(Duration) RetryDelay.exponential(Duration.ofSeconds(3))}.
+     * <p>
+     * <strong>Avoid a non-escalating strategy (e.g. {@link RetryDelay#fixed(Duration)})
+     * when {@link #onBufferFull} is set to {@link BufferFullPolicy#DISCONNECT}:</strong>
+     * every buffer-full disconnect immediately triggers this strategy's next reconnect
+     * attempt, so a handler that is persistently slower than the incoming event rate
+     * never gets any breathing room to drain — it reconnects at a constant rate,
+     * indefinitely, rather than backing off. An escalating strategy (the default above
+     * already qualifies) gives a genuinely overwhelmed handler increasingly longer gaps
+     * to catch up instead.
      *
      * @param strategy The reconnect delay strategy.
      * @return This builder instance.

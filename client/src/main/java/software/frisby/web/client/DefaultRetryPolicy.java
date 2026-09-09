@@ -32,31 +32,35 @@ final class DefaultRetryPolicy implements RetryPolicy {
         this.allowNonIdempotent = allowNonIdempotent;
     }
 
-    private static boolean matches(RetryOn condition, Throwable failure) {
+    private static boolean matches(RetryOn condition, RetryContext context) {
         return switch (condition) {
-            case REQUEST_TIMEOUT -> failure instanceof RequestTimeoutException;
-            case TOO_MANY_REQUESTS -> failure instanceof TooManyRequestsException;
-            case BAD_GATEWAY -> failure instanceof BadGatewayException;
-            case SERVICE_UNAVAILABLE -> failure instanceof ServiceUnavailableException;
-            case GATEWAY_TIMEOUT -> failure instanceof GatewayTimeoutException;
-            case CONNECT_FAILURE -> failure instanceof ConnectException;
-            case CONNECT_TIMEOUT -> failure instanceof ConnectTimeoutException;
-            case READ_TIMEOUT -> failure instanceof ReadTimeoutException;
-            case TRANSPORT_FAILURE -> failure instanceof TransportException;
+            case REQUEST_TIMEOUT -> context.failure() instanceof RequestTimeoutException;
+            case TOO_MANY_REQUESTS -> context.failure() instanceof TooManyRequestsException;
+            case BAD_GATEWAY -> context.failure() instanceof BadGatewayException;
+            case SERVICE_UNAVAILABLE -> context.failure() instanceof ServiceUnavailableException;
+            case GATEWAY_TIMEOUT -> context.failure() instanceof GatewayTimeoutException;
+            case CONNECT_FAILURE -> context.failure() instanceof ConnectException;
+            case CONNECT_TIMEOUT -> context.failure() instanceof ConnectTimeoutException;
+            case READ_TIMEOUT -> context.failure() instanceof ReadTimeoutException;
+            case TRANSPORT_FAILURE -> context.failure() instanceof TransportException;
         };
     }
 
+    static boolean isIdempotentMethod(String method) {
+        return "GET".equals(method) || "HEAD".equals(method) || "DELETE".equals(method);
+    }
+
     @Override
-    public Optional<Duration> retryDelay(int attempt, Throwable failure) {
-        if (attempt >= maxAttempts) {
+    public Optional<Duration> retryDelay(RetryContext context) {
+        if (context.attempt() >= maxAttempts) {
             return Optional.empty();
         }
 
-        if (!isRetryable(failure)) {
+        if (!isRetryable(context)) {
             return Optional.empty();
         }
 
-        if (honorRetryAfterHeader && failure instanceof HttpResponseException httpEx) {
+        if (honorRetryAfterHeader && context.failure() instanceof HttpResponseException httpEx) {
             OptionalLong headerSeconds = httpEx.headers().firstValueAsLong("Retry-After");
 
             if (headerSeconds.isPresent()) {
@@ -68,17 +72,26 @@ final class DefaultRetryPolicy implements RetryPolicy {
             }
         }
 
-        return Optional.of(delay.delayFor(attempt));
+        return Optional.of(delay.delayFor(context.attempt()));
     }
 
-    @Override
-    public boolean allowNonIdempotent() {
+    boolean allowNonIdempotent() {
         return allowNonIdempotent;
     }
 
-    private boolean isRetryable(Throwable failure) {
+    private boolean isRetryable(RetryContext context) {
+        if (RetryPhase.PRE_FLIGHT != context.phase()) {
+            if (!context.replayableBody()) {
+                return false;
+            }
+
+            if (!allowNonIdempotent && !isIdempotentMethod(context.method())) {
+                return false;
+            }
+        }
+
         for (RetryOn condition : retryOn) {
-            if (matches(condition, failure)) {
+            if (matches(condition, context)) {
                 return true;
             }
         }
@@ -86,4 +99,3 @@ final class DefaultRetryPolicy implements RetryPolicy {
         return false;
     }
 }
-

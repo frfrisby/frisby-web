@@ -1,18 +1,20 @@
 package software.frisby.web.client;
 
+import java.util.Set;
+
 /**
  * Identifies a category of failure that a {@link RetryPolicy} should treat as
  * retryable.
  * <p>
  * Used with {@link RetryPolicyBuilder#on(RetryOn...)} to declare which exceptions
  * trigger a retry attempt.  Convenience constants for common groups are available
- * on {@link RetryPolicy}:
+ * on this enum:
  *
  * <pre>{@code
  * RetryPolicy.builder()
  *         .maxAttempts(3)
- *         .on(RetryPolicy.GATEWAY_ERRORS)   // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
- *         .on(RetryPolicy.TRANSPORT_ERRORS) // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
+ *         .on(RetryOn.GATEWAY_ERRORS)   // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+ *         .on(RetryOn.TRANSPORT_ERRORS) // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
  *         .delay(RetryDelay.exponential(Duration.ofSeconds(1)))
  *         .build();
  * }</pre>
@@ -89,6 +91,18 @@ public enum RetryOn {
      * Include this value only when you have confirmed that your target environment
      * may produce transient SSL errors (e.g. certificate rotation events).
      */
-    TRANSPORT_FAILURE
+    TRANSPORT_FAILURE;
+
+    public static final Set<RetryOn> GATEWAY_ERRORS = Set.of(
+            BAD_GATEWAY,
+            SERVICE_UNAVAILABLE,
+            GATEWAY_TIMEOUT
+    );
+
+    public static final Set<RetryOn> TRANSPORT_ERRORS = Set.of(
+            CONNECT_FAILURE,
+            CONNECT_TIMEOUT,
+            READ_TIMEOUT
+    );
 }
 

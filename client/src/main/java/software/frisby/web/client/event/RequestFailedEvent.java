@@ -7,7 +7,7 @@ import software.frisby.core.validation.Values;
 
 import java.net.URI;
 import java.time.Duration;
-import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Published by the client when a request fails with an exception before or after
@@ -25,15 +25,13 @@ import java.util.Optional;
  * <h2>Retry context</h2>
  * <p>
  * When a {@link software.frisby.web.client.RetryPolicy} is configured and the request
- * is eligible for retry (idempotent method, non-multipart body), this callback fires
- * <em>for every failed attempt</em> — not just the final one.  The {@link #retryAttempt()}
- * field identifies which attempt failed:
+ * is eligible for retry, this callback fires <em>for every failed attempt</em> — not just
+ * the final one.  The {@link #retryAttempt()} field identifies which attempt failed:
  * <ul>
- *   <li>{@link Optional#empty()} — no retry context (no policy configured, or the
- *       request was ineligible — multipart body or non-idempotent method without
- *       {@code allowNonIdempotent()}).</li>
- *   <li>{@code Optional.of(1)} — first attempt failed; the policy may or may not retry.</li>
- *   <li>{@code Optional.of(2)} or higher — a retry attempt that also failed.</li>
+ *   <li>{@link OptionalInt#empty()} — no retry context (no policy configured, or the
+ *       request was ineligible).</li>
+ *   <li>A present value {@code 1} — first attempt failed; the policy may or may not retry.</li>
+ *   <li>A present value {@code >= 2} — a retry attempt that also failed.</li>
  * </ul>
  * <p>
  * A successful outcome after one or more retries produces a final
@@ -55,13 +53,21 @@ import java.util.Optional;
  */
 public record RequestFailedEvent(String method,
                                  URI uri,
-                                 Optional<Integer> statusCode,
+                                 OptionalInt statusCode,
                                  Duration latency,
                                  Throwable cause,
-                                 Optional<Integer> retryAttempt) {
+                                 OptionalInt retryAttempt) {
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
+     * @param method       The HTTP method of the request; never blank.
+     * @param uri          The fully resolved URI of the request; never {@code null}.
+     * @param statusCode   The HTTP response status code, if a response was received;
+     *                     {@link OptionalInt#empty()} for transport-level failures.
+     * @param latency      The elapsed time from the moment the request was sent until the
+     *                     failure occurred.
+     * @param cause        The exception that caused the failure; never {@code null}.
+     * @param retryAttempt The 1-based retry attempt number, or empty when no retry context applies.
      * @throws software.frisby.core.validation.BlankValueException               if {@code method} is blank.
      * @throws software.frisby.core.validation.NullValueException                if {@code uri},
      *                                                                           {@code statusCode},
@@ -81,7 +87,9 @@ public record RequestFailedEvent(String method,
         Values.notNull("cause", cause);
         Values.notNull("retryAttempt", retryAttempt);
 
-        retryAttempt.ifPresent(integer -> Numbers.positive("retryAttempt", integer));
+        if (retryAttempt.isPresent()) {
+            Numbers.positive("retryAttempt", retryAttempt.getAsInt());
+        }
     }
 
     /**
@@ -102,10 +110,10 @@ public record RequestFailedEvent(String method,
         return new RequestFailedEvent(
                 method,
                 uri,
-                Optional.empty(),
+                OptionalInt.empty(),
                 latency,
                 cause,
-                Optional.empty()
+                OptionalInt.empty()
         );
     }
 
@@ -129,10 +137,10 @@ public record RequestFailedEvent(String method,
         return new RequestFailedEvent(
                 method,
                 uri,
-                Optional.of(statusCode),
+                OptionalInt.of(statusCode),
                 latency,
                 cause,
-                Optional.empty()
+                OptionalInt.empty()
         );
     }
 
@@ -153,14 +161,14 @@ public record RequestFailedEvent(String method,
                 statusCode,
                 latency,
                 cause,
-                Optional.of(Numbers.positive("attempt", attempt))
+                OptionalInt.of(Numbers.positive("attempt", attempt))
         );
     }
 
     @Override
     public String toString() {
-        String status = statusCode.map(integer -> " → " + integer).orElse("");
-        String attempt = retryAttempt.map(n -> ", attempt " + n).orElse("");
+        String status = statusCode.isPresent() ? " → " + statusCode.getAsInt() : "";
+        String attempt = retryAttempt.isPresent() ? ", attempt " + retryAttempt.getAsInt() : "";
 
         return method + " " + uri + status +
                 " failed after " + latency.toMillis() + "ms" +

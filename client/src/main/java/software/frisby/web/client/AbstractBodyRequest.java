@@ -157,6 +157,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
+                method(),
+                uri,
                 () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
@@ -174,6 +176,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
+                method(),
+                uri,
                 () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
@@ -189,6 +193,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
+                method(),
+                uri,
                 () -> buildRequest(uri, false),
                 RequestState.voidBodyHandler(method(), uri)
         );
@@ -200,6 +206,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
+                method(),
+                uri,
                 () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
@@ -217,6 +225,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
+                method(),
+                uri,
                 () -> buildRequest(uri, true),
                 JsonBodyHandler.of(
                         engine.configuration().serializer(),
@@ -232,6 +242,8 @@ abstract class AbstractBodyRequest<S> {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
+                method(),
+                uri,
                 () -> buildRequest(uri, false),
                 RequestState.voidBodyHandler(method(), uri)
         );

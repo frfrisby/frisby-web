@@ -62,13 +62,13 @@ ClientConfiguration configuration()
 
 ## `ClientBuilder`
 
-| Method | Required | Notes |
-|---|---|---|
-| `configuration(ClientConfiguration)` | ✅ | Base URI, timeouts, serializer |
-| `configuration(UnaryOperator<ClientConfigurationBuilder>)` | — | Lambda convenience overload |
-| `security(SecurityProvider)` | — | Default auth for all requests; per-request override available |
-| `eventListener(ClientEventListener)` | — | Metrics / tracing hook; defaults to no-op |
-| `build()` | — | Throws `IllegalStateException` if no configuration provided |
+| Method                                                     | Required | Notes                                                         |
+|------------------------------------------------------------|----------|---------------------------------------------------------------|
+| `configuration(ClientConfiguration)`                       | ✅       | Base URI, timeouts, serializer                                |
+| `configuration(UnaryOperator<ClientConfigurationBuilder>)` | —        | Lambda convenience overload                                   |
+| `security(SecurityProvider)`                               | —        | Default auth for all requests; per-request override available |
+| `eventListener(ClientEventListener)`                       | —        | Metrics / tracing hook; defaults to no-op                     |
+| `build()`                                                  | —        | Throws `IllegalStateException` if no configuration provided   |
 
 ---
 
@@ -78,24 +78,24 @@ Obtain via `ClientConfiguration.builder()`.
 
 ### Required options
 
-| Method | Description |
-|---|---|
-| `uri(URI)` | Base URI.  All request paths are resolved against this. |
-| `connectTimeout(Duration)` | Max time to establish a TCP connection. |
-| `readTimeout(Duration)` | Max time to wait for a response after sending. |
-| `serializer(JsonSerializer)` | JSON serializer for request/response bodies. |
+| Method                       | Description                                             |
+|------------------------------|---------------------------------------------------------|
+| `uri(URI)`                   | Base URI.  All request paths are resolved against this. |
+| `connectTimeout(Duration)`   | Max time to establish a TCP connection.                 |
+| `readTimeout(Duration)`      | Max time to wait for a response after sending.          |
+| `serializer(JsonSerializer)` | JSON serializer for request/response bodies.            |
 
 ### Optional options
 
-| Method | Default | Description |
-|---|---|---|
-| `sslContext(SSLContext)` | JDK default | Custom TLS — private CA, mTLS. |
-| `redirectPolicy(HttpClient.Redirect)` | `NORMAL` | `NORMAL` follows HTTP→HTTP and HTTPS→HTTPS redirects.  `NEVER` returns 3xx directly; `response.body()` will be `null` for 3xx. |
-| `httpVersion(HttpClient.Version)` | `HTTP_1_1` | Set to `HTTP_2` for HTTP/2. |
-| `decompress()` | — | Registers built-in gzip decompressor; adds `Accept-Encoding: gzip`. |
-| `decompress(ContentDecompressor)` | — | Custom decompressor (e.g. brotli).  Calls are additive. |
-| `executor(Executor)` | Shared default | Custom thread pool or virtual threads (Java 21+). |
-| `logging(ClientLoggingConfiguration)` | See below | Header/field redaction and body size cap for log entries. |
+| Method                                | Default        | Description                                                                                                                    |
+|---------------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `sslContext(SSLContext)`              | JDK default    | Custom TLS — private CA, mTLS.                                                                                                 |
+| `redirectPolicy(HttpClient.Redirect)` | `NORMAL`       | `NORMAL` follows HTTP→HTTP and HTTPS→HTTPS redirects.  `NEVER` returns 3xx directly; `response.body()` will be `null` for 3xx. |
+| `httpVersion(HttpClient.Version)`     | `HTTP_1_1`     | Set to `HTTP_2` for HTTP/2.                                                                                                    |
+| `decompress()`                        | —              | Registers built-in gzip decompressor; adds `Accept-Encoding: gzip`.                                                            |
+| `decompress(ContentDecompressor)`     | —              | Custom decompressor (e.g. brotli).  Calls are additive.                                                                        |
+| `executor(Executor)`                  | Shared default | Custom thread pool or virtual threads (Java 21+).                                                                              |
+| `logging(ClientLoggingConfiguration)` | See below      | Header/field redaction and body size cap for log entries.                                                                      |
 
 `build()` throws `DuplicateElementsException` if two registered decompressors share the
 same `encoding()` token.
@@ -391,36 +391,36 @@ Unknown codes return `ResponseStatus.UNKNOWN`.
 All HTTP error exceptions extend `HttpResponseException`.  The client throws on `4xx` / `5xx`
 responses and on transport failures.
 
-| Exception | Trigger |
-|---|---|
-| `BadRequestException` | 400 |
-| `UnauthorizedException` | 401 |
-| `ForbiddenException` | 403 |
-| `NotFoundException` | 404 |
-| `MethodNotAllowedException` | 405 |
-| `NotAcceptableException` | 406 |
-| `RequestTimeoutException` | 408 |
-| `ConflictException` | 409 |
-| `GoneException` | 410 |
-| `PayloadTooLargeException` | 413 |
-| `UnsupportedMediaTypeException` | 415 |
-| `UnprocessableEntityException` | 422 |
-| `TooManyRequestsException` | 429 |
-| `InternalServerErrorException` | 500 |
-| `NotImplementedException` | 501 |
-| `BadGatewayException` | 502 |
-| `ServiceUnavailableException` | 503 |
-| `GatewayTimeoutException` | 504 |
-| `HttpResponseException` | Any other `4xx` / `5xx` |
-| `ConnectException` | TCP connection refused or reset |
-| `ConnectTimeoutException` | `connectTimeout` exceeded |
-| `ReadTimeoutException` | `readTimeout` exceeded |
-| `TooManyRedirectsException` | Redirect loop detected |
-| `AbortedException` | Request aborted by the JDK HTTP client |
-| `TransportException` | Other transport-layer failure |
-| `UriSyntaxException` | Malformed URI or unresolved path parameter |
+| Exception                             | Trigger                                                              |
+|---------------------------------------|----------------------------------------------------------------------|
+| `BadRequestException`                 | 400                                                                  |
+| `UnauthorizedException`               | 401                                                                  |
+| `ForbiddenException`                  | 403                                                                  |
+| `NotFoundException`                   | 404                                                                  |
+| `MethodNotAllowedException`           | 405                                                                  |
+| `NotAcceptableException`              | 406                                                                  |
+| `RequestTimeoutException`             | 408                                                                  |
+| `ConflictException`                   | 409                                                                  |
+| `GoneException`                       | 410                                                                  |
+| `PayloadTooLargeException`            | 413                                                                  |
+| `UnsupportedMediaTypeException`       | 415                                                                  |
+| `UnprocessableEntityException`        | 422                                                                  |
+| `TooManyRequestsException`            | 429                                                                  |
+| `InternalServerErrorException`        | 500                                                                  |
+| `NotImplementedException`             | 501                                                                  |
+| `BadGatewayException`                 | 502                                                                  |
+| `ServiceUnavailableException`         | 503                                                                  |
+| `GatewayTimeoutException`             | 504                                                                  |
+| `HttpResponseException`               | Any other `4xx` / `5xx`                                              |
+| `ConnectException`                    | TCP connection refused or reset                                      |
+| `ConnectTimeoutException`             | `connectTimeout` exceeded                                            |
+| `ReadTimeoutException`                | `readTimeout` exceeded                                               |
+| `TooManyRedirectsException`           | Redirect loop detected                                               |
+| `AbortedException`                    | Request aborted by the JDK HTTP client                               |
+| `TransportException`                  | Other transport-layer failure                                        |
+| `UriSyntaxException`                  | Malformed URI or unresolved path parameter                           |
 | `UnsupportedContentEncodingException` | Server returned a `Content-Encoding` with no registered decompressor |
-| `ResponseDeserializationException` | Deserialization of a response body failed |
+| `ResponseDeserializationException`    | Deserialization of a response body failed                            |
 
 ---
 
@@ -433,11 +433,11 @@ When not configured the default is `RetryPolicy.none()` — no retries.
 
 ```java
 RetryPolicy policy = RetryPolicy.builder()
-        .maxAttempts(3)                                           // 1 initial + 2 retries
-        .on(RetryPolicy.GATEWAY_ERRORS)                          // 502, 503, 504
+        .maxAttempts(3)                                          // 1 initial + 2 retries
+        .on(RetryOn.GATEWAY_ERRORS)                              // 502, 503, 504
         .on(RetryOn.TOO_MANY_REQUESTS)                           // 429
         .delay(RetryDelay.exponential(Duration.ofSeconds(1)))    // ~1 s, ~2 s, …  (capped at 30 s)
-        .honorRetryAfterHeader(Duration.ofSeconds(60))           // honour Retry-After ≤ 60 s
+        .honorRetryAfterHeader(Duration.ofSeconds(60))           // honor Retry-After ≤ 60 s
         .build();
 
 Client client = Client.builder()
@@ -448,44 +448,45 @@ Client client = Client.builder()
 
 ### `RetryPolicyBuilder` methods
 
-| Method | Default | Description |
-|---|---|---|
-| `maxAttempts(int)` | `3` | Maximum total executions (initial attempt + retries). |
-| `on(RetryOn...)` | — | Additive; registers conditions that trigger a retry. |
-| `on(Collection<RetryOn>)` | — | Convenience overload for `Set` constants. |
-| `delay(RetryDelay)` | `linear(1 s)` | Back-off strategy between retries. |
-| `honorRetryAfterHeader()` | — | Use `Retry-After` header value if ≤ 5 minutes; else fall back to `delay`. |
-| `honorRetryAfterHeader(Duration cap)` | — | Same, with an explicit cap. |
-| `allowNonIdempotent()` | — | Also retry `POST`, `PUT`, `PATCH`. |
-| `build()` | — | Returns a `RetryPolicy`. |
+| Method                                | Default       | Description                                                               |
+|---------------------------------------|---------------|---------------------------------------------------------------------------|
+| `maxAttempts(int)`                    | `3`           | Maximum total executions (initial attempt + retries).                     |
+| `on(RetryOn...)`                      | —             | Additive; registers conditions that trigger a retry.                      |
+| `on(Collection<RetryOn>)`             | —             | Convenience overload for `Set` constants.                                 |
+| `delay(RetryDelay)`                   | `linear(1 s)` | Back-off strategy between retries.                                        |
+| `honorRetryAfterHeader()`             | —             | Use `Retry-After` header value if ≤ 5 minutes; else fall back to `delay`. |
+| `honorRetryAfterHeader(Duration cap)` | —             | Same, with an explicit cap.                                               |
+| `allowNonIdempotent()`                | —             | Also retry `POST`, `PUT`, `PATCH`.                                        |
+| `build()`                             | —             | Returns a `RetryPolicy`.                                                  |
 
 ### `RetryOn` enum values
 
-| Value | Triggers on |
-|---|---|
-| `REQUEST_TIMEOUT` | HTTP `408` |
-| `TOO_MANY_REQUESTS` | HTTP `429` |
-| `BAD_GATEWAY` | HTTP `502` |
-| `SERVICE_UNAVAILABLE` | HTTP `503` |
-| `GATEWAY_TIMEOUT` | HTTP `504` |
-| `CONNECT_FAILURE` | TCP connection refused / unreachable |
-| `CONNECT_TIMEOUT` | `connectTimeout` exceeded |
-| `READ_TIMEOUT` | `readTimeout` exceeded |
-| `TRANSPORT_FAILURE` | SSL/TLS errors and other I/O failures |
+| Value                 | Triggers on                           |
+|-----------------------|---------------------------------------|
+| `REQUEST_TIMEOUT`     | HTTP `408`                            |
+| `TOO_MANY_REQUESTS`   | HTTP `429`                            |
+| `BAD_GATEWAY`         | HTTP `502`                            |
+| `SERVICE_UNAVAILABLE` | HTTP `503`                            |
+| `GATEWAY_TIMEOUT`     | HTTP `504`                            |
+| `CONNECT_FAILURE`     | TCP connection refused / unreachable  |
+| `CONNECT_TIMEOUT`     | `connectTimeout` exceeded             |
+| `READ_TIMEOUT`        | `readTimeout` exceeded                |
+| `TRANSPORT_FAILURE`   | SSL/TLS errors and other I/O failures |
 
-### Convenience constants on `RetryPolicy`
+### Convenience constants on `RetryOn`
 
 ```java
-RetryPolicy.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
-RetryPolicy.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
+RetryOn.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+RetryOn.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
 ```
 
 ### `RetryDelay` strategies
 
 ```java
-RetryDelay.fixed(Duration.ofSeconds(2))                             // always 2 s
-RetryDelay.linear(Duration.ofSeconds(1))                            // 1 s, 2 s, 3 s, …
-RetryDelay.exponential(Duration.ofSeconds(1))                       // ~1 s, ~2 s, ~4 s, … capped at 30 s
+RetryDelay.fixed(Duration.ofSeconds(2))                                 // always 2 s
+RetryDelay.linear(Duration.ofSeconds(1))                                // 1 s, 2 s, 3 s, … capped at 30 s
+RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10))        // linear with custom cap
+RetryDelay.exponential(Duration.ofSeconds(1))                           // ~1 s, ~2 s, ~4 s, … capped at 30 s
 RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60))  // custom cap
 ```
 
@@ -498,9 +499,9 @@ RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60))  // custo
 
 ### Sync vs. async retry behavior
 
-| Path | Retry mechanism |
-|---|---|
-| `send()` | `Thread.sleep(delay)` on the calling thread. |
+| Path          | Retry mechanism                                          |
+|---------------|----------------------------------------------------------|
+| `send()`      | `Thread.sleep(delay)` on the calling thread.             |
 | `sendAsync()` | `ScheduledExecutorService.schedule(...)` — never blocks. |
 
 Thread interruption during a sync retry sleep restores the interrupt flag and throws `AbortedException`.

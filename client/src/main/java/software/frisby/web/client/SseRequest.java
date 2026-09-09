@@ -90,6 +90,8 @@ final class SseRequest implements SseSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
+                GET,
+                uri,
                 () -> OutboundRequest.of(buildStreamRequest(uri)),
                 streamBodyHandler(uri)
         );
@@ -100,6 +102,8 @@ final class SseRequest implements SseSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
+                GET,
+                uri,
                 () -> OutboundRequest.of(buildStreamRequest(uri)),
                 streamBodyHandler(uri)
         );

@@ -71,17 +71,17 @@ Client client = Client.builder()
 
 Obtain via `Server.builder()`.
 
-| Method | Required | Notes |
-|---|---|---|
-| `configuration(ServerConfiguration)` | ✅ | Runtime settings |
-| `configuration(UnaryOperator<ServerConfigurationBuilder>)` | — | Lambda convenience overload |
-| `resources(Object...)` / `resources(List<Object>)` | ✅ | JAX-RS `@Path`-annotated instances; calls are cumulative |
-| `components(Object...)` / `components(List<Object>)` | — | JAX-RS `@Provider` instances or classes; calls are cumulative |
-| `healthCheck()` | — | Mounts liveness probe at `/health` |
-| `healthCheck(String path)` | — | Mounts liveness probe at custom path |
-| `authentication(AuthenticationProvider...)` / `authentication(List<AuthenticationProvider>)` | — | Auth chain; calls are cumulative; see `server-security.md` |
-| `eventListener(ServerEventListener)` | — | Metrics / tracing hook; defaults to no-op |
-| `build()` | — | Throws `IllegalStateException` if no configuration or no resources provided |
+| Method                                                                                       | Required | Notes                                                                       |
+|----------------------------------------------------------------------------------------------|----------|-----------------------------------------------------------------------------|
+| `configuration(ServerConfiguration)`                                                         | ✅       | Runtime settings                                                            |
+| `configuration(UnaryOperator<ServerConfigurationBuilder>)`                                   | —        | Lambda convenience overload                                                 |
+| `resources(Object...)` / `resources(List<Object>)`                                           | ✅       | JAX-RS `@Path`-annotated instances; calls are cumulative                    |
+| `components(Object...)` / `components(List<Object>)`                                         | —        | JAX-RS `@Provider` instances or classes; calls are cumulative               |
+| `healthCheck()`                                                                              | —        | Mounts liveness probe at `/health`                                          |
+| `healthCheck(String path)`                                                                   | —        | Mounts liveness probe at custom path                                        |
+| `authentication(AuthenticationProvider...)` / `authentication(List<AuthenticationProvider>)` | —        | Auth chain; calls are cumulative; see `server-security.md`                  |
+| `eventListener(ServerEventListener)`                                                         | —        | Metrics / tracing hook; defaults to no-op                                   |
+| `build()`                                                                                    | —        | Throws `IllegalStateException` if no configuration or no resources provided |
 
 ---
 
@@ -91,27 +91,27 @@ Obtain via `ServerConfiguration.builder()`.
 
 ### Required options
 
-| Method | Description |
-|---|---|
-| `port(int)` | Network port.  Pass `0` for OS-assigned ephemeral port (useful in tests). |
-| `serializer(JsonSerializer)` | JSON serializer for request/response bodies. |
+| Method                       | Description                                                               |
+|------------------------------|---------------------------------------------------------------------------|
+| `port(int)`                  | Network port.  Pass `0` for OS-assigned ephemeral port (useful in tests). |
+| `serializer(JsonSerializer)` | JSON serializer for request/response bodies.                              |
 
 ### Optional options
 
-| Method | Default | Description |
-|---|---|---|
-| `host(String)` | `"0.0.0.0"` | Bind address.  Use `"localhost"` to restrict to loopback. |
-| `maxRequestSize(long)` | 4 MB | Request bodies larger than this return HTTP 413. |
-| `gzip()` | disabled | Transparently decompresses `Content-Encoding: gzip` requests and compresses `application/json` responses when `Accept-Encoding: gzip` is present. |
-| `http2()` | disabled | Enables HTTP/2. Transport variant is auto-selected: **with `ssl()` configured** → h2 over TLS via ALPN (HTTP/1.1 clients fall back automatically); **without `ssl()`** → h2c (HTTP/2 cleartext upgrade, RFC 7540 §3.2). Use h2c behind a TLS-terminating ALB (e.g. AWS ALB with Protocol Version HTTP2) for internal service-to-service HTTP/2 without adding TLS to each backend service. |
-| `ssl()` | plain HTTP | Enables HTTPS using the JDK default `SSLContext`. |
-| `ssl(SSLContext)` | plain HTTP | Enables HTTPS using a custom `SSLContext`. |
-| `cors(CorsConfiguration)` | disabled | CORS filter; see below. |
-| `logging(ServerLoggingConfiguration)` | See below | Header masking, field redaction, body size cap. |
-| `logging(UnaryOperator<ServerLoggingConfigurationBuilder>)` | — | Lambda convenience overload. |
-| `maxConcurrentRequests(int)` | `availableProcessors * 20` | In-flight request cap.  Excess requests receive HTTP 503 with `Retry-After: 1`. |
-| `executor(Executor)` | Platform threads | Pass `Executors.newVirtualThreadPerTaskExecutor()` (Java 21+) for virtual threads. |
-| `stopTimeout(Duration)` | immediate | Graceful shutdown: server waits up to this duration for in-flight requests to drain before closing connections. |
+| Method                                                      | Default                    | Description                                                                                                                                                                                                                                                                                                                                                                                |
+|-------------------------------------------------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `host(String)`                                              | `"0.0.0.0"`                | Bind address.  Use `"localhost"` to restrict to loopback.                                                                                                                                                                                                                                                                                                                                  |
+| `maxRequestSize(long)`                                      | 4 MB                       | Request bodies larger than this return HTTP 413.                                                                                                                                                                                                                                                                                                                                           |
+| `gzip()`                                                    | disabled                   | Transparently decompresses `Content-Encoding: gzip` requests and compresses `application/json` responses when `Accept-Encoding: gzip` is present.                                                                                                                                                                                                                                          |
+| `http2()`                                                   | disabled                   | Enables HTTP/2. Transport variant is auto-selected: **with `ssl()` configured** → h2 over TLS via ALPN (HTTP/1.1 clients fall back automatically); **without `ssl()`** → h2c (HTTP/2 cleartext upgrade, RFC 7540 §3.2). Use h2c behind a TLS-terminating ALB (e.g. AWS ALB with Protocol Version HTTP2) for internal service-to-service HTTP/2 without adding TLS to each backend service. |
+| `ssl()`                                                     | plain HTTP                 | Enables HTTPS using the JDK default `SSLContext`.                                                                                                                                                                                                                                                                                                                                          |
+| `ssl(SSLContext)`                                           | plain HTTP                 | Enables HTTPS using a custom `SSLContext`.                                                                                                                                                                                                                                                                                                                                                 |
+| `cors(CorsConfiguration)`                                   | disabled                   | CORS filter; see below.                                                                                                                                                                                                                                                                                                                                                                    |
+| `logging(ServerLoggingConfiguration)`                       | See below                  | Header masking, field redaction, body size cap.                                                                                                                                                                                                                                                                                                                                            |
+| `logging(UnaryOperator<ServerLoggingConfigurationBuilder>)` | —                          | Lambda convenience overload.                                                                                                                                                                                                                                                                                                                                                               |
+| `maxConcurrentRequests(int)`                                | `availableProcessors * 20` | In-flight request cap.  Excess requests receive HTTP 503 with `Retry-After: 1`.                                                                                                                                                                                                                                                                                                            |
+| `executor(Executor)`                                        | Platform threads           | Pass `Executors.newVirtualThreadPerTaskExecutor()` (Java 21+) for virtual threads.                                                                                                                                                                                                                                                                                                         |
+| `stopTimeout(Duration)`                                     | immediate                  | Graceful shutdown: server waits up to this duration for in-flight requests to drain before closing connections.                                                                                                                                                                                                                                                                            |
 
 ---
 
@@ -200,13 +200,13 @@ Pass to `ServerConfigurationBuilder.cors(cors)`.
 
 ### Builder methods
 
-| Method | Required | Notes |
-|---|---|---|
-| `allowedOrigins(String... origins)` | ✅ | Cumulative.  Use `"*"` for wildcard.  Cannot combine with `allowCredentials()`. |
-| `allowedMethods(String... methods)` | ✅ | Cumulative.  Sent as `Access-Control-Allow-Methods` in preflight. |
-| `allowedHeaders(String... headers)` | — | Cumulative.  When not called, the server **echoes** the client's `Access-Control-Request-Headers` value (permissive default). |
-| `allowCredentials()` | — | Adds `Access-Control-Allow-Credentials: true`.  Cannot combine with wildcard origin. |
-| `build()` | — | Throws if no origins or no methods.  Throws `IllegalStateException` if wildcard + credentials. |
+| Method                              | Required | Notes                                                                                                                         |
+|-------------------------------------|----------|-------------------------------------------------------------------------------------------------------------------------------|
+| `allowedOrigins(String... origins)` | ✅       | Cumulative.  Use `"*"` for wildcard.  Cannot combine with `allowCredentials()`.                                               |
+| `allowedMethods(String... methods)` | ✅       | Cumulative.  Sent as `Access-Control-Allow-Methods` in preflight.                                                             |
+| `allowedHeaders(String... headers)` | —        | Cumulative.  When not called, the server **echoes** the client's `Access-Control-Request-Headers` value (permissive default). |
+| `allowCredentials()`                | —        | Adds `Access-Control-Allow-Credentials: true`.  Cannot combine with wildcard origin.                                          |
+| `build()`                           | —        | Throws if no origins or no methods.  Throws `IllegalStateException` if wildcard + credentials.                                |
 
 ### `AllowedHeaders` variants
 - `AllowedHeaders.Echo` — server echoes whatever headers the browser requests (default when `allowedHeaders` never called).
@@ -274,14 +274,14 @@ throw HttpErrors.notFound();
 
 ### Six overloads per status code
 
-| Signature | Body | Cause |
-|---|---|---|
-| `badRequest()` | none | — |
-| `badRequest(String message)` | `text/plain` | — |
-| `badRequest(Object body)` | `application/json` | — |
-| `badRequest(Throwable cause)` | none | ✓ |
-| `badRequest(String message, Throwable cause)` | `text/plain` | ✓ |
-| `badRequest(Object body, Throwable cause)` | `application/json` | ✓ |
+| Signature                                     | Body               | Cause |
+|-----------------------------------------------|--------------------|-------|
+| `badRequest()`                                | none               | —     |
+| `badRequest(String message)`                  | `text/plain`       | —     |
+| `badRequest(Object body)`                     | `application/json` | —     |
+| `badRequest(Throwable cause)`                 | none               | ✓    |
+| `badRequest(String message, Throwable cause)` | `text/plain`       | ✓    |
+| `badRequest(Object body, Throwable cause)`    | `application/json` | ✓    |
 
 > **Important:** Pass `String` for plain-text bodies; pass non-`String` objects for JSON.
 > Java picks the `String` overload for string literals automatically.
@@ -317,16 +317,16 @@ always take priority over static files.
 
 ### `ServerBuilder.staticAssets()`
 
-| Method | Notes |
-|---|---|
+| Method                                       | Notes                                                                                                                                                                                            |
+|----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `staticAssets(StaticAssetsConfiguration...)` | Registers one or more handlers. Calls are cumulative. Each configuration must have a unique, non-overlapping URL prefix — duplicates or overlap throw `IllegalStateException` at server startup. |
 
 ### `StaticAssetsConfiguration` — factory methods
 
-| Factory | Validates at |
-|---|---|
+| Factory                                                                                                                    | Validates at |
+|----------------------------------------------------------------------------------------------------------------------------|--------------|
 | `StaticAssetsConfiguration.classpath(String resourcePath)` — `resourcePath` must start with `/`; must not be null or blank | Builder time |
-| `StaticAssetsConfiguration.filesystem(Path directory)` — `directory` must exist and be a readable directory | Builder time |
+| `StaticAssetsConfiguration.filesystem(Path directory)` — `directory` must exist and be a readable directory                | Builder time |
 
 Classpath source existence is **not** checked at builder time (the builder's classloader
 cannot see resources in the application JAR).  The server fails fast at startup with a
@@ -334,16 +334,16 @@ clear error if the path is missing.
 
 ### `StaticAssetsConfigurationBuilder` — all methods
 
-| Method | Default | Constraints |
-|---|---|---|
-| `urlPrefix(String)` | `"/"` | Must start with `/`; not null or blank. Serves all unmatched paths when `"/"`. |
-| `cacheMaxAge(Duration)` | none | Emits `Cache-Control: max-age=<s>, public`. `Duration.ZERO` emits `max-age=0, no-cache`. Omitting emits no header. Not null, not negative. |
-| `responseHeaders(Map<String,String>)` | empty | Headers added to every asset response. Cumulative — later calls merge into earlier; duplicate keys take the later value. Map and all keys/values must not be null. |
-| `spaFallback()` | `false` | When called, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404. |
-| `preCompressed()` | `false` | Enables serving of pre-compressed sibling files. When a client sends `Accept-Encoding: gzip` or `br`, Jetty looks for a `.gz` or `.br` sibling file and serves it directly with the appropriate `Content-Encoding` header. Brotli is preferred over gzip when both siblings exist. No-op when no siblings are present. Use with Vite/webpack pre-compression output. |
-| `errorPage(int statusCode, String path)` | none | Maps an HTTP error status (400–599) to a file in the asset root. Status code preserved; only body and `Content-Type` come from the file. Multiple calls allowed (different codes); duplicate codes are last-write-wins. Each path is validated for readability at server startup. |
-| `authFilter(StaticAssetsAuthFilter)` | none | Invoked before every asset request. See below. |
-| `build()` | — | Returns a `StaticAssetsConfiguration`. |
+| Method                                   | Default | Constraints                                                                                                                                                                                                                                                                                                                                                          |
+|------------------------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `urlPrefix(String)`                      | `"/"`   | Must start with `/`; not null or blank. Serves all unmatched paths when `"/"`.                                                                                                                                                                                                                                                                                       |
+| `cacheMaxAge(Duration)`                  | none    | Emits `Cache-Control: max-age=<s>, public`. `Duration.ZERO` emits `max-age=0, no-cache`. Omitting emits no header. Not null, not negative.                                                                                                                                                                                                                           |
+| `responseHeaders(Map<String,String>)`    | empty   | Headers added to every asset response. Cumulative — later calls merge into earlier; duplicate keys take the later value. Map and all keys/values must not be null.                                                                                                                                                                                                   |
+| `spaFallback()`                          | `false` | When called, extensionless paths that resolve to a 404 are re-served as `index.html` with `200`. Paths with a file extension that are missing still return 404.                                                                                                                                                                                                      |
+| `preCompressed()`                        | `false` | Enables serving of pre-compressed sibling files. When a client sends `Accept-Encoding: gzip` or `br`, Jetty looks for a `.gz` or `.br` sibling file and serves it directly with the appropriate `Content-Encoding` header. Brotli is preferred over gzip when both siblings exist. No-op when no siblings are present. Use with Vite/webpack pre-compression output. |
+| `errorPage(int statusCode, String path)` | none    | Maps an HTTP error status (400–599) to a file in the asset root. Status code preserved; only body and `Content-Type` come from the file. Multiple calls allowed (different codes); duplicate codes are last-write-wins. Each path is validated for readability at server startup.                                                                                    |
+| `authFilter(StaticAssetsAuthFilter)`     | none    | Invoked before every asset request. See below.                                                                                                                                                                                                                                                                                                                       |
+| `build()`                                | —       | Returns a `StaticAssetsConfiguration`.                                                                                                                                                                                                                                                                                                                               |
 
 ### `StaticAssetsAuthFilter` — `@FunctionalInterface`
 
@@ -366,16 +366,16 @@ to gate static asset access.
 
 ### Built-in behaviours
 
-| Behaviour | Detail |
-|---|---|
-| **Dotfile protection** | Final path segment starting with `.` (e.g. `/.env`) → unconditional `404`. Cannot be disabled. |
-| **Directory index** | `GET /` and `GET /subdir/` serve the `index.html` within that directory. |
-| **Pre-compressed serving** | When `preCompressed()` is set, `.br` and `.gz` siblings are served in preference to the original when the client advertises the matching `Accept-Encoding`. Brotli preferred when both exist. `Vary: Accept-Encoding` added automatically. |
-| **ETags / Last-Modified** | Emitted automatically; `If-None-Match` returns `304 Not Modified`. |
-| **JAX-RS priority** | Static handlers only receive requests that no JAX-RS endpoint matched. |
-| **Startup validation** | Asset source and all `errorPage` paths validated when the server starts; missing resources → `IllegalStateException` with a clear message. |
-| **URL prefix conflict detection** | Exact duplicates or proper-prefix overlaps (e.g. `/admin` + `/admin/reports`) → `IllegalStateException` at startup. |
-| **Request logging** | All static asset requests are logged through `RequestLogger` (logger name `software.frisby.web.server.RequestLogger`) using the same level conventions as the JSON API: `TRACE` — full entry with request + response headers; `INFO` — compact one-liner for 2xx/3xx; `WARNING` — headers for 4xx and controlled 5xx; `ERROR` — headers + attached stack trace for unexpected 5xx (e.g. auth filter threw). Static assets carry no request or response bodies, so only headers appear in detail blocks. |
+| Behaviour                         | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|-----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Dotfile protection**            | Final path segment starting with `.` (e.g. `/.env`) → unconditional `404`. Cannot be disabled.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Directory index**               | `GET /` and `GET /subdir/` serve the `index.html` within that directory.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Pre-compressed serving**        | When `preCompressed()` is set, `.br` and `.gz` siblings are served in preference to the original when the client advertises the matching `Accept-Encoding`. Brotli preferred when both exist. `Vary: Accept-Encoding` added automatically.                                                                                                                                                                                                                                                              |
+| **ETags / Last-Modified**         | Emitted automatically; `If-None-Match` returns `304 Not Modified`.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **JAX-RS priority**               | Static handlers only receive requests that no JAX-RS endpoint matched.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Startup validation**            | Asset source and all `errorPage` paths validated when the server starts; missing resources → `IllegalStateException` with a clear message.                                                                                                                                                                                                                                                                                                                                                              |
+| **URL prefix conflict detection** | Exact duplicates or proper-prefix overlaps (e.g. `/admin` + `/admin/reports`) → `IllegalStateException` at startup.                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Request logging**               | All static asset requests are logged through `RequestLogger` (logger name `software.frisby.web.server.RequestLogger`) using the same level conventions as the JSON API: `TRACE` — full entry with request + response headers; `INFO` — compact one-liner for 2xx/3xx; `WARNING` — headers for 4xx and controlled 5xx; `ERROR` — headers + attached stack trace for unexpected 5xx (e.g. auth filter threw). Static assets carry no request or response bodies, so only headers appear in detail blocks. |
 
 ### Usage examples
 

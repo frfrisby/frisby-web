@@ -13,21 +13,30 @@ structured the way it is, what tradeoffs were made, and where the extension poin
 | `client`                 | `serial`            | HTTP client built on JDK `HttpClient`          |
 | `basic-security`         | `client`            | Client-side HTTP Basic Auth and Bearer Token   |
 | `oauth2-security`        | `client`            | Client-side OAuth 2.0 client-credentials       |
+| `client-sse`             | `client`            | Client-side Server-Sent Events (SSE)           |
 | `server`                 | `serial`            | Embedded HTTP server (Jersey 3.x + Jetty 12)   |
 | `server-basic-security`  | `server`            | Server-side Basic Auth                         |
 | `server-oauth2-security` | `server`            | Server-side Bearer Token                       |
+| `server-sse`             | `server`            | Server-side Server-Sent Events (SSE)           |
 | `jackson-serializer`     | `serial`            | Jackson-backed `JsonSerializer` implementation |
 
 **Why is `serial` a separate module?**  
 Both `client` and `server` need `JsonSerializer` and `GenericType`. Extracting them into a
 minimal `serial` module avoids a circular dependency (`server` → `client` → `serial`) and
-lets either side be used independently. The `serial` module has no runtime dependencies
+allows either side to be used independently. The `serial` module has no runtime dependencies
 beyond the `frisby-core` validation library.
 
 **Why are the security modules separate?**  
 Consumers should only pull in what they use. An application using only OAuth2 should not
 have Basic Auth code on its classpath, and vice versa. The same principle applies to the
 server-side security modules.
+
+**Why are the SSE modules separate?**  
+Server-Sent Events are an optional streaming feature, not part of the core request/response
+path. Applications that only use ordinary HTTP calls should not need SSE code. If an
+application only exposes or consumes one side of the stream, it should depend only on the
+module it needs (`client-sse` for typed client callbacks, `server-sse` for server event
+emission).
 
 **Why is `jackson-serializer` separate?**  
 The core `client` and `server` modules have zero hard serialization dependency — callers

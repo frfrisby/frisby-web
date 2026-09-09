@@ -11,16 +11,38 @@ import java.util.Collection;
  * <pre>{@code
  * RetryPolicy policy = RetryPolicy.builder()
  *         .maxAttempts(3)
- *         .on(RetryPolicy.GATEWAY_ERRORS)
+ *         .on(RetryOn.GATEWAY_ERRORS)
  *         .on(RetryOn.TOO_MANY_REQUESTS)
  *         .delay(RetryDelay.exponential(Duration.ofSeconds(1)))
  *         .honorRetryAfterHeader(Duration.ofSeconds(60))
  *         .build();
  * }</pre>
  *
+ * <h2>Built-in retry algorithm</h2>
+ *
+ * <p>The built-in policy evaluates each failed request in this order:
+ * <ol>
+ *   <li>If {@code attempt >= maxAttempts}, stop.</li>
+ *   <li>If {@code replayableBody == false}, stop (non-replayable bodies cannot be retried).</li>
+ *   <li>If the HTTP method is non-idempotent and {@code allowNonIdempotent() == false}, stop.
+ *       (Idempotent: {@code GET}, {@code HEAD}, {@code DELETE}; Non-idempotent:
+ *       {@code POST}, {@code PUT}, {@code PATCH}.)</li>
+ *   <li>If the failure/status does not match any of the configured {@link RetryOn} conditions, stop.</li>
+ *   <li>If the failure occurred in the {@code HTTP_RESPONSE} phase and the server sent a
+ *       {@code Retry-After} header within the configured cap, use that value.</li>
+ *   <li>Otherwise, use the configured {@link RetryDelay} strategy.</li>
+ * </ol>
+ *
+ * <h2>Customizing via {@link RetryPolicy#of(java.util.function.Function)}</h2>
+ *
+ * <p>For greater flexibility, bypass this builder and use {@link RetryPolicy#of(java.util.function.Function)}
+ * to supply a custom decision function. Custom policies receive the full {@link RetryContext}
+ * and can make arbitrary decisions without being constrained by the built-in algorithm above.
+ *
  * @see RetryPolicy
  * @see RetryDelay
  * @see RetryOn
+ * @see RetryContext
  */
 public interface RetryPolicyBuilder {
 
@@ -54,13 +76,13 @@ public interface RetryPolicyBuilder {
     /**
      * Registers a collection of {@link RetryOn} conditions that will trigger a retry.
      * <p>
-     * Use with the convenience constants {@link RetryPolicy#GATEWAY_ERRORS} and
-     * {@link RetryPolicy#TRANSPORT_ERRORS} to register groups in a single call:
+     * Use with the convenience constants {@link RetryOn#GATEWAY_ERRORS} and
+     * {@link RetryOn#TRANSPORT_ERRORS} to register groups in a single call:
      *
      * <pre>{@code
      * RetryPolicy.builder()
-     *         .on(RetryPolicy.GATEWAY_ERRORS)
-     *         .on(RetryPolicy.TRANSPORT_ERRORS)
+     *         .on(RetryOn.GATEWAY_ERRORS)
+     *         .on(RetryOn.TRANSPORT_ERRORS)
      *         ...
      * }</pre>
      *
@@ -120,13 +142,20 @@ public interface RetryPolicyBuilder {
      * Permits retrying non-idempotent HTTP methods ({@code POST}, {@code PUT},
      * {@code PATCH}).
      * <p>
+     * This flag only affects the built-in policy produced by this builder. Custom policies
+     * created via {@link RetryPolicy#of(java.util.function.Function)} receive the full
+     * {@link RetryContext} and make their own decisions about method idempotency and
+     * replayability.
+     * <p>
      * <strong>Use with care.</strong>  Non-idempotent requests may have already been
      * processed by the server before the failure occurred.  Only enable this when you
      * are certain the target operation is safe to execute more than once (i.e., the
      * server itself is idempotent, or you accept the risk of duplicate processing).
      * <p>
-     * Requests with a multipart form body are never retried regardless of this setting,
-     * because the body is streamed and cannot be replayed after the first attempt.
+     * Requests with a multipart form body are never retried by the built-in policy
+     * regardless of this setting, because the body is streamed and cannot be replayed
+     * after the first attempt. Custom policies may also check {@link RetryContext#replayableBody()}
+     * to gate their decisions.
      *
      * @return This builder instance.
      */

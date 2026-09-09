@@ -140,7 +140,11 @@ class ClientSseReconnectTest {
                 .parameter("channel", "reconnect-reapplies-security")
                 .parameter("count", "1")
                 .security(countingProvider)
-                .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                // Bounded exponential rather than fixed — this test only cares that
+                // reconnects keep happening at least 3 times, not the exact cadence, so a
+                // strategy that would naturally self-throttle under CI contention (rather
+                // than one that provides no such margin) is strictly safer here too.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                 .onEvent("message", SseHandler.of(message -> {
                 }))
                 .build();
@@ -171,6 +175,15 @@ class ClientSseReconnectTest {
                 .parameter("count", "1")
                 .parameter("retryMs", "50")
                 .security(timestampingProvider)
+                // Deliberately left as fixed(), unlike the other reconnect-loop tests in
+                // this class: the whole point of this test is to prove the *configured*
+                // reconnectDelay strategy is honored as the fallback once the server's
+                // one-shot retry field has been consumed, so the assertions below need a
+                // single, known delay value to compare the second reconnect gap against.
+                // Safe to leave fixed — every reconnect here follows a clean end-of-stream
+                // (count=1, no BufferFullPolicy involved), so there is no failure/disconnect
+                // loop that could compound under contention the way the fixed-delay bug in
+                // bufferFullPolicyDisconnect_... did.
                 .reconnectDelay(RetryDelay.fixed(Duration.ofSeconds(4)))
                 .onEvent("message", SseHandler.of(message -> {
                 }))
@@ -216,7 +229,12 @@ class ClientSseReconnectTest {
                 .parameter("count", String.valueOf(totalEvents))
                 .parameter("maxEventsPerConnection", "1")
                 .security(countingProvider)
-                .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                // Bounded exponential rather than fixed — same rationale as
+                // connectionCloses_reconnectsAndReappliesSecurity above: this test asserts
+                // eventual full replay, not a specific cadence, across up to six
+                // reconnects, so a self-throttling strategy is strictly safer under CI
+                // contention with no loss of test intent.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(2)))
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
                     latch.countDown();
@@ -452,7 +470,10 @@ class ClientSseReconnectTest {
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/this-path-does-not-exist")
-                .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                // Bounded exponential rather than fixed — this test only needs one error
+                // to fire before it closes the listener, so the exact cadence doesn't
+                // matter; kept consistent with the other reconnect-loop tests below.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                 .onEvent("message", SseHandler.of(message -> {
                 }))
                 .onError(error -> {
@@ -502,7 +523,9 @@ class ClientSseReconnectTest {
                 .build()) {
             SseListener listener = SseListener.builder().client(client)
                     .path("/sse/this-path-does-not-exist-either")
-                    .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                    // Bounded exponential rather than fixed — this test only needs two
+                    // errors to fire; kept consistent with the other reconnect-loop tests.
+                    .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                     .onEvent("message", SseHandler.of(message -> {
                     }))
                     .onError(error -> {
@@ -547,7 +570,10 @@ class ClientSseReconnectTest {
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/this-path-does-not-exist-at-all")
                 .security(countingProvider)
-                .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                // Bounded exponential rather than fixed — this test only needs a second
+                // connection attempt to occur; kept consistent with the other
+                // reconnect-loop tests above.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                 .onEvent("message", SseHandler.of(message -> {
                 }))
                 .build();
@@ -587,7 +613,16 @@ class ClientSseReconnectTest {
                 .parameter("count", String.valueOf(totalEvents))
                 .security(countingProvider)
                 .onBufferFull(BufferFullPolicy.DISCONNECT)
-                .reconnectDelay(RetryDelay.fixed(Duration.ofMillis(50)))
+                // A bounded exponential strategy — rather than a fixed delay — lets
+                // repeated DISCONNECT-driven reconnects self-throttle if the dispatch
+                // pipeline's worker thread is slow to get scheduled (e.g. a CPU-contended
+                // CI runner): each reconnect now counts toward backoff (see
+                // DefaultSseListener.ReaderTask.run()'s consecutiveSetbacks), so the
+                // cadence naturally slows down and gives the worker room to drain instead
+                // of hammering the server at a constant 50ms forever if the worker falls
+                // behind. A fixed delay here previously caused an observed CI failure —
+                // 2230 reconnects in 120s, i.e. the reconnect loop never converging.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(2)))
                 .onEvent("message", SseHandler.of(message -> {
                     received.add(message.body());
 
@@ -619,8 +654,17 @@ class ClientSseReconnectTest {
 
             releaseFirstEvent.countDown();
 
+            // 30 s, not the 120 s this test used before the reconnect-loop backoff fix:
+            // with a capped exponential reconnectDelay (cap 2 s) and every DISCONNECT now
+            // counting toward escalation, even a pathological worst case — a fresh
+            // disconnect on every single reconnect, netting forward progress of only
+            // capacity() == 2 events per cycle — needs at most 10 cycles to drain all 20
+            // events, which sums to roughly 11-13 s of accumulated delay (six escalating
+            // attempts plus four more capped at ~2 s, with jitter). 30 s leaves close to
+            // 2x margin over that estimate while still failing far faster than 120 s if a
+            // regression ever reintroduces the old unbounded-livelock behavior.
             assertTrue(
-                    latch.await(120, TimeUnit.SECONDS),
+                    latch.await(30, TimeUnit.SECONDS),
                     "Timed out waiting for full replay: received=" + received.size()
                             + ", unique=" + new HashSet<>(received).size()
                             + ", securityInvocations=" + securityInvocations.get()
@@ -682,8 +726,15 @@ class ClientSseReconnectTest {
 
             releaseFirstEvent.countDown();
 
+            // 30 s — consistent with the sibling bufferFullPolicyDisconnect_... test
+            // above, though the reasoning here is simpler: BLOCK never reconnects (see
+            // the securityInvocations == 1 assertion below), so there is no
+            // escalating-backoff variable at all — just a capacity-1 buffer draining 20
+            // near-instant callbacks on a single connection, which measures at well under
+            // 1 s locally. 30 s is a still-generous ceiling that fails far faster than the
+            // previous 60 s if delivery ever genuinely stalls.
             assertTrue(
-                    latch.await(60, TimeUnit.SECONDS),
+                    latch.await(30, TimeUnit.SECONDS),
                     "Timed out waiting for full BLOCK delivery: received=" + received.size()
                             + ", securityInvocations=" + securityInvocations.get()
             );

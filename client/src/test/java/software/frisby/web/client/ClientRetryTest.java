@@ -96,6 +96,12 @@ class ClientRetryTest {
                 .build();
     }
 
+    private static int unusedPort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Test lifecycle
     // -------------------------------------------------------------------------
@@ -623,6 +629,91 @@ class ClientRetryTest {
     }
 
     // -------------------------------------------------------------------------
+    // Sync retry context facts — replayability on transport failures
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class SyncTransportReplayability {
+        @Test
+        void jsonPostTransportFailure_replayableBodyTrueInRetryContext() throws IOException {
+            int port = unusedPort();
+
+            AtomicReference<RetryContext> seen = new AtomicReference<>();
+
+            RetryPolicy policy = RetryPolicy.of(context -> {
+                seen.set(context);
+                return Optional.empty();
+            });
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .retryPolicy(policy)
+                    .build();
+
+            assertThrows(
+                    ConnectException.class,
+                    () -> client.post()
+                            .path("/anything")
+                            .body("{\"name\":\"Alice\"}")
+                            .send(Person.class)
+            );
+
+            RetryContext context = seen.get();
+
+            assertNotNull(context);
+            assertEquals(RetryPhase.TRANSPORT, context.phase());
+            assertTrue(context.replayableBody());
+        }
+
+        @Test
+        void multipartPostTransportFailure_replayableBodyFalseInRetryContext() throws IOException {
+            int port = unusedPort();
+
+            AtomicReference<RetryContext> seen = new AtomicReference<>();
+
+            RetryPolicy policy = RetryPolicy.of(context -> {
+                seen.set(context);
+                return Optional.empty();
+            });
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .retryPolicy(policy)
+                    .build();
+
+            assertThrows(
+                    ConnectException.class,
+                    () -> client.post()
+                            .path("/anything")
+                            .body(FormData.of(
+                                    FormPart.file("file", new ByteArrayInputStream(new byte[]{1, 2, 3}), "test.bin")
+                            ))
+                            .send(Person.class)
+            );
+
+            RetryContext context = seen.get();
+
+            assertNotNull(context);
+            assertEquals(RetryPhase.TRANSPORT, context.phase());
+            assertFalse(context.replayableBody());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Sync retry — non-idempotent methods
     // -------------------------------------------------------------------------
 
@@ -861,8 +952,7 @@ class ClientRetryTest {
         /**
          * Verifies that interrupting the calling thread while sleeping between retries,
          * when the auth phase threw (so {@code outbound} is {@code null}), produces an
-         * {@link AbortedException} whose URI comes from the client configuration and
-         * whose method is {@code "UNKNOWN"}.
+         * {@link AbortedException} that retains the real request URI and method.
          */
         @Test
         void threadInterruptedDuringRetryDelay_afterAuthFailure_throwsAbortedException()
@@ -904,19 +994,15 @@ class ClientRetryTest {
             AbortedException ex = assertInstanceOf(AbortedException.class, thrown.get(),
                     "Expected AbortedException when thread is interrupted during auth-failure retry sleep.");
 
-            // When outbound is null the engine falls back to configuration.uri() and "UNKNOWN".
-            assertEquals(Optional.of(server.uri()), ex.uri());
-            assertEquals(Optional.of("UNKNOWN"), ex.method());
+            // Method/URI now come from the request invocation path even when pre-flight fails.
+            assertEquals(Optional.of(server.uri().resolve("/retry/get")), ex.uri());
+            assertEquals(Optional.of("GET"), ex.method());
         }
 
         /**
          * Verifies that when auth throws inside {@code retryAsync} and the retry policy
          * does <em>not</em> match the exception, the future completes exceptionally with
          * the original auth failure rather than being retried.
-         * <p>
-         * Setup: the probe (call 1) succeeds so {@code retryAsync} is entered; the first
-         * {@code retryAsync} auth call (call 2) throws; the policy does not cover
-         * {@link RetryOn#CONNECT_TIMEOUT} so the future is completed exceptionally.
          */
         @Test
         void asyncAuthFailureInRetryAsync_policyDoesNotMatch_completesExceptionally() {
@@ -924,11 +1010,10 @@ class ClientRetryTest {
 
             AtomicInteger authCalls = new AtomicInteger();
 
-            // Probe (call 1): succeeds.  First retryAsync attempt (call 2+): fails.
+            // In the unified async flow, the first auth call happens inside retryAsync.
             SecurityProvider flakyAuth = ctx -> {
-                if (authCalls.incrementAndGet() > 1) {
-                    throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
-                }
+                authCalls.incrementAndGet();
+                throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
             };
 
             // Policy matches SERVICE_UNAVAILABLE only — ConnectTimeoutException is not retried.
@@ -949,6 +1034,7 @@ class ClientRetryTest {
             );
 
             assertInstanceOf(ConnectTimeoutException.class, ex.getCause());
+            assertEquals(1, authCalls.get());
             assertEquals(0, failableGet.callCount());   // auth failed before any HTTP request
         }
 
@@ -956,10 +1042,6 @@ class ClientRetryTest {
          * Verifies that when auth throws inside {@code retryAsync} and the retry policy
          * <em>does</em> match the exception, the scheduler reschedules the attempt and the
          * request ultimately succeeds once auth recovers.
-         * <p>
-         * Setup: the probe (call 1) succeeds; the first {@code retryAsync} auth call
-         * (call 2) throws; the policy matches so {@code DEFAULT_RETRY_SCHEDULER.schedule()}
-         * is invoked; auth call 3 succeeds and the HTTP request completes.
          */
         @Test
         void asyncAuthFailureInRetryAsync_policyMatches_retriedAndSucceeds() {
@@ -967,11 +1049,11 @@ class ClientRetryTest {
 
             AtomicInteger authCalls = new AtomicInteger();
 
-            // Probe (call 1): succeeds.  Retry attempt 1 (call 2): fails.  Attempt 2 (call 3): succeeds.
+            // Attempt 1 auth call fails; attempt 2 auth call succeeds.
             SecurityProvider flakyAuth = ctx -> {
                 int call = authCalls.incrementAndGet();
 
-                if (call == 2) {
+                if (call == 1) {
                     throw new ConnectTimeoutException("Simulated token endpoint timeout", null);
                 }
             };
@@ -990,7 +1072,7 @@ class ClientRetryTest {
                     .join();
 
             assertEquals(200, response.statusCode());
-            assertEquals(3, authCalls.get());
+            assertEquals(2, authCalls.get());
             assertEquals(1, failableGet.callCount());   // only one HTTP request reached the server
         }
     }

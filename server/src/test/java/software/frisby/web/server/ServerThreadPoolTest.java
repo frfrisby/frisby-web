@@ -465,7 +465,6 @@ class ServerThreadPoolTest {
          * Verifies that once {@code stop()} is called, new requests receive a 503
          * response immediately throughout the entire drain window — even when semaphore
          * permits are still available.
-         * ...existing code...
          */
         @Test
         void stopCalled_newRequestsGet503DuringDrain() throws Exception {

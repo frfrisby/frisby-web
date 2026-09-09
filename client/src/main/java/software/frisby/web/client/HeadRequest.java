@@ -85,10 +85,18 @@ final class HeadRequest implements HeadSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
-                () -> OutboundRequest.of(state.buildRequest(
-                        uri, HEAD, HttpRequest.BodyPublishers.noBody(),
-                        false, null, engine.configuration().readTimeout()
-                )),
+                HEAD,
+                uri,
+                () -> OutboundRequest.of(
+                        state.buildRequest(
+                                uri,
+                                HEAD,
+                                HttpRequest.BodyPublishers.noBody(),
+                                false,
+                                null,
+                                engine.configuration().readTimeout()
+                        )
+                ),
                 RequestState.voidBodyHandler(HEAD, uri)
         );
     }
@@ -98,10 +106,18 @@ final class HeadRequest implements HeadSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
-                () -> OutboundRequest.of(state.buildRequest(
-                        uri, HEAD, HttpRequest.BodyPublishers.noBody(),
-                        false, null, engine.configuration().readTimeout()
-                )),
+                HEAD,
+                uri,
+                () -> OutboundRequest.of(
+                        state.buildRequest(
+                                uri,
+                                HEAD,
+                                HttpRequest.BodyPublishers.noBody(),
+                                false,
+                                null,
+                                engine.configuration().readTimeout()
+                        )
+                ),
                 RequestState.voidBodyHandler(HEAD, uri)
         );
     }

@@ -180,7 +180,7 @@ class ClientEventListenerTest {
             assertNotNull(captured.get());
             assertEquals("GET", captured.get().method());
             assertTrue(captured.get().statusCode().isPresent());
-            assertEquals(404, captured.get().statusCode().get());
+            assertEquals(404, captured.get().statusCode().getAsInt());
             assertInstanceOf(NotFoundException.class, captured.get().cause());
         }
     }

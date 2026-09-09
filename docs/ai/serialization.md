@@ -75,15 +75,15 @@ A ready-to-use `JsonSerializer` backed by Jackson 2.x.
 
 **Default `ObjectMapper` configuration:**
 
-| Setting | Value |
-|---|---|
-| `FAIL_ON_UNKNOWN_PROPERTIES` | `false` — tolerant reading; new API fields don't break deserialization |
-| `WRITE_DATES_AS_TIMESTAMPS` | `false` — dates as ISO-8601 strings |
-| `WRITE_DURATIONS_AS_TIMESTAMPS` | `false` — durations as ISO-8601 strings |
-| `WRITE_BIGDECIMAL_AS_PLAIN` | `true` — no scientific notation |
-| Field visibility | `ANY` — serializes private fields; no getter boilerplate needed |
-| Inclusion | `NON_EMPTY` — omits `null` and empty collections/strings |
-| Modules | `Jdk8Module` (Optional etc.) + `JavaTimeModule` (LocalDate, Instant etc.) |
+| Setting                         | Value                                                                     |
+|---------------------------------|---------------------------------------------------------------------------|
+| `FAIL_ON_UNKNOWN_PROPERTIES`    | `false` — tolerant reading; new API fields don't break deserialization    |
+| `WRITE_DATES_AS_TIMESTAMPS`     | `false` — dates as ISO-8601 strings                                       |
+| `WRITE_DURATIONS_AS_TIMESTAMPS` | `false` — durations as ISO-8601 strings                                   |
+| `WRITE_BIGDECIMAL_AS_PLAIN`     | `true` — no scientific notation                                           |
+| Field visibility                | `ANY` — serializes private fields; no getter boilerplate needed           |
+| Inclusion                       | `NON_EMPTY` — omits `null` and empty collections/strings                  |
+| Modules                         | `Jdk8Module` (Optional etc.) + `JavaTimeModule` (LocalDate, Instant etc.) |
 
 Jackson processing failures (malformed JSON, unserializable types, circular references)
 are wrapped and rethrown as `UncheckedIOException`.

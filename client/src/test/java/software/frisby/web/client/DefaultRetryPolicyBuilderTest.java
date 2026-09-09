@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static software.frisby.web.client.DefaultRetryPolicyTest.context;
 
 /**
  * Unit tests for {@link DefaultRetryPolicyBuilder}.
@@ -65,9 +66,9 @@ class DefaultRetryPolicyBuilderTest {
                     .on(List.of(RetryOn.BAD_GATEWAY, RetryOn.GATEWAY_TIMEOUT))
                     .build();
 
-            assertTrue(policy.retryDelay(1, new BadGatewayException()).isPresent());
-            assertTrue(policy.retryDelay(1, new GatewayTimeoutException()).isPresent());
-            assertTrue(policy.retryDelay(1, new ServiceUnavailableException()).isEmpty());
+            assertTrue(policy.retryDelay(context(1, new BadGatewayException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new GatewayTimeoutException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new ServiceUnavailableException())).isEmpty());
         }
 
         @Test
@@ -77,8 +78,8 @@ class DefaultRetryPolicyBuilderTest {
                     .on(List.of(RetryOn.SERVICE_UNAVAILABLE))
                     .build();
 
-            assertTrue(policy.retryDelay(1, new BadGatewayException()).isPresent());
-            assertTrue(policy.retryDelay(1, new ServiceUnavailableException()).isPresent());
+            assertTrue(policy.retryDelay(context(1, new BadGatewayException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new ServiceUnavailableException())).isPresent());
         }
 
         @Test
@@ -88,8 +89,8 @@ class DefaultRetryPolicyBuilderTest {
                     .on(List.of(RetryOn.SERVICE_UNAVAILABLE))
                     .build();
 
-            assertTrue(policy.retryDelay(1, new BadGatewayException()).isPresent());
-            assertTrue(policy.retryDelay(1, new ServiceUnavailableException()).isPresent());
+            assertTrue(policy.retryDelay(context(1, new BadGatewayException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new ServiceUnavailableException())).isPresent());
         }
     }
 
@@ -125,8 +126,8 @@ class DefaultRetryPolicyBuilderTest {
                     .on(RetryOn.SERVICE_UNAVAILABLE, RetryOn.GATEWAY_TIMEOUT)
                     .build();
 
-            assertTrue(policy.retryDelay(1, new ServiceUnavailableException()).isPresent());
-            assertTrue(policy.retryDelay(1, new GatewayTimeoutException()).isPresent());
+            assertTrue(policy.retryDelay(context(1, new ServiceUnavailableException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new GatewayTimeoutException())).isPresent());
         }
     }
 
@@ -161,8 +162,8 @@ class DefaultRetryPolicyBuilderTest {
                     .maxAttempts(5)
                     .build();
 
-            assertTrue(policy.retryDelay(4, new ServiceUnavailableException()).isPresent());
-            assertTrue(policy.retryDelay(5, new ServiceUnavailableException()).isEmpty());
+            assertTrue(policy.retryDelay(context(4, new ServiceUnavailableException())).isPresent());
+            assertTrue(policy.retryDelay(context(5, new ServiceUnavailableException())).isEmpty());
         }
     }
 
@@ -189,7 +190,7 @@ class DefaultRetryPolicyBuilderTest {
                     .delay(RetryDelay.fixed(Duration.ofSeconds(5)))
                     .build();
 
-            Duration delay = policy.retryDelay(1, new ServiceUnavailableException()).orElseThrow();
+            Duration delay = policy.retryDelay(context(1, new ServiceUnavailableException())).orElseThrow();
 
             assertEquals(Duration.ofSeconds(5), delay);
         }
@@ -221,7 +222,7 @@ class DefaultRetryPolicyBuilderTest {
                     null
             );
 
-            Duration delay = policy.retryDelay(1, ex).orElseThrow();
+            Duration delay = policy.retryDelay(context(1, ex, "GET")).orElseThrow();
 
             assertEquals(Duration.ofSeconds(30), delay);
         }
@@ -262,7 +263,7 @@ class DefaultRetryPolicyBuilderTest {
                     null
             );
 
-            assertEquals(Duration.ofSeconds(5), policy.retryDelay(1, ex).orElseThrow());
+            assertEquals(Duration.ofSeconds(5), policy.retryDelay(context(1, ex, "GET")).orElseThrow());
         }
     }
 
@@ -300,27 +301,27 @@ class DefaultRetryPolicyBuilderTest {
     class ConvenienceSets {
         @Test
         void gatewayErrors_containsExpectedValues() {
-            assertTrue(RetryPolicy.GATEWAY_ERRORS.contains(RetryOn.BAD_GATEWAY));
-            assertTrue(RetryPolicy.GATEWAY_ERRORS.contains(RetryOn.SERVICE_UNAVAILABLE));
-            assertTrue(RetryPolicy.GATEWAY_ERRORS.contains(RetryOn.GATEWAY_TIMEOUT));
+            assertTrue(RetryOn.GATEWAY_ERRORS.contains(RetryOn.BAD_GATEWAY));
+            assertTrue(RetryOn.GATEWAY_ERRORS.contains(RetryOn.SERVICE_UNAVAILABLE));
+            assertTrue(RetryOn.GATEWAY_ERRORS.contains(RetryOn.GATEWAY_TIMEOUT));
         }
 
         @Test
         void transportErrors_containsExpectedValues() {
-            assertTrue(RetryPolicy.TRANSPORT_ERRORS.contains(RetryOn.CONNECT_FAILURE));
-            assertTrue(RetryPolicy.TRANSPORT_ERRORS.contains(RetryOn.CONNECT_TIMEOUT));
-            assertTrue(RetryPolicy.TRANSPORT_ERRORS.contains(RetryOn.READ_TIMEOUT));
+            assertTrue(RetryOn.TRANSPORT_ERRORS.contains(RetryOn.CONNECT_FAILURE));
+            assertTrue(RetryOn.TRANSPORT_ERRORS.contains(RetryOn.CONNECT_TIMEOUT));
+            assertTrue(RetryOn.TRANSPORT_ERRORS.contains(RetryOn.READ_TIMEOUT));
         }
 
         @Test
         void onGatewayErrors_usesConvenienceSet() {
             RetryPolicy policy = RetryPolicy.builder()
-                    .on(RetryPolicy.GATEWAY_ERRORS)
+                    .on(RetryOn.GATEWAY_ERRORS)
                     .build();
 
-            assertTrue(policy.retryDelay(1, new BadGatewayException()).isPresent());
-            assertTrue(policy.retryDelay(1, new ServiceUnavailableException()).isPresent());
-            assertTrue(policy.retryDelay(1, new GatewayTimeoutException()).isPresent());
+            assertTrue(policy.retryDelay(context(1, new BadGatewayException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new ServiceUnavailableException())).isPresent());
+            assertTrue(policy.retryDelay(context(1, new GatewayTimeoutException())).isPresent());
         }
     }
 }

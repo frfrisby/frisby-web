@@ -178,18 +178,18 @@ available. Once connected, the connection tracks the most recently processed eve
 
 ### Dispatch registration
 
-| Method | Notes |
-|---|---|
-| `onEvent(String event, SseHandler<T> handler)` | Registers a single-event handler for `event`. |
-| `onEvent(String event, SseBatchHandler<T> handler)` | Registers a batch handler for `event`. Overload disambiguated by `handler`'s type. |
-| `onUnhandledEvent(Consumer<SseMessage<String>> handler)` | Catch-all shorthand for `onUnhandledEvent(SseHandler.of(handler))` — a real dispatch pipeline with default tuning, not a degraded path. |
-| `onUnhandledEvent(SseHandler<String> handler)` | Catch-all with custom tuning. Handles unhandled events as `String` bodies. |
-| `onUnhandledEvent(SseBatchHandler<String> handler)` | Catch-all, batched. Handles unhandled events as `String` bodies. Only one of the three `onUnhandledEvent` overloads is active at a time — the most recent call wins. |
+| Method                                                   | Notes                                                                                                                                                                |
+|----------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `onEvent(String event, SseHandler<T> handler)`           | Registers a single-event handler for `event`.                                                                                                                        |
+| `onEvent(String event, SseBatchHandler<T> handler)`      | Registers a batch handler for `event`. Overload disambiguated by `handler`'s type.                                                                                   |
+| `onUnhandledEvent(Consumer<SseMessage<String>> handler)` | Catch-all shorthand for `onUnhandledEvent(SseHandler.of(handler))` — a real dispatch pipeline with default tuning, not a degraded path.                              |
+| `onUnhandledEvent(SseHandler<String> handler)`           | Catch-all with custom tuning. Handles unhandled events as `String` bodies.                                                                                           |
+| `onUnhandledEvent(SseBatchHandler<String> handler)`      | Catch-all, batched. Handles unhandled events as `String` bodies. Only one of the three `onUnhandledEvent` overloads is active at a time — the most recent call wins. |
 
 `event` is matched against an event's **explicit** `event` field only — an event with
 no `event` field at all is never matched here, even against a handler registered for
 the literal string `"message"`; it is always routed to `onUnhandledEvent` instead. See
-[`SseMessage.event()`](#ssemessaget).
+[`SseMessage.event()`](#ssemessaget-module-client-sse).
 
 `onEvent`/`onEventBatch` registrations throw `DuplicateElementsException` if `event` is
 already registered — via either method.
@@ -201,7 +201,7 @@ SseListenerBuilder onBufferFull(BufferFullPolicy policy)           // default: B
 SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler) // only relevant for DROP
 ```
 
-See [`BufferFullPolicy`](#bufferfullpolicy).
+See [`BufferFullPolicy`](#bufferfullpolicy-module-client-sse).
 
 ### Executor and reader task
 
@@ -216,7 +216,7 @@ the stream and manages reconnect) and every registered handler's own dispatch pi
 — each event type gets its own independent pipeline; this executor is simply the
 thread pool they all draw worker threads from, and does not itself control ordering,
 capacity, or concurrency (those are configured per handler — see
-[`SseHandler`](#ssehandler-and-ssebatchhandler)).
+[`SseHandler`](#ssehandler-and-ssebatchhandler-module-client-sse)).
 
 The reader task is submitted via `ExecutorService.submit(Runnable)`, not created as a
 dedicated `Thread` — `close()` cancels it individually and precisely via the returned
@@ -348,12 +348,12 @@ whatever raw event context was available.
 public record SseErrorEvent(Optional<SseMessage<String>> message, Throwable cause)
 ```
 
-| Scenario | `message()` |
-|---|---|
-| Deserialization failure for a specific event | Present — the untouched wire-format `data` string, never a typed payload |
-| A registered handler's own callback throws | Present — same raw string |
-| Connect/reconnect failure | Empty — not attributable to any single event |
-| A batch handler's whole-batch callback throws | Empty — not attributable to any single item in the batch |
+| Scenario                                      | `message()`                                                              |
+|-----------------------------------------------|--------------------------------------------------------------------------|
+| Deserialization failure for a specific event  | Present — the untouched wire-format `data` string, never a typed payload |
+| A registered handler's own callback throws    | Present — same raw string                                                |
+| Connect/reconnect failure                     | Empty — not attributable to any single event                             |
+| A batch handler's whole-batch callback throws | Empty — not attributable to any single item in the batch                 |
 
 ---
 
@@ -363,10 +363,10 @@ Determines how a handler's dispatch buffer behaves when it fills faster than the
 handler can drain it. Set via `SseListenerBuilder.onBufferFull(BufferFullPolicy)`,
 default `BLOCK`.
 
-| Value | Behavior |
-|---|---|
-| `BLOCK` | The reader task stalls when the buffer is full. Backpressure may propagate to the server via TCP flow control once OS socket buffers also fill. Safe from memory explosion. |
-| `DROP` | Overflow events are silently discarded. The reader task stays healthy; the server is unaffected. Suitable for dashboards/metrics where occasional loss is acceptable. |
+| Value        | Behavior                                                                                                                                                                                                                                                            |
+|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BLOCK`      | The reader task stalls when the buffer is full. Backpressure may propagate to the server via TCP flow control once OS socket buffers also fill. Safe from memory explosion.                                                                                         |
+| `DROP`       | Overflow events are silently discarded. The reader task stays healthy; the server is unaffected. Suitable for dashboards/metrics where occasional loss is acceptable.                                                                                               |
 | `DISCONNECT` | The stream is closed and reconnected when the buffer fills. The last successfully processed event's `id` is sent as `Last-Event-ID` on reconnect, so the server can replay what was missed — clean "I'm not ready" backpressure paired with at-least-once delivery. |
 
 ### `DROP` observability
@@ -381,6 +381,32 @@ default `BLOCK`.
 - `onDropped` is only ever invoked under `DROP`; never under `BLOCK` or `DISCONNECT`
   (`DISCONNECT` never actually discards an event — it reconnects and relies on
   `Last-Event-ID` replay instead).
+
+### ⚠️ Pitfall: `DISCONNECT` can turn into a reconnect storm
+
+`DISCONNECT` looks like clean backpressure in isolation — buffer fills, connection
+resets, server replays from `Last-Event-ID`. But if the *handler itself* is
+persistently slower than the incoming event rate, it never actually drains under this
+policy: the buffer fills again almost immediately after each reconnect, so the
+connection disconnects and reconnects again, indefinitely — an unbounded reconnect
+loop hammering the server, not genuine relief. Two settings determine how bad it gets:
+
+- **`SseHandler.capacity(int)` / `SseBatchHandler.capacity(int)`** — too small a
+  capacity for the handler's real throughput turns brief, ordinary bursts into
+  constant disconnects. Size it to the handler's actual sustained throughput, not just
+  enough to survive a momentary spike.
+- **`reconnectDelay(RetryDelay)`** — a non-escalating strategy such as
+  `RetryDelay.fixed(...)` never gives a persistently overwhelmed handler any breathing
+  room; every disconnect immediately triggers the next reconnect at the same fixed
+  interval, forever. Prefer an escalating strategy — the builder's default,
+  `exponential(3s)`, already escalates — so a genuine storm backs off over time
+  instead of retrying at a constant rate.
+
+If a handler is fundamentally too slow for the stream's volume, no `reconnectDelay`
+tuning fixes that on its own — consider `BLOCK` (bounded, no data loss, but may
+propagate backpressure to the server) or `DROP` (bounded, lossy, keeps the connection
+healthy) instead, or increase `concurrency` on the handler to actually raise its
+drain rate.
 
 ---
 

@@ -48,6 +48,7 @@ public final class ConnectException extends HttpRequestException {
     public ConnectException(String message, Throwable cause) {
         super(message, cause);
     }
+
     /**
      * Creates an exception with a detail message and no request context.
      *

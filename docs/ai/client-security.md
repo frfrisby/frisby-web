@@ -76,11 +76,11 @@ Client client = Client.builder()
 
 ### `BasicSecurityProviderBuilder`
 
-| Method | Required | Notes |
-|---|---|---|
-| `credentials(Credentials)` | ✅ (one of the two) | Pre-constructed value object |
-| `credentials(String username, String password)` | ✅ (one of the two) | Convenience overload |
-| `build()` | — | Throws `IllegalStateException` if no credentials provided |
+| Method                                          | Required            | Notes                                                     |
+|-------------------------------------------------|---------------------|-----------------------------------------------------------|
+| `credentials(Credentials)`                      | ✅ (one of the two) | Pre-constructed value object                              |
+| `credentials(String username, String password)` | ✅ (one of the two) | Convenience overload                                      |
+| `build()`                                       | —                   | Throws `IllegalStateException` if no credentials provided |
 
 ### `Credentials` value object
 
@@ -119,11 +119,11 @@ BearerTokenSecurityProvider security = BearerTokenSecurityProvider.builder()
 
 ### `BearerTokenSecurityProviderBuilder`
 
-| Method | Required | Notes |
-|---|---|---|
-| `token(String bearerToken)` | ✅ (one of the two) | Static token; convenience overload for `token(() -> bearerToken)` |
-| `token(Supplier<String> tokenSupplier)` | ✅ (one of the two) | Evaluated on every request.  Must be thread-safe. |
-| `build()` | — | Throws `IllegalStateException` if no token or supplier provided |
+| Method                                  | Required            | Notes                                                             |
+|-----------------------------------------|---------------------|-------------------------------------------------------------------|
+| `token(String bearerToken)`             | ✅ (one of the two) | Static token; convenience overload for `token(() -> bearerToken)` |
+| `token(Supplier<String> tokenSupplier)` | ✅ (one of the two) | Evaluated on every request.  Must be thread-safe.                 |
+| `build()`                               | —                   | Throws `IllegalStateException` if no token or supplier provided   |
 
 > The supplier is called directly on the request thread with no additional
 > synchronization.  The implementation must handle concurrent access if it accesses
@@ -175,20 +175,20 @@ ClientCredentialsSecurityProvider security = ClientCredentialsSecurityProvider.b
 
 ### `ClientCredentialsSecurityProviderBuilder`
 
-| Method | Required | Default | Notes |
-|---|---|---|---|
-| `tokenEndpoint(URI)` | ✅ | — | Fully qualified URI of the token endpoint |
-| `credentials(ClientCredentials)` | ✅ (one of two) | — | Pre-constructed value object |
-| `credentials(String clientId, String clientSecret)` | ✅ (one of two) | — | Convenience overload |
-| `serializer(JsonSerializer)` | ✅ | — | Used to deserialize the token endpoint response |
-| `scope(String... scopes)` | — | omitted | Space-joined and sent as `scope` parameter per RFC 6749 |
-| `connectTimeout(Duration)` | — | 10 seconds | Max time to establish TCP connection to token endpoint |
-| `requestTimeout(Duration)` | — | 30 seconds | Max time to wait for token endpoint response |
-| `sslContext(SSLContext)` | — | JDK default | Custom TLS for token endpoint |
-| `basicAuth()` | — | `client_secret_post` | Switches to `client_secret_basic` (RFC 6749 §2.3.1) — credentials in `Authorization` header rather than request body |
-| `expiryBuffer(Duration)` | — | 30 seconds | Proactive refresh window: a token expiring in N seconds is treated as expired after N − buffer seconds |
-| `eventListener(TokenEventListener)` | — | no-op | Receives notification after every token fetch attempt |
-| `build()` | — | — | Throws `IllegalStateException` if `tokenEndpoint`, `credentials`, or `serializer` not provided |
+| Method                                              | Required        | Default              | Notes                                                                                                                |
+|-----------------------------------------------------|-----------------|----------------------|----------------------------------------------------------------------------------------------------------------------|
+| `tokenEndpoint(URI)`                                | ✅              | —                    | Fully qualified URI of the token endpoint                                                                            |
+| `credentials(ClientCredentials)`                    | ✅ (one of two) | —                    | Pre-constructed value object                                                                                         |
+| `credentials(String clientId, String clientSecret)` | ✅ (one of two) | —                    | Convenience overload                                                                                                 |
+| `serializer(JsonSerializer)`                        | ✅              | —                    | Used to deserialize the token endpoint response                                                                      |
+| `scope(String... scopes)`                           | —               | omitted              | Space-joined and sent as `scope` parameter per RFC 6749                                                              |
+| `connectTimeout(Duration)`                          | —               | 10 seconds           | Max time to establish TCP connection to token endpoint                                                               |
+| `requestTimeout(Duration)`                          | —               | 30 seconds           | Max time to wait for token endpoint response                                                                         |
+| `sslContext(SSLContext)`                            | —               | JDK default          | Custom TLS for token endpoint                                                                                        |
+| `basicAuth()`                                       | —               | `client_secret_post` | Switches to `client_secret_basic` (RFC 6749 §2.3.1) — credentials in `Authorization` header rather than request body |
+| `expiryBuffer(Duration)`                            | —               | 30 seconds           | Proactive refresh window: a token expiring in N seconds is treated as expired after N − buffer seconds               |
+| `eventListener(TokenEventListener)`                 | —               | no-op                | Receives notification after every token fetch attempt                                                                |
+| `build()`                                           | —               | —                    | Throws `IllegalStateException` if `tokenEndpoint`, `credentials`, or `serializer` not provided                       |
 
 ### `ClientCredentials` value object
 
