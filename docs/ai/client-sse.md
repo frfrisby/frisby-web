@@ -382,6 +382,32 @@ default `BLOCK`.
   (`DISCONNECT` never actually discards an event — it reconnects and relies on
   `Last-Event-ID` replay instead).
 
+### ⚠️ Pitfall: `DISCONNECT` can turn into a reconnect storm
+
+`DISCONNECT` looks like clean backpressure in isolation — buffer fills, connection
+resets, server replays from `Last-Event-ID`. But if the *handler itself* is
+persistently slower than the incoming event rate, it never actually drains under this
+policy: the buffer fills again almost immediately after each reconnect, so the
+connection disconnects and reconnects again, indefinitely — an unbounded reconnect
+loop hammering the server, not genuine relief. Two settings determine how bad it gets:
+
+- **`SseHandler.capacity(int)` / `SseBatchHandler.capacity(int)`** — too small a
+  capacity for the handler's real throughput turns brief, ordinary bursts into
+  constant disconnects. Size it to the handler's actual sustained throughput, not just
+  enough to survive a momentary spike.
+- **`reconnectDelay(RetryDelay)`** — a non-escalating strategy such as
+  `RetryDelay.fixed(...)` never gives a persistently overwhelmed handler any breathing
+  room; every disconnect immediately triggers the next reconnect at the same fixed
+  interval, forever. Prefer an escalating strategy — the builder's default,
+  `exponential(3s)`, already escalates — so a genuine storm backs off over time
+  instead of retrying at a constant rate.
+
+If a handler is fundamentally too slow for the stream's volume, no `reconnectDelay`
+tuning fixes that on its own — consider `BLOCK` (bounded, no data loss, but may
+propagate backpressure to the server) or `DROP` (bounded, lossy, keeps the connection
+healthy) instead, or increase `concurrency` on the handler to actually raise its
+drain rate.
+
 ---
 
 ## Reconnection and `Last-Event-ID` replay

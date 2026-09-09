@@ -86,6 +86,11 @@ public interface SseBatchHandler<T> {
      * <p>
      * Optional; defaults to {@code 1024}. Independent of every other registered
      * handler's capacity.
+     * <p>
+     * When paired with {@link BufferFullPolicy#DISCONNECT}, too small a capacity for
+     * this handler's real throughput can turn brief, ordinary bursts into an unbounded
+     * reconnect loop rather than genuine backpressure relief — see
+     * {@link BufferFullPolicy#DISCONNECT} for the full explanation.
      *
      * @param capacity The buffer capacity; must be positive.
      * @return This handler instance.

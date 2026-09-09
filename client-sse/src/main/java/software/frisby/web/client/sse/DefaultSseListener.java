@@ -74,8 +74,14 @@ import java.util.function.Function;
  * delay before each reconnect attempt is the server's most recently received
  * {@code retry} field, if any (consumed for one attempt only), otherwise the configured
  * {@link SseListenerBuilder#reconnectDelay(RetryDelay) reconnectDelay} strategy, whose
- * attempt counter resets to zero on every successful connection and increments only on
- * an actual failure. The only way this loop ever stops is {@link #close()}.
+ * attempt counter increments after either an actual failure or a policy-driven
+ * {@code DISCONNECT} — both represent a reconnect cycle that did not complete
+ * cleanly, and a caller-configured backoff strategy (e.g. exponential) needs to
+ * escalate across repeated cycles of either kind to give a persistently overwhelmed
+ * downstream consumer room to catch up; only the logging/{@code onError} notification
+ * above distinguishes the two. The counter resets to zero only once a connection
+ * attempt completes with no exception at all — a clean end-of-stream or
+ * {@link #close()}. The only way this loop ever stops is {@link #close()}.
  * <p>
  * <strong>{@link BufferFullPolicy}.</strong> {@code BLOCK} posts unconditionally via the
  * pipeline's ordinary blocking {@code post(T)}, relying on {@code Buffer}/{@code Batch}'s
@@ -789,7 +795,7 @@ final class DefaultSseListener implements SseListener {
         @Override
         @SuppressWarnings({"java:S3776", "java:S125"})
         public void run() {
-            int consecutiveFailures = 0;
+            int consecutiveSetbacks = 0;
 
             // The loop's own exit condition is intentionally "while (true)" rather than
             // "while (!closed.get())" — every real exit path already goes through one of
@@ -802,9 +808,10 @@ final class DefaultSseListener implements SseListener {
             // permanently uncoverable branch coverage if left in. See SseEventParser's
             // analogous cleanup from Chunk 5 for the same reasoning.
             while (true) {
+                boolean setbackThisAttempt = false;
+
                 try (InputStream in = openStream()) {
                     currentStream.set(in);
-                    consecutiveFailures = 0;
                     disconnectRequested.set(false);
 
                     SseEventParser parser = new SseEventParser(in);
@@ -819,24 +826,40 @@ final class DefaultSseListener implements SseListener {
                         }
                     }
                 } catch (IOException | RuntimeException e) {
-                    if (!closed.get() && !disconnectRequested.getAndSet(false)) {
-                        consecutiveFailures++;
-                        LOGGER.log(System.Logger.Level.ERROR, "The SSE connection failed.", e);
-                        notifyError(errorHandler, e);
+                    boolean wasDisconnect = disconnectRequested.getAndSet(false);
+
+                    if (!closed.get()) {
+                        setbackThisAttempt = true;
+
+                        if (!wasDisconnect) {
+                            LOGGER.log(System.Logger.Level.ERROR, "The SSE connection failed.", e);
+                            notifyError(errorHandler, e);
+                        }
                     }
                 } finally {
                     currentStream.set(null);
                     flushDropEpisodeAtConnectionEnd();
                 }
 
-                if (closed.get() || !awaitReconnectDelay(consecutiveFailures)) {
+                // Escalates on EITHER a real transport failure OR a policy-driven
+                // BufferFullPolicy.DISCONNECT — both represent "this reconnect cycle did
+                // not complete cleanly" and both should count toward a caller-configured
+                // backoff strategy (linear/exponential). Only the logging/onError
+                // notification above distinguishes the two; the backoff bookkeeping does
+                // not. Resets to zero only when an attempt falls out of the inner loop
+                // with no exception at all — a clean end-of-stream or close(), never a
+                // DISCONNECT, which always closes the stream out from under the very next
+                // parser.next() call and so always surfaces as an exception above instead.
+                consecutiveSetbacks = setbackThisAttempt ? consecutiveSetbacks + 1 : 0;
+
+                if (closed.get() || !awaitReconnectDelay(consecutiveSetbacks)) {
                     break;
                 }
             }
         }
 
-        private boolean awaitReconnectDelay(int consecutiveFailures) {
-            Duration delay = resolveDelay(consecutiveFailures);
+        private boolean awaitReconnectDelay(int consecutiveSetbacks) {
+            Duration delay = resolveDelay(consecutiveSetbacks);
 
             try {
                 Thread.sleep(Math.max(delay.toMillis(), 0L));
@@ -848,14 +871,14 @@ final class DefaultSseListener implements SseListener {
             return isStillRunningAfterDelay(closed);
         }
 
-        private Duration resolveDelay(int consecutiveFailures) {
+        private Duration resolveDelay(int consecutiveSetbacks) {
             Duration serverDelay = pendingServerRetryDelay.getAndSet(null);
 
             if (null != serverDelay) {
                 return serverDelay;
             }
 
-            return reconnectDelay.delayFor(Math.max(consecutiveFailures, 1));
+            return reconnectDelay.delayFor(Math.max(consecutiveSetbacks, 1));
         }
 
         private InputStream openStream() {

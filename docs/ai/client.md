@@ -483,9 +483,10 @@ RetryOn.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
 ### `RetryDelay` strategies
 
 ```java
-RetryDelay.fixed(Duration.ofSeconds(2))                             // always 2 s
-RetryDelay.linear(Duration.ofSeconds(1))                            // 1 s, 2 s, 3 s, …
-RetryDelay.exponential(Duration.ofSeconds(1))                       // ~1 s, ~2 s, ~4 s, … capped at 30 s
+RetryDelay.fixed(Duration.ofSeconds(2))                                 // always 2 s
+RetryDelay.linear(Duration.ofSeconds(1))                                // 1 s, 2 s, 3 s, … capped at 30 s
+RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10))        // linear with custom cap
+RetryDelay.exponential(Duration.ofSeconds(1))                           // ~1 s, ~2 s, ~4 s, … capped at 30 s
 RetryDelay.exponential(Duration.ofMillis(500), Duration.ofSeconds(60))  // custom cap
 ```
 
