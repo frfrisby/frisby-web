@@ -50,6 +50,7 @@ public final class ConnectTimeoutException extends HttpRequestException {
     public ConnectTimeoutException(String message, Throwable cause) {
         super(message, cause);
     }
+
     /**
      * Creates an exception with a detail message and no request context.
      *

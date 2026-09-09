@@ -10,10 +10,9 @@ SSE on **both sides** of the wire:
 - **Server** (`server-sse` module) — emit SSE events from a Jersey resource method with
   a typed, builder-based API and optional heartbeat. **Available now.**
 
-This single document covers the whole feature, both sides, in one place — the two
-halves share a wire format and a reconnect contract (`Last-Event-ID`, the server's
-`retry` field, heartbeat comment lines the client parser silently ignores), so building
-an actual end-to-end streaming feature means understanding both together.
+Both sides are documented here because they share a wire format and reconnect contract —
+`Last-Event-ID`, server `retry` hints, and heartbeat comments — so end-to-end streaming
+requires understanding both.
 
 ---
 
@@ -567,7 +566,7 @@ SseEvent event = SseEvents.of(serializer)
 
 `heartbeat(Duration)` emits SSE comment frames (for example `: keep-alive`).
 
-- Heartbeats are transport keep-alives, not application events.
+- Heartbeats are transport keep-alive events, not application events.
 - They do not include `id`, `event`, `data`, or `retry` fields.
 - As documented in the client parser behavior, comment frames are ignored.
 - Heartbeat send is best-effort: if the sink is already closed, the heartbeat is skipped;

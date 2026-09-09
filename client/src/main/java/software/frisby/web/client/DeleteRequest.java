@@ -85,6 +85,8 @@ final class DeleteRequest implements DeleteSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.send(
+                DELETE,
+                uri,
                 () -> OutboundRequest.of(state.buildRequest(
                         uri, DELETE, HttpRequest.BodyPublishers.noBody(),
                         false, null, engine.configuration().readTimeout()
@@ -98,6 +100,8 @@ final class DeleteRequest implements DeleteSpec {
         URI uri = state.resolveUri(engine.configuration().uri());
 
         return engine.sendAsync(
+                DELETE,
+                uri,
                 () -> OutboundRequest.of(state.buildRequest(
                         uri, DELETE, HttpRequest.BodyPublishers.noBody(),
                         false, null, engine.configuration().readTimeout()

@@ -52,6 +52,7 @@ public final class TooManyRedirectsException extends HttpRequestException {
     public TooManyRedirectsException(String message, Throwable cause) {
         super(message, cause);
     }
+
     /**
      * Creates an exception with a detail message and no request context.
      *

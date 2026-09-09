@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.*;
 import java.util.function.Supplier;
 
@@ -108,15 +109,12 @@ final class HttpEngine {
     }
 
     /**
-     * Annotates the event with the retry attempt if {@code retryAttempt > 0}; returns the base event otherwise.
+     * Annotates the event with the retry attempt if {@code retryAttempt > 1}; returns the base event otherwise.
      */
     private static RequestFailedEvent buildFailedEvent(RequestFailedEvent base, int retryAttempt) {
-        return retryAttempt > 0 ? base.withRetryAttempt(retryAttempt) : base;
+        return retryAttempt > 1 ? base.withRetryAttempt(retryAttempt) : base;
     }
 
-    private static boolean isNonIdempotent(String method) {
-        return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
-    }
 
     /**
      * Returns the {@link ClientConfiguration} used to create this engine.
@@ -160,14 +158,24 @@ final class HttpEngine {
     }
 
     /**
-     * Sends an HTTP request produced by {@code supplier} on every attempt.
+     * Sends an HTTP request, retrying on failure according to the configured retry policy.
      * <p>
      * The supplier is called at the start of each retry iteration so that the
      * security provider is always invoked with the latest state (e.g. to refresh
-     * an expired OAuth2 token).  If the supplier itself throws (auth-phase failure),
+     * an expired OAuth2 token).  If the supplier itself throws (pre-flight failure),
      * the exception is subject to the retry policy just like an HTTP-phase failure.
+     *
+     * @param method      The HTTP method (e.g. "GET", "POST").
+     * @param uri         The fully-resolved request URI.
+     * @param supplier    A supplier that builds the outbound request; called on each attempt.
+     * @param bodyHandler The response body handler.
+     * @return The successful HTTP response.
+     * @throws RuntimeException if the request ultimately fails (after exhausting retries
+     *                          or if the retry policy does not approve a retry).
      */
-    <T> HttpResponse<T> send(Supplier<OutboundRequest> supplier,
+    <T> HttpResponse<T> send(String method,
+                             URI uri,
+                             Supplier<OutboundRequest> supplier,
                              HttpResponse.BodyHandler<T> bodyHandler) {
         int attempt = 1;
 
@@ -177,7 +185,7 @@ final class HttpEngine {
             RuntimeException failure;
 
             try {
-                outbound = supplier.get();                                                  // auth phase
+                outbound = supplier.get();                                                  // pre-flight phase
                 HttpResponse<T> response = executeRequest(outbound.request(), bodyHandler); // HTTP phase
 
                 watch.stop();
@@ -191,18 +199,19 @@ final class HttpEngine {
                 failure = handleTransportError(outbound, ex, watch.duration(), attempt);
             }
 
-            // null == outbound: auth phase threw — the request never reached the server,
-            // so it is always safe to retry regardless of method or body type.
-            // null != outbound: HTTP phase threw — respect isRetryEligible().
-            boolean retryEligible = (null == outbound) || isRetryEligible(outbound);
+            RetryContext context = buildRetryContext(
+                    attempt,
+                    failure,
+                    method,
+                    uri,
+                    outbound
+            );
 
-            if (retryEligible) {
-                Optional<Duration> delay = retryPolicy.retryDelay(attempt, failure);
+            Optional<Duration> delay = retryPolicy.retryDelay(context);
 
-                if (delay.isPresent()) {
-                    attempt = sleepBeforeRetry(attempt, delay.get(), outbound);
-                    continue;
-                }
+            if (delay.isPresent()) {
+                attempt = sleepBeforeRetry(attempt, delay.get(), method, uri);
+                continue;
             }
 
             throw failure;
@@ -236,12 +245,18 @@ final class HttpEngine {
         // by the HTTP phase (inside executeRequest), never by the auth phase.
         requestLogger.logError(outbound, hre, latency, attempt);
 
-        fireRequestFailed(buildFailedEvent(
-                RequestFailedEvent.httpFailure(
-                        outbound.request().method(), outbound.request().uri(),
-                        hre.statusCode(), latency, hre),
-                attempt
-        ));
+        fireRequestFailed(
+                buildFailedEvent(
+                        RequestFailedEvent.httpFailure(
+                                outbound.request().method(),
+                                outbound.request().uri(),
+                                hre.statusCode(),
+                                latency,
+                                hre
+                        ),
+                        attempt
+                )
+        );
 
         return hre;
     }
@@ -257,12 +272,17 @@ final class HttpEngine {
         } else {
             requestLogger.logTransportError(outbound, ex, attempt);
 
-            fireRequestFailed(buildFailedEvent(
-                    RequestFailedEvent.transportFailure(
-                            outbound.request().method(), outbound.request().uri(),
-                            latency, ex),
-                    attempt
-            ));
+            fireRequestFailed(
+                    buildFailedEvent(
+                            RequestFailedEvent.transportFailure(
+                                    outbound.request().method(),
+                                    outbound.request().uri(),
+                                    latency,
+                                    ex
+                            ),
+                            attempt
+                    )
+            );
         }
 
         return ex;
@@ -272,19 +292,11 @@ final class HttpEngine {
      * Sleeps for {@code delay} and returns the next attempt number.
      * Throws {@link AbortedException} if the thread is interrupted during the sleep.
      */
-    private int sleepBeforeRetry(int attempt, Duration delay, OutboundRequest outbound) {
+    private int sleepBeforeRetry(int attempt, Duration delay, String method, URI uri) {
         try {
             TimeUnit.MILLISECONDS.sleep(delay.toMillis());
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-
-            URI uri = null != outbound
-                    ? outbound.request().uri()
-                    : configuration.uri();
-            String method = null != outbound
-                    ? outbound.request().method()
-                    : "UNKNOWN";
-
             throw new AbortedException(ie, method, uri);
         }
 
@@ -294,35 +306,48 @@ final class HttpEngine {
     /**
      * Sends an HTTP request asynchronously, rebuilding it via {@code supplier} on each
      * retry attempt so that the security provider is always called with the latest state.
+     *
+     * @param method      The HTTP method (e.g. "GET", "POST").
+     * @param uri         The fully-resolved request URI.
+     * @param supplier    A supplier that builds the outbound request; called on each attempt.
+     * @param bodyHandler The response body handler.
+     * @return A future that resolves to the successful HTTP response, or fails if the
+     * request ultimately fails (after exhausting retries or if the retry policy
+     * does not approve a retry).
      */
-    <T> CompletableFuture<HttpResponse<T>> sendAsync(Supplier<OutboundRequest> supplier,
+    <T> CompletableFuture<HttpResponse<T>> sendAsync(String method,
+                                                     URI uri,
+                                                     Supplier<OutboundRequest> supplier,
                                                      HttpResponse.BodyHandler<T> bodyHandler) {
-        // Build a probe request to determine retry eligibility.  For the non-retry path
-        // the probe is used directly, avoiding any additional supplier invocation.
-        OutboundRequest probe = supplier.get();
-
-        if (!isRetryEligible(probe)) {
-            return singleSendAsync(probe, bodyHandler);
-        }
-
         CompletableFuture<HttpResponse<T>> resultFuture = new CompletableFuture<>();
 
-        retryAsync(supplier, bodyHandler, 1, resultFuture);
+        retryAsync(
+                method,
+                uri,
+                supplier,
+                bodyHandler,
+                1,
+                resultFuture
+        );
 
         return resultFuture;
     }
 
-    private <T> void retryAsync(Supplier<OutboundRequest> supplier,
+    private <T> void retryAsync(String method,
+                                URI uri,
+                                Supplier<OutboundRequest> supplier,
                                 HttpResponse.BodyHandler<T> bodyHandler,
                                 int attempt,
                                 CompletableFuture<HttpResponse<T>> resultFuture) {
         OutboundRequest outbound;
 
         try {
-            outbound = supplier.get();    // synchronous auth — called on the current thread
+            outbound = supplier.get();    // synchronous pre-flight — called on the current thread
         } catch (RuntimeException ex) {
-            // Auth-phase failure: run through the retry policy.
-            Optional<Duration> retryDelay = retryPolicy.retryDelay(attempt, ex);
+            // Pre-flight failure: run through the retry policy.
+            RetryContext context = buildRetryContext(attempt, ex, method, uri, null);
+
+            Optional<Duration> retryDelay = retryPolicy.retryDelay(context);
 
             if (retryDelay.isEmpty()) {
                 resultFuture.completeExceptionally(ex);
@@ -332,7 +357,7 @@ final class HttpEngine {
             int nextAttempt = attempt + 1;
 
             DEFAULT_RETRY_SCHEDULER.schedule(
-                    () -> retryAsync(supplier, bodyHandler, nextAttempt, resultFuture),
+                    () -> retryAsync(method, uri, supplier, bodyHandler, nextAttempt, resultFuture),
                     retryDelay.get().toMillis(),
                     TimeUnit.MILLISECONDS
             );
@@ -342,7 +367,11 @@ final class HttpEngine {
 
         final OutboundRequest finalOutbound = outbound;
 
-        singleSendAsync(finalOutbound, bodyHandler, attempt).whenComplete((response, throwable) -> {
+        singleSendAsync(
+                finalOutbound,
+                bodyHandler,
+                attempt
+        ).whenComplete((response, throwable) -> {
             if (null == throwable) {
                 resultFuture.complete(response);
                 return;
@@ -350,7 +379,9 @@ final class HttpEngine {
 
             Throwable unwrapped = unwrapCompletionException(throwable);
 
-            Optional<Duration> retryDelay = retryPolicy.retryDelay(attempt, unwrapped);
+            RetryContext context = buildRetryContext(attempt, unwrapped, method, uri, finalOutbound);
+
+            Optional<Duration> retryDelay = retryPolicy.retryDelay(context);
 
             if (retryDelay.isEmpty()) {
                 resultFuture.completeExceptionally(throwable);
@@ -360,7 +391,7 @@ final class HttpEngine {
             int nextAttempt = attempt + 1;
 
             DEFAULT_RETRY_SCHEDULER.schedule(
-                    () -> retryAsync(supplier, bodyHandler, nextAttempt, resultFuture),
+                    () -> retryAsync(method, uri, supplier, bodyHandler, nextAttempt, resultFuture),
                     retryDelay.get().toMillis(),
                     TimeUnit.MILLISECONDS
             );
@@ -368,25 +399,11 @@ final class HttpEngine {
     }
 
     /**
-     * Single async attempt — no retry context (request is ineligible for retry).
-     */
-    private <T> CompletableFuture<HttpResponse<T>> singleSendAsync(OutboundRequest outbound,
-                                                                   HttpResponse.BodyHandler<T> bodyHandler) {
-        return doSingleSendAsync(outbound, bodyHandler, 0);
-    }
-
-    /**
      * Single async attempt within a retry sequence — {@code attempt} is 1-based.
      */
     private <T> CompletableFuture<HttpResponse<T>> singleSendAsync(OutboundRequest outbound,
                                                                    HttpResponse.BodyHandler<T> bodyHandler,
-                                                                   int attempt) {
-        return doSingleSendAsync(outbound, bodyHandler, attempt);
-    }
-
-    private <T> CompletableFuture<HttpResponse<T>> doSingleSendAsync(OutboundRequest outbound,
-                                                                     HttpResponse.BodyHandler<T> bodyHandler,
-                                                                     int retryAttempt) {
+                                                                   int retryAttempt) {
         StopWatch watch = StopWatch.start();
         HttpRequest request = outbound.request();
 
@@ -420,10 +437,12 @@ final class HttpEngine {
                     if (cause instanceof HttpResponseException hre) {
                         requestLogger.logError(outbound, hre, latency, retryAttempt);
 
-                        fireRequestFailed(buildFailedEvent(
-                                RequestFailedEvent.httpFailure(request.method(), request.uri(), hre.statusCode(), latency, hre),
-                                retryAttempt
-                        ));
+                        fireRequestFailed(
+                                buildFailedEvent(
+                                        RequestFailedEvent.httpFailure(request.method(), request.uri(), hre.statusCode(), latency, hre),
+                                        retryAttempt
+                                )
+                        );
 
                         throw hre;
                     } else {
@@ -431,22 +450,53 @@ final class HttpEngine {
 
                         requestLogger.logTransportError(outbound, cause, retryAttempt);
 
-                        fireRequestFailed(buildFailedEvent(
-                                RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, cause),
-                                retryAttempt
-                        ));
+                        fireRequestFailed(
+                                buildFailedEvent(
+                                        RequestFailedEvent.transportFailure(request.method(), request.uri(), latency, cause),
+                                        retryAttempt
+                                )
+                        );
 
                         throw new CompletionException(cause);
                     }
                 });
     }
 
-    private boolean isRetryEligible(OutboundRequest outbound) {
-        if (outbound.bodySnapshot() == OutboundRequest.MULTIPART_SNAPSHOT) {
-            return false;
+    private RetryContext buildRetryContext(int attempt,
+                                           Throwable failure,
+                                           String method,
+                                           URI uri,
+                                           OutboundRequest outbound) {
+        RetryPhase phase;
+        OptionalInt statusCode;
+        boolean replayableBody;
+
+        if (null == outbound) {
+            // Pre-flight failure — request was never sent
+            phase = RetryPhase.PRE_FLIGHT;
+            statusCode = OptionalInt.empty();
+            replayableBody = true;  // moot since we can't know without the request
+        } else if (failure instanceof HttpResponseException hre) {
+            // HTTP-response failure
+            phase = RetryPhase.HTTP_RESPONSE;
+            statusCode = OptionalInt.of(hre.statusCode());
+            replayableBody = outbound.bodySnapshot() != OutboundRequest.MULTIPART_SNAPSHOT;
+        } else {
+            // Transport failure
+            phase = RetryPhase.TRANSPORT;
+            statusCode = OptionalInt.empty();
+            replayableBody = outbound.bodySnapshot() != OutboundRequest.MULTIPART_SNAPSHOT;
         }
 
-        return !isNonIdempotent(outbound.request().method()) || retryPolicy.allowNonIdempotent();
+        return new RetryContext(
+                attempt,
+                failure,
+                method,
+                uri,
+                statusCode,
+                replayableBody,
+                phase
+        );
     }
 
     private void fireRequestCompleted(RequestCompletedEvent event) {

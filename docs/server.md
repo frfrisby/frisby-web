@@ -43,14 +43,14 @@ processing.  If you want an embedded server and nothing else, the overhead is si
 
 `frisby-web:server` is different:
 
-| Property | Detail |
-|---|---|
-| **Zero mandatory external dependencies** beyond Jersey and Jetty | No Spring, no Guice, no Micronaut, no CDI |
-| **Fully explicit** | No classpath scanning, no annotations driven wiring, no magic defaults you have to override |
-| **Pluggable serialization** | Bring your own `JsonSerializer` (Jackson, Gson, etc.) — the server has no hard serialization dependency |
-| **Standard JAX-RS** | Resource classes are plain `@Path`-annotated POJOs; they work with any JAX-RS implementation |
-| **First-class observability** | Structured per-request logging and a `ServerEventListener` callback interface — wire to any metrics backend |
-| **Virtual-thread ready** | Pass a `newVirtualThreadPerTaskExecutor()` to handle thousands of concurrent connections without tuning thread pool sizes |
+| Property                                                         | Detail                                                                                                                    |
+|------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **Zero mandatory external dependencies** beyond Jersey and Jetty | No Spring, no Guice, no Micronaut, no CDI                                                                                 |
+| **Fully explicit**                                               | No classpath scanning, no annotations driven wiring, no magic defaults you have to override                               |
+| **Pluggable serialization**                                      | Bring your own `JsonSerializer` (Jackson, Gson, etc.) — the server has no hard serialization dependency                   |
+| **Standard JAX-RS**                                              | Resource classes are plain `@Path`-annotated POJOs; they work with any JAX-RS implementation                              |
+| **First-class observability**                                    | Structured per-request logging and a `ServerEventListener` callback interface — wire to any metrics backend               |
+| **Virtual-thread ready**                                         | Pass a `newVirtualThreadPerTaskExecutor()` to handle thousands of concurrent connections without tuning thread pool sizes |
 
 ---
 
@@ -178,18 +178,18 @@ Server server = Server.builder()
 
 Obtain a builder via `Server.builder()`.
 
-| Method | Required | Description |
-|---|---|---|
-| `configuration(ServerConfiguration)` | ✓ | Sets the server runtime configuration. |
-| `configuration(UnaryOperator<ServerConfigurationBuilder>)` | ✓ | Inline lambda convenience overload. |
-| `resources(Object...)` | ✓ | Registers one or more JAX-RS `@Path` resource instances. Cumulative. |
-| `resources(List<Object>)` | ✓ | List overload. Cumulative. |
-| `components(Object...)` | | Registers JAX-RS `@Provider` components (filters, exception mappers, etc.). Cumulative. |
-| `components(List<Object>)` | | List overload. Cumulative. |
-| `healthCheck()` | | Mounts a built-in `GET /health` → `{"status":"UP"}` endpoint. |
-| `healthCheck(String path)` | | Same, but at a custom path (e.g. `/readyz`). |
-| `eventListener(ServerEventListener)` | | Receives an `onRequestCompleted` callback after every request. |
-| `build()` | | Returns a configured, not-yet-started `Server`. |
+| Method                                                     | Required | Description                                                                             |
+|------------------------------------------------------------|----------|-----------------------------------------------------------------------------------------|
+| `configuration(ServerConfiguration)`                       | ✓       | Sets the server runtime configuration.                                                  |
+| `configuration(UnaryOperator<ServerConfigurationBuilder>)` | ✓       | Inline lambda convenience overload.                                                     |
+| `resources(Object...)`                                     | ✓       | Registers one or more JAX-RS `@Path` resource instances. Cumulative.                    |
+| `resources(List<Object>)`                                  | ✓       | List overload. Cumulative.                                                              |
+| `components(Object...)`                                    |          | Registers JAX-RS `@Provider` components (filters, exception mappers, etc.). Cumulative. |
+| `components(List<Object>)`                                 |          | List overload. Cumulative.                                                              |
+| `healthCheck()`                                            |          | Mounts a built-in `GET /health` → `{"status":"UP"}` endpoint.                           |
+| `healthCheck(String path)`                                 |          | Same, but at a custom path (e.g. `/readyz`).                                            |
+| `eventListener(ServerEventListener)`                       |          | Receives an `onRequestCompleted` callback after every request.                          |
+| `build()`                                                  |          | Returns a configured, not-yet-started `Server`.                                         |
 
 `build()` throws `IllegalStateException` if no configuration or no resources are provided.
 
@@ -199,22 +199,22 @@ Obtain a builder via `Server.builder()`.
 
 Obtain a builder via `ServerConfiguration.builder()`.
 
-| Method | Default | Description |
-|---|---|---|
-| `port(int)` | — *required* | Port to bind to. `0` = OS-assigned ephemeral port (useful in tests). Retrieve the actual port via `Server.port()` after `start()`. |
-| `host(String)` | `"0.0.0.0"` | IP address or hostname to bind to.  `"localhost"` restricts to loopback only. |
-| `maxRequestSize(long)` | `4194304` (4 MB) | Maximum incoming request body in bytes. Requests exceeding this limit are rejected with HTTP 413. |
-| `serializer(JsonSerializer)` | — *required* | JSON serializer used to (de)serialize entity bodies. |
-| `ssl(SSLContext)` | none | Enables HTTPS with the provided context. |
-| `ssl()` | none | Enables HTTPS using the JVM default `SSLContext` (driven by `javax.net.ssl.*` system properties). |
-| `http2()` | off | Enables HTTP/2 over TLS (h2) via ALPN. Requires `ssl()` to also be set. |
-| `gzip()` | off | Enables bidirectional gzip: decompresses `Content-Encoding: gzip` requests and compresses `application/json` responses when the client sends `Accept-Encoding: gzip`. |
-| `cors(CorsConfiguration)` | none | Configures CORS headers and preflight handling. |
-| `logging(LoggingConfiguration)` | 8 KB body, no redaction | Controls failure-log body size, header masking, and field redaction. |
-| `logging(UnaryOperator<LoggingConfigurationBuilder>)` | | Inline lambda convenience overload. |
-| `maxConcurrentRequests(int)` | `availableProcessors * 20` | Maximum number of requests processed concurrently. Excess requests receive `503` immediately. See [Concurrency configuration](#6-concurrency-configuration). |
-| `executor(Executor)` | none | Custom executor for request threads. Pass `Executors.newVirtualThreadPerTaskExecutor()` for virtual threads (Java 21+). |
-| `stopTimeout(Duration)` | none | Enables graceful shutdown — waits up to the given duration for in-flight requests before forcibly closing connections. |
+| Method                                                | Default                    | Description                                                                                                                                                           |
+|-------------------------------------------------------|----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `port(int)`                                           | — *required*               | Port to bind to. `0` = OS-assigned ephemeral port (useful in tests). Retrieve the actual port via `Server.port()` after `start()`.                                    |
+| `host(String)`                                        | `"0.0.0.0"`                | IP address or hostname to bind to.  `"localhost"` restricts to loopback only.                                                                                         |
+| `maxRequestSize(long)`                                | `4194304` (4 MB)           | Maximum incoming request body in bytes. Requests exceeding this limit are rejected with HTTP 413.                                                                     |
+| `serializer(JsonSerializer)`                          | — *required*               | JSON serializer used to (de)serialize entity bodies.                                                                                                                  |
+| `ssl(SSLContext)`                                     | none                       | Enables HTTPS with the provided context.                                                                                                                              |
+| `ssl()`                                               | none                       | Enables HTTPS using the JVM default `SSLContext` (driven by `javax.net.ssl.*` system properties).                                                                     |
+| `http2()`                                             | off                        | Enables HTTP/2 over TLS (h2) via ALPN. Requires `ssl()` to also be set.                                                                                               |
+| `gzip()`                                              | off                        | Enables bidirectional gzip: decompresses `Content-Encoding: gzip` requests and compresses `application/json` responses when the client sends `Accept-Encoding: gzip`. |
+| `cors(CorsConfiguration)`                             | none                       | Configures CORS headers and preflight handling.                                                                                                                       |
+| `logging(LoggingConfiguration)`                       | 8 KB body, no redaction    | Controls failure-log body size, header masking, and field redaction.                                                                                                  |
+| `logging(UnaryOperator<LoggingConfigurationBuilder>)` |                            | Inline lambda convenience overload.                                                                                                                                   |
+| `maxConcurrentRequests(int)`                          | `availableProcessors * 20` | Maximum number of requests processed concurrently. Excess requests receive `503` immediately. See [Concurrency configuration](#6-concurrency-configuration).          |
+| `executor(Executor)`                                  | none                       | Custom executor for request threads. Pass `Executors.newVirtualThreadPerTaskExecutor()` for virtual threads (Java 21+).                                               |
+| `stopTimeout(Duration)`                               | none                       | Enables graceful shutdown — waits up to the given duration for in-flight requests before forcibly closing connections.                                                |
 
 ---
 
@@ -302,12 +302,12 @@ SSLContext sslContext = loadSslContext(); // your keystore loading logic
 
 The default context is driven by the standard JVM properties:
 
-| Property | Purpose |
-|---|---|
-| `javax.net.ssl.keyStore` | Path to the keystore file |
-| `javax.net.ssl.keyStorePassword` | Keystore password |
-| `javax.net.ssl.trustStore` | Path to the truststore file |
-| `javax.net.ssl.trustStorePassword` | Truststore password |
+| Property                           | Purpose                     |
+|------------------------------------|-----------------------------|
+| `javax.net.ssl.keyStore`           | Path to the keystore file   |
+| `javax.net.ssl.keyStorePassword`   | Keystore password           |
+| `javax.net.ssl.trustStore`         | Path to the truststore file |
+| `javax.net.ssl.trustStorePassword` | Truststore password         |
 
 ---
 
@@ -378,12 +378,12 @@ CorsConfiguration cors = CorsConfiguration.builder()
 
 ### CorsConfigurationBuilder reference
 
-| Method | Required | Description |
-|---|---|---|
-| `allowedOrigins(String...)` | ✓ | One or more allowed origins, or `"*"` for wildcard. |
-| `allowedMethods(String...)` | ✓ | HTTP methods permitted in cross-origin requests. |
-| `allowedHeaders(String...)` | | Allowed request headers.  When omitted, the filter echoes the value of the `Access-Control-Request-Headers` preflight header. |
-| `allowCredentials()` | | Adds `Access-Control-Allow-Credentials: true`.  Incompatible with wildcard origin — `build()` throws if both are set. |
+| Method                      | Required | Description                                                                                                                   |
+|-----------------------------|----------|-------------------------------------------------------------------------------------------------------------------------------|
+| `allowedOrigins(String...)` | ✓       | One or more allowed origins, or `"*"` for wildcard.                                                                           |
+| `allowedMethods(String...)` | ✓       | HTTP methods permitted in cross-origin requests.                                                                              |
+| `allowedHeaders(String...)` |          | Allowed request headers.  When omitted, the filter echoes the value of the `Access-Control-Request-Headers` preflight header. |
+| `allowCredentials()`        |          | Adds `Access-Control-Allow-Credentials: true`.  Incompatible with wildcard origin — `build()` throws if both are set.         |
 
 ### How it works
 
@@ -479,11 +479,11 @@ public Report adminReport() { ... }
 
 `ServerSecurityContext` factory methods:
 
-| Overload | Description |
-|---|---|
-| `of(Principal)` | No roles; `isUserInRole()` always returns `false`. |
-| `of(Principal, Set<String> roles)` | Role set; `isUserInRole()` checks `roles.contains(role)`. |
-| `of(Principal, Set<String> roles, boolean secure, String scheme)` | Full control — use for custom auth schemes. |
+| Overload                                                          | Description                                               |
+|-------------------------------------------------------------------|-----------------------------------------------------------|
+| `of(Principal)`                                                   | No roles; `isUserInRole()` always returns `false`.        |
+| `of(Principal, Set<String> roles)`                                | Role set; `isUserInRole()` checks `roles.contains(role)`. |
+| `of(Principal, Set<String> roles, boolean secure, String scheme)` | Full control — use for custom auth schemes.               |
 
 ### Custom authentication scheme
 
@@ -830,15 +830,15 @@ failure-only callback.
 
 ### RequestCompletedEvent fields
 
-| Field | Type | Description |
-|---|---|---|
-| `method()` | `String` | HTTP method (`"GET"`, `"POST"`, etc.) |
-| `path()` | `String` | Decoded request path, without query parameters |
-| `statusCode()` | `int` | HTTP response status code |
-| `latency()` | `Duration` | Time from request receipt to response written |
-| `requestBytes()` | `long` | Request body size in bytes, or `0` if unknown |
-| `responseBytes()` | `long` | Response body size in bytes, or `0` if unknown |
-| `successful()` | `boolean` | `true` for 2xx status codes |
+| Field             | Type       | Description                                    |
+|-------------------|------------|------------------------------------------------|
+| `method()`        | `String`   | HTTP method (`"GET"`, `"POST"`, etc.)          |
+| `path()`          | `String`   | Decoded request path, without query parameters |
+| `statusCode()`    | `int`      | HTTP response status code                      |
+| `latency()`       | `Duration` | Time from request receipt to response written  |
+| `requestBytes()`  | `long`     | Request body size in bytes, or `0` if unknown  |
+| `responseBytes()` | `long`     | Response body size in bytes, or `0` if unknown |
+| `successful()`    | `boolean`  | `true` for 2xx status codes                    |
 
 ### Suppressed events
 
@@ -869,19 +869,19 @@ Server.builder()
 
 Common use cases:
 
-| Component | Purpose |
-|---|---|
-| `ExceptionMapper<T>` | Map application exceptions to HTTP responses |
-| `ContainerRequestFilter` | Intercept requests (authentication, request ID injection, etc.) |
-| `ContainerResponseFilter` | Intercept responses (custom headers, response transformation, etc.) |
-| `WriterInterceptor` / `ReaderInterceptor` | Intercept entity serialization/deserialization |
-| `MultiPartFeature` (`jersey-media-multipart`) | Enable `multipart/form-data` support |
-| `LoggingFeature` (Jersey built-in) | Full-payload TRACE logging with configurable verbosity |
+| Component                                     | Purpose                                                             |
+|-----------------------------------------------|---------------------------------------------------------------------|
+| `ExceptionMapper<T>`                          | Map application exceptions to HTTP responses                        |
+| `ContainerRequestFilter`                      | Intercept requests (authentication, request ID injection, etc.)     |
+| `ContainerResponseFilter`                     | Intercept responses (custom headers, response transformation, etc.) |
+| `WriterInterceptor` / `ReaderInterceptor`     | Intercept entity serialization/deserialization                      |
+| `MultiPartFeature` (`jersey-media-multipart`) | Enable `multipart/form-data` support                                |
+| `LoggingFeature` (Jersey built-in)            | Full-payload TRACE logging with configurable verbosity              |
 
 ### Jersey's LoggingFeature
 
 If you want to log full request and response bodies (beyond the failure-detail logging
-described in [section 15](#15-failure-detail-logging-and-redaction)):
+described in [section 16](#16-failure-detail-logging-and-redaction)):
 
 ```java
 import org.glassfish.jersey.logging.LoggingFeature;

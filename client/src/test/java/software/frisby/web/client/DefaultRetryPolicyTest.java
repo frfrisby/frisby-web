@@ -9,21 +9,21 @@ import software.frisby.web.client.exception.*;
 import java.net.URI;
 import java.net.http.HttpHeaders;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link DefaultRetryPolicy}.
  * <p>
- * Tests cover: {@code retryDelay} logic, {@code isRetryable} per {@link RetryOn} value,
- * {@code Retry-After} header parsing, cap enforcement, and {@code allowNonIdempotent}.
+ * Tests cover: {@code retryDelay} logic via {@link RetryContext}, per {@link RetryOn} value,
+ * {@code Retry-After} header parsing, cap enforcement, non-idempotent method handling,
+ * and replayable body checking.
  */
 class DefaultRetryPolicyTest {
     private static final URI TEST_URI = URI.create("https://example.com/test");
+    private static final String GET = "GET";
+    private static final String POST = "POST";
     private static final RetryDelay FIXED_1S = RetryDelay.fixed(Duration.ofSeconds(1));
 
     // -------------------------------------------------------------------------
@@ -54,10 +54,68 @@ class DefaultRetryPolicyTest {
         );
     }
 
+    private static DefaultRetryPolicy policyAllowingNonIdempotent(int maxAttempts,
+                                                                  Set<RetryOn> retryOn) {
+        return new DefaultRetryPolicy(
+                maxAttempts,
+                retryOn,
+                FIXED_1S,
+                false,
+                null,
+                true
+        );
+    }
+
     private static HttpHeaders headersWithRetryAfter(long seconds) {
         return HttpHeaders.of(
                 Map.of("Retry-After", List.of(String.valueOf(seconds))),
                 (k, v) -> true
+        );
+    }
+
+    static RetryContext context(int attempt, Throwable failure, String method) {
+        return new RetryContext(
+                attempt,
+                failure,
+                method,
+                TEST_URI,
+                OptionalInt.empty(),
+                true,
+                RetryPhase.TRANSPORT
+        );
+    }
+
+    static RetryContext context(int attempt, Throwable failure) {
+        return context(attempt, failure, GET);
+    }
+
+    private static RetryContext contextHttpResponse(int attempt,
+                                                    Throwable failure,
+                                                    String method,
+                                                    int statusCode) {
+        return new RetryContext(
+                attempt,
+                failure,
+                method,
+                TEST_URI,
+                OptionalInt.of(statusCode),
+                true,
+                RetryPhase.HTTP_RESPONSE
+        );
+    }
+
+    private static RetryContext contextWithReplayability(int attempt,
+                                                         Throwable failure,
+                                                         String method,
+                                                         boolean replayable) {
+        return new RetryContext(
+                attempt,
+                failure,
+                method,
+                TEST_URI,
+                OptionalInt.empty(),
+                replayable,
+                RetryPhase.TRANSPORT
         );
     }
 
@@ -71,7 +129,7 @@ class DefaultRetryPolicyTest {
         void attemptEqualsMaxAttempts_returnsEmpty() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.SERVICE_UNAVAILABLE));
 
-            Optional<Duration> result = p.retryDelay(3, new ServiceUnavailableException());
+            Optional<Duration> result = p.retryDelay(context(3, new ServiceUnavailableException()));
 
             assertTrue(result.isEmpty());
         }
@@ -80,7 +138,7 @@ class DefaultRetryPolicyTest {
         void attemptExceedsMaxAttempts_returnsEmpty() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.SERVICE_UNAVAILABLE));
 
-            Optional<Duration> result = p.retryDelay(5, new ServiceUnavailableException());
+            Optional<Duration> result = p.retryDelay(context(5, new ServiceUnavailableException()));
 
             assertTrue(result.isEmpty());
         }
@@ -89,7 +147,7 @@ class DefaultRetryPolicyTest {
         void attemptBelowMaxAttempts_retryableFailure_returnsDelay() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.SERVICE_UNAVAILABLE));
 
-            Optional<Duration> result = p.retryDelay(2, new ServiceUnavailableException());
+            Optional<Duration> result = p.retryDelay(context(2, new ServiceUnavailableException()));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(1), result.get());
@@ -106,7 +164,7 @@ class DefaultRetryPolicyTest {
         void requestTimeout_matchesRequestTimeoutException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.REQUEST_TIMEOUT));
 
-            Optional<Duration> result = p.retryDelay(1, new RequestTimeoutException());
+            Optional<Duration> result = p.retryDelay(context(1, new RequestTimeoutException()));
 
             assertTrue(result.isPresent());
         }
@@ -115,7 +173,7 @@ class DefaultRetryPolicyTest {
         void tooManyRequests_matchesTooManyRequestsException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.TOO_MANY_REQUESTS));
 
-            Optional<Duration> result = p.retryDelay(1, new TooManyRequestsException());
+            Optional<Duration> result = p.retryDelay(context(1, new TooManyRequestsException()));
 
             assertTrue(result.isPresent());
         }
@@ -124,7 +182,7 @@ class DefaultRetryPolicyTest {
         void badGateway_matchesBadGatewayException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.BAD_GATEWAY));
 
-            Optional<Duration> result = p.retryDelay(1, new BadGatewayException());
+            Optional<Duration> result = p.retryDelay(context(1, new BadGatewayException()));
 
             assertTrue(result.isPresent());
         }
@@ -133,7 +191,7 @@ class DefaultRetryPolicyTest {
         void serviceUnavailable_matchesServiceUnavailableException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.SERVICE_UNAVAILABLE));
 
-            Optional<Duration> result = p.retryDelay(1, new ServiceUnavailableException());
+            Optional<Duration> result = p.retryDelay(context(1, new ServiceUnavailableException()));
 
             assertTrue(result.isPresent());
         }
@@ -142,7 +200,7 @@ class DefaultRetryPolicyTest {
         void gatewayTimeout_matchesGatewayTimeoutException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.GATEWAY_TIMEOUT));
 
-            Optional<Duration> result = p.retryDelay(1, new GatewayTimeoutException());
+            Optional<Duration> result = p.retryDelay(context(1, new GatewayTimeoutException()));
 
             assertTrue(result.isPresent());
         }
@@ -151,10 +209,7 @@ class DefaultRetryPolicyTest {
         void connectFailure_matchesConnectException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.CONNECT_FAILURE));
 
-            Optional<Duration> result = p.retryDelay(
-                    1,
-                    new ConnectException("refused", new RuntimeException())
-            );
+            Optional<Duration> result = p.retryDelay(context(1, new ConnectException("refused", new RuntimeException())));
 
             assertTrue(result.isPresent());
         }
@@ -163,10 +218,7 @@ class DefaultRetryPolicyTest {
         void connectTimeout_matchesConnectTimeoutException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.CONNECT_TIMEOUT));
 
-            Optional<Duration> result = p.retryDelay(
-                    1,
-                    new ConnectTimeoutException("timeout", new RuntimeException())
-            );
+            Optional<Duration> result = p.retryDelay(context(1, new ConnectTimeoutException("timeout", new RuntimeException())));
 
             assertTrue(result.isPresent());
         }
@@ -175,10 +227,7 @@ class DefaultRetryPolicyTest {
         void readTimeout_matchesReadTimeoutException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.READ_TIMEOUT));
 
-            Optional<Duration> result = p.retryDelay(
-                    1,
-                    new ReadTimeoutException("timeout", new RuntimeException())
-            );
+            Optional<Duration> result = p.retryDelay(context(1, new ReadTimeoutException("timeout", new RuntimeException())));
 
             assertTrue(result.isPresent());
         }
@@ -187,10 +236,7 @@ class DefaultRetryPolicyTest {
         void transportFailure_matchesTransportException() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.TRANSPORT_FAILURE));
 
-            Optional<Duration> result = p.retryDelay(
-                    1,
-                    new TransportException("ssl error", new RuntimeException())
-            );
+            Optional<Duration> result = p.retryDelay(context(1, new TransportException("ssl error", new RuntimeException())));
 
             assertTrue(result.isPresent());
         }
@@ -199,7 +245,7 @@ class DefaultRetryPolicyTest {
         void conditionNotInSet_returnsEmpty() {
             DefaultRetryPolicy p = policy(3, Set.of(RetryOn.SERVICE_UNAVAILABLE));
 
-            Optional<Duration> result = p.retryDelay(1, new BadGatewayException());
+            Optional<Duration> result = p.retryDelay(context(1, new BadGatewayException()));
 
             assertTrue(result.isEmpty());
         }
@@ -208,7 +254,7 @@ class DefaultRetryPolicyTest {
         void emptyRetryOnSet_alwaysReturnsEmpty() {
             DefaultRetryPolicy p = policy(3, Set.of());
 
-            Optional<Duration> result = p.retryDelay(1, new ServiceUnavailableException());
+            Optional<Duration> result = p.retryDelay(context(1, new ServiceUnavailableException()));
 
             assertTrue(result.isEmpty());
         }
@@ -234,7 +280,7 @@ class DefaultRetryPolicyTest {
                     null
             );
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex, "GET"));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(10), result.get());
@@ -254,7 +300,7 @@ class DefaultRetryPolicyTest {
                     null
             );
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex, "GET"));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(10), result.get());
@@ -274,7 +320,7 @@ class DefaultRetryPolicyTest {
                     null
             );
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex, "GET"));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(1), result.get());
@@ -289,7 +335,7 @@ class DefaultRetryPolicyTest {
             );
             TooManyRequestsException ex = new TooManyRequestsException();
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(1), result.get());
@@ -305,7 +351,7 @@ class DefaultRetryPolicyTest {
                     null
             );
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex, "GET"));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(1), result.get());
@@ -328,7 +374,7 @@ class DefaultRetryPolicyTest {
                     null
             );
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex, "GET"));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(3600), result.get());
@@ -343,7 +389,7 @@ class DefaultRetryPolicyTest {
             );
             ReadTimeoutException ex = new ReadTimeoutException("timeout", new RuntimeException());
 
-            Optional<Duration> result = p.retryDelay(1, ex);
+            Optional<Duration> result = p.retryDelay(context(1, ex));
 
             assertTrue(result.isPresent());
             assertEquals(Duration.ofSeconds(1), result.get());
@@ -396,9 +442,9 @@ class DefaultRetryPolicyTest {
                     false
             );
 
-            assertEquals(Duration.ofSeconds(5), p.retryDelay(1, new ServiceUnavailableException()).orElseThrow());
-            assertEquals(Duration.ofSeconds(5), p.retryDelay(2, new ServiceUnavailableException()).orElseThrow());
-            assertEquals(Duration.ofSeconds(5), p.retryDelay(3, new ServiceUnavailableException()).orElseThrow());
+            assertEquals(Duration.ofSeconds(5), p.retryDelay(context(1, new ServiceUnavailableException())).orElseThrow());
+            assertEquals(Duration.ofSeconds(5), p.retryDelay(context(2, new ServiceUnavailableException())).orElseThrow());
+            assertEquals(Duration.ofSeconds(5), p.retryDelay(context(3, new ServiceUnavailableException())).orElseThrow());
         }
 
         @Test
@@ -413,9 +459,9 @@ class DefaultRetryPolicyTest {
                     false
             );
 
-            assertEquals(Duration.ofSeconds(1), p.retryDelay(1, new ServiceUnavailableException()).orElseThrow());
-            assertEquals(Duration.ofSeconds(2), p.retryDelay(2, new ServiceUnavailableException()).orElseThrow());
-            assertEquals(Duration.ofSeconds(3), p.retryDelay(3, new ServiceUnavailableException()).orElseThrow());
+            assertEquals(Duration.ofSeconds(1), p.retryDelay(context(1, new ServiceUnavailableException())).orElseThrow());
+            assertEquals(Duration.ofSeconds(2), p.retryDelay(context(2, new ServiceUnavailableException())).orElseThrow());
+            assertEquals(Duration.ofSeconds(3), p.retryDelay(context(3, new ServiceUnavailableException())).orElseThrow());
         }
     }
 

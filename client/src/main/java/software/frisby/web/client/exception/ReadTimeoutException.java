@@ -48,6 +48,7 @@ public final class ReadTimeoutException extends HttpRequestException {
     public ReadTimeoutException(String message, Throwable cause) {
         super(message, cause);
     }
+
     /**
      * Creates an exception with a detail message and no request context.
      *

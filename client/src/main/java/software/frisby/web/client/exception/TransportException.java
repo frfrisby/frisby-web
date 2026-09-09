@@ -53,6 +53,7 @@ public final class TransportException extends HttpRequestException {
     public TransportException(String message, Throwable cause) {
         super(message, cause);
     }
+
     /**
      * Creates an exception with a detail message and no request context.
      *

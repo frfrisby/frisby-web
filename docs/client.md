@@ -30,7 +30,6 @@ mandatory external dependencies beyond the JDK.
 18. [TLS / custom SSLContext](#18-tls--custom-sslcontext)
 19. [Exception hierarchy](#19-exception-hierarchy)
 20. [Complete examples](#20-complete-examples)
-21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 
 ---
 
@@ -161,14 +160,14 @@ Client client = Client.builder()
 
 Obtain a builder via `Client.builder()`.
 
-| Method                                               | Required | Description                                                                  |
-|------------------------------------------------------|----------|------------------------------------------------------------------------------|
-| `configuration(Configuration)`                       | ✓        | Sets the client runtime configuration.                                       |
-| `configuration(UnaryOperator<ConfigurationBuilder>)` | ✓        | Inline lambda convenience overload.                                          |
-| `security(SecurityProvider)`                         |          | Default security provider applied to every request. Overridable per request. |
+| Method                                               | Required | Description                                                                               |
+|------------------------------------------------------|----------|-------------------------------------------------------------------------------------------|
+| `configuration(Configuration)`                       | ✓       | Sets the client runtime configuration.                                                    |
+| `configuration(UnaryOperator<ConfigurationBuilder>)` | ✓       | Inline lambda convenience overload.                                                       |
+| `security(SecurityProvider)`                         |          | Default security provider applied to every request. Overridable per request.              |
 | `retryPolicy(RetryPolicy)`                           |          | Automatic retry behaviour. Defaults to no retries.  See [Retry policy](#17-retry-policy). |
-| `eventListener(ClientEventListener)`                 |          | Receives a callback after every completed or failed request.                 |
-| `build()`                                            |          | Returns a configured `Client` instance.                                      |
+| `eventListener(ClientEventListener)`                 |          | Receives a callback after every completed or failed request.                              |
+| `build()`                                            |          | Returns a configured `Client` instance.                                                   |
 
 `build()` throws `IllegalStateException` if no configuration is provided.
 
@@ -772,7 +771,7 @@ failures.  Without one the default is `RetryPolicy.none()` — no retries.
 ```java
 RetryPolicy policy = RetryPolicy.builder()
         .maxAttempts(3)                                           // 1 initial attempt + 2 retries
-        .on(RetryPolicy.GATEWAY_ERRORS)                          // 502, 503, 504
+        .on(RetryOn.GATEWAY_ERRORS)                               // 502, 503, 504
         .on(RetryOn.TOO_MANY_REQUESTS)                           // 429
         .delay(RetryDelay.exponential(Duration.ofSeconds(1)))    // ~1 s, ~2 s, … capped at 30 s
         .honorRetryAfterHeader(Duration.ofSeconds(60))           // honor Retry-After ≤ 60 s
@@ -786,16 +785,16 @@ Client client = Client.builder()
 
 ### `RetryPolicyBuilder` methods
 
-| Method                              | Default       | Description                                                                                      |
-|-------------------------------------|---------------|--------------------------------------------------------------------------------------------------|
-| `maxAttempts(int)`                  | `3`           | Maximum total executions (initial attempt + retries).                                            |
-| `on(RetryOn...)`                    | —             | Additive.  Registers conditions that trigger a retry.                                            |
-| `on(Collection<RetryOn>)`           | —             | Convenience overload for use with the `Set` constants below.                                     |
-| `delay(RetryDelay)`                 | `linear(1 s)` | Back-off strategy between retries.                                                               |
-| `honorRetryAfterHeader()`           | —             | Use `Retry-After` header value if ≤ 5 minutes; otherwise fall back to `delay`.                  |
-| `honorRetryAfterHeader(Duration)`   | —             | Same, with an explicit cap.                                                                      |
-| `allowNonIdempotent()`              | —             | Also retry `POST`, `PUT`, and `PATCH` requests.  Off by default — see [Idempotency](#idempotency-and-multipart). |
-| `build()`                           | —             | Returns the `RetryPolicy`.                                                                       |
+| Method                            | Default       | Description                                                                                                      |
+|-----------------------------------|---------------|------------------------------------------------------------------------------------------------------------------|
+| `maxAttempts(int)`                | `3`           | Maximum total executions (initial attempt + retries).                                                            |
+| `on(RetryOn...)`                  | —             | Additive.  Registers conditions that trigger a retry.                                                            |
+| `on(Collection<RetryOn>)`         | —             | Convenience overload for use with the `RetryOn` constants below.                                                 |
+| `delay(RetryDelay)`               | `linear(1 s)` | Back-off strategy between retries.                                                                               |
+| `honorRetryAfterHeader()`         | —             | Use `Retry-After` header value if ≤ 5 minutes; otherwise fall back to `delay`.                                   |
+| `honorRetryAfterHeader(Duration)` | —             | Same, with an explicit cap.                                                                                      |
+| `allowNonIdempotent()`            | —             | Also retry `POST`, `PUT`, and `PATCH` requests.  Off by default — see [Idempotency](#idempotency-and-multipart). |
+| `build()`                         | —             | Returns the `RetryPolicy`.                                                                                       |
 
 ### Retryable conditions — `RetryOn`
 
@@ -811,19 +810,19 @@ Client client = Client.builder()
 | `READ_TIMEOUT`        | `readTimeout` exceeded                                       |
 | `TRANSPORT_FAILURE`   | SSL/TLS errors and other low-level I/O failures              |
 
-#### Convenience constants
+#### Convenience constants on `RetryOn`
 
 ```java
-RetryPolicy.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
-RetryPolicy.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
+RetryOn.GATEWAY_ERRORS    // BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+RetryOn.TRANSPORT_ERRORS  // CONNECT_FAILURE, CONNECT_TIMEOUT, READ_TIMEOUT
 ```
 
 Pass either constant directly to `on(Collection<RetryOn>)`:
 
 ```java
 RetryPolicy.builder()
-        .on(RetryPolicy.GATEWAY_ERRORS)
-        .on(RetryPolicy.TRANSPORT_ERRORS)
+        .on(RetryOn.GATEWAY_ERRORS)
+        .on(RetryOn.TRANSPORT_ERRORS)
         // ...
         .build();
 ```
@@ -874,9 +873,9 @@ The body is streamed and cannot be replayed after the first attempt.
 
 ### Sync vs. async behavior
 
-| Path        | Retry mechanism                                                    |
-|-------------|--------------------------------------------------------------------|
-| `send()`    | `Thread.sleep(delay)` on the calling thread between attempts.      |
+| Path          | Retry mechanism                                                              |
+|---------------|------------------------------------------------------------------------------|
+| `send()`      | `Thread.sleep(delay)` on the calling thread between attempts.                |
 | `sendAsync()` | Delay scheduled via `ScheduledExecutorService`; calling thread never blocks. |
 
 A thread interrupt during a sync retry sleep restores the interrupt flag and throws
@@ -987,156 +986,4 @@ All HTTP error exceptions extend `HttpResponseException` which provides:
 ```java
 RetryPolicy retryPolicy = RetryPolicy.builder()
         .maxAttempts(4)
-        .on(RetryPolicy.GATEWAY_ERRORS)               // 502, 503, 504
-        .on(RetryOn.TOO_MANY_REQUESTS)                // 429
-        .delay(RetryDelay.exponential(Duration.ofSeconds(1)))
-        .honorRetryAfterHeader(Duration.ofMinutes(1))
-        .build();
-
-Client client = Client.builder()
-        .configuration(config)
-        .retryPolicy(retryPolicy)
-        .build();
-
-// The client transparently retries up to 3 times before propagating the exception
-Order order = client.post()
-        .path("/orders")
-        .body(createOrderRequest)
-        .send(Order.class)
-        .body();
-```
-
-### Typed GET with error handling
-
-```java
-try {
-    User user = client.get()
-            .path("/users/{id}", "id", userId)
-            .send(User.class)
-            .body();
-} catch (NotFoundException ex) {
-    // 404 — user does not exist
-} catch (UnauthorizedException ex) {
-    // 401 — token expired or invalid
-} catch (ReadTimeoutException ex) {
-    // Service too slow
-}
-```
-
-### POST with compression and OAuth 2.0
-
-```java
-ClientCredentialsSecurityProvider oauth2 =
-        ClientCredentialsSecurityProvider.builder()
-                .tokenEndpoint(URI.create("https://auth.example.com/oauth2/token"))
-                .credentials(ClientCredentials.of(clientId, clientSecret))
-                .serializer(JacksonSerializer.builder().build())
-                .scope("ingest:readings")
-                .build();
-
-Client client = Client.builder()
-        .configuration(c -> c
-                .uri(URI.create("https://api.example.com"))
-                .connectTimeout(Duration.ofSeconds(5))
-                .readTimeout(Duration.ofSeconds(30))
-                .serializer(JacksonSerializer.builder().build())
-                .decompress())
-        .security(oauth2)
-        .build();
-
-IngestResponse result = client.post()
-        .path("/readings/ingest")
-        .compress()
-        .body(deviceReadingsBatch)
-        .send(IngestResponse.class)
-        .body();
-```
-
-### Multipart upload
-
-```java
-HttpResponse<Document> response = client.post()
-        .path("/documents")
-        .body(FormData.of(
-                FormPart.entity("metadata",
-                        "{\"title\":\"Q3 Report\"}",
-                        MediaType.of("application/xml")),
-                FormPart.file("file",
-                        Files.newInputStream(reportPath),
-                        "q3-report.pdf",
-                        MediaType.of("application/pdf"))
-        ))
-        .send(Document.class);
-```
-
-### Async parallel fetch
-
-```java
-List<String> ids = List.of("order-1", "order-2", "order-3");
-
-List<CompletableFuture<HttpResponse<Order>>> futures = ids.stream()
-        .map(id -> client.get()
-                .path("/orders/{id}", "id", id)
-                .sendAsync(Order.class))
-        .toList();
-
-List<Order> orders = futures.stream()
-        .map(f -> f.join().body())
-        .toList();
-```
-
-### Client with full configuration
-
-```java
-Client client = Client.builder()
-        .configuration(
-                Configuration.builder()
-                        .uri(URI.create("https://api.example.com"))
-                        .connectTimeout(Duration.ofSeconds(5))
-                        .readTimeout(Duration.ofSeconds(30))
-                        .serializer(JacksonSerializer.builder().build())
-                        .decompress()                          // Accept-Encoding: gzip
-                        .redirectPolicy(HttpClient.Redirect.NORMAL)
-                        .httpVersion(HttpClient.Version.HTTP_1_1)
-                        .logging(ClientLoggingConfiguration.builder()
-                                .redactHeaders("x-api-key")
-                                .redactFields("password", "token")
-                                .maxBodySize(8192)
-                                .build())
-                        .build()
-        )
-        .security(
-                ClientCredentialsSecurityProvider.builder()
-                        .tokenEndpoint(URI.create("https://auth.example.com/token"))
-                        .credentials(ClientCredentials.of(clientId, clientSecret))
-                        .serializer(JacksonSerializer.builder().build())
-                        .build()
-        )
-        .eventListener(new MyMetricsListener())
-        .build();
-```
-
----
-
-## 21. Server-Sent Events (SSE)
-
-`client` includes `SseSpec` (via `Client.sse()`) for raw SSE stream access — no
-additional dependency. For typed, per-event-type callback dispatch with automatic
-reconnection, `Last-Event-ID` replay, and backpressure handling, add
-`software.frisby.web:client-sse`.
-
-**See [`docs/sse.md`](sse.md) for the complete guide** — quick starts for both the raw
-stream and the typed `client-sse` dispatch API, generic `SseHandler<T>` / `SseBatchHandler<T>`
-per-handler tuning, `BufferFullPolicy`, reconnect/`Last-Event-ID` behavior, virtual
-threads, and worked examples.
-
-```java
-HttpResponse<InputStream> response = client.sse()
-        .path("/notifications/stream")
-        .parameter("clientId", myClientId)
-        .stream();
-```
-
-
-
-
+        .on(RetryOn.GATEWAY_ERRORS)
