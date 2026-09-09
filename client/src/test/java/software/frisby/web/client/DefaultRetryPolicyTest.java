@@ -120,6 +120,33 @@ class DefaultRetryPolicyTest {
     }
 
     // -------------------------------------------------------------------------
+    // isIdempotentMethod
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class IsIdempotentMethod {
+        @Test
+        void getMethod_returnsTrue() {
+            assertTrue(DefaultRetryPolicy.isIdempotentMethod("GET"));
+        }
+
+        @Test
+        void headMethod_returnsTrue() {
+            assertTrue(DefaultRetryPolicy.isIdempotentMethod("HEAD"));
+        }
+
+        @Test
+        void deleteMethod_returnsTrue() {
+            assertTrue(DefaultRetryPolicy.isIdempotentMethod("DELETE"));
+        }
+
+        @Test
+        void postMethod_returnsFalse() {
+            assertFalse(DefaultRetryPolicy.isIdempotentMethod("POST"));
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Attempt limit
     // -------------------------------------------------------------------------
 

@@ -46,7 +46,7 @@ final class DefaultRetryPolicy implements RetryPolicy {
         };
     }
 
-    private static boolean isIdempotentMethod(String method) {
+    static boolean isIdempotentMethod(String method) {
         return "GET".equals(method) || "HEAD".equals(method) || "DELETE".equals(method);
     }
 

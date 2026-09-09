@@ -96,6 +96,12 @@ class ClientRetryTest {
                 .build();
     }
 
+    private static int unusedPort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Test lifecycle
     // -------------------------------------------------------------------------
@@ -619,6 +625,91 @@ class ClientRetryTest {
             );
 
             assertEquals(1, failableMultipart.callCount());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Sync retry context facts — replayability on transport failures
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class SyncTransportReplayability {
+        @Test
+        void jsonPostTransportFailure_replayableBodyTrueInRetryContext() throws IOException {
+            int port = unusedPort();
+
+            AtomicReference<RetryContext> seen = new AtomicReference<>();
+
+            RetryPolicy policy = RetryPolicy.of(context -> {
+                seen.set(context);
+                return Optional.empty();
+            });
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .retryPolicy(policy)
+                    .build();
+
+            assertThrows(
+                    ConnectException.class,
+                    () -> client.post()
+                            .path("/anything")
+                            .body("{\"name\":\"Alice\"}")
+                            .send(Person.class)
+            );
+
+            RetryContext context = seen.get();
+
+            assertNotNull(context);
+            assertEquals(RetryPhase.TRANSPORT, context.phase());
+            assertTrue(context.replayableBody());
+        }
+
+        @Test
+        void multipartPostTransportFailure_replayableBodyFalseInRetryContext() throws IOException {
+            int port = unusedPort();
+
+            AtomicReference<RetryContext> seen = new AtomicReference<>();
+
+            RetryPolicy policy = RetryPolicy.of(context -> {
+                seen.set(context);
+                return Optional.empty();
+            });
+
+            Client client = Client.builder()
+                    .configuration(
+                            ClientConfiguration.builder()
+                                    .uri(URI.create("http://localhost:" + port))
+                                    .connectTimeout(Duration.ofSeconds(5))
+                                    .readTimeout(Duration.ofSeconds(5))
+                                    .serializer(JacksonSerializer.builder().build())
+                                    .build()
+                    )
+                    .retryPolicy(policy)
+                    .build();
+
+            assertThrows(
+                    ConnectException.class,
+                    () -> client.post()
+                            .path("/anything")
+                            .body(FormData.of(
+                                    FormPart.file("file", new ByteArrayInputStream(new byte[]{1, 2, 3}), "test.bin")
+                            ))
+                            .send(Person.class)
+            );
+
+            RetryContext context = seen.get();
+
+            assertNotNull(context);
+            assertEquals(RetryPhase.TRANSPORT, context.phase());
+            assertFalse(context.replayableBody());
         }
     }
 
