@@ -451,6 +451,53 @@ class DefaultRetryPolicyTest {
     }
 
     // -------------------------------------------------------------------------
+    // RetryDelay.fixed — factory and validation
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class Fixed {
+        @Test
+        void nullDelay_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> RetryDelay.fixed(null));
+        }
+
+        @Test
+        void zeroDelay_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.fixed(Duration.ZERO));
+        }
+
+        @Test
+        void negativeDelay_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.fixed(Duration.ofSeconds(-1)));
+        }
+
+        @Test
+        void subMillisecondDelay_throwsDurationOutsideRangeException() {
+            // Consistent with linear()/exponential(): a sub-millisecond delay is not a
+            // meaningful retry delay, even though fixed() itself never truncates via
+            // toMillis() internally.
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.fixed(Duration.ofNanos(500)));
+        }
+
+        @Test
+        void oneMillisecondDelay_returnsThatDelayForEveryAttempt() {
+            RetryDelay delay = RetryDelay.fixed(Duration.ofMillis(1));
+
+            assertEquals(Duration.ofMillis(1), delay.delayFor(1));
+            assertEquals(Duration.ofMillis(1), delay.delayFor(100));
+        }
+
+        @Test
+        void fixedDelay_returnsSameDelayRegardlessOfAttempt() {
+            RetryDelay delay = RetryDelay.fixed(Duration.ofSeconds(5));
+
+            assertEquals(Duration.ofSeconds(5), delay.delayFor(1));
+            assertEquals(Duration.ofSeconds(5), delay.delayFor(2));
+            assertEquals(Duration.ofSeconds(5), delay.delayFor(100));
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // RetryDelay.exponential — factory, delegation, and cap behaviour
     // -------------------------------------------------------------------------
 
@@ -540,6 +587,122 @@ class DefaultRetryPolicyTest {
 
             assertTrue(result.compareTo(Duration.ofSeconds(4)) >= 0);
             assertTrue(result.compareTo(Duration.ofMillis(4_800)) <= 0);
+        }
+
+        @Test
+        void subMillisecondBaseDelay_throwsDurationOutsideRangeException() {
+            // Duration.ofNanos(500) is positive but truncates to 0 via toMillis(), which
+            // would otherwise make this strategy a permanent no-op delay; rejected outright
+            // instead of silently accepted.
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.exponential(Duration.ofNanos(500)));
+        }
+
+        @Test
+        void subMillisecondMaxDelay_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class,
+                    () -> RetryDelay.exponential(Duration.ofSeconds(1), Duration.ofNanos(500)));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // RetryDelay.linear — factory, delegation, cap behavior, and overflow safety
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class Linear {
+        @Test
+        void nullBaseDelay_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> RetryDelay.linear(null));
+        }
+
+        @Test
+        void zeroBaseDelay_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.linear(Duration.ZERO));
+        }
+
+        @Test
+        void nullBaseDelay_twoArg_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> RetryDelay.linear(null, Duration.ofSeconds(30)));
+        }
+
+        @Test
+        void nullMaxDelay_twoArg_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> RetryDelay.linear(Duration.ofSeconds(1), null));
+        }
+
+        @Test
+        void zeroMaxDelay_twoArg_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.linear(Duration.ofSeconds(1), Duration.ZERO));
+        }
+
+        @Test
+        void noCapArg_delegatesTo30SecondCap_belowCapScalesLinearly() {
+            // linear(base) delegates to linear(base, 30s).
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1));
+
+            assertEquals(Duration.ofSeconds(1), delay.delayFor(1));
+            assertEquals(Duration.ofSeconds(2), delay.delayFor(2));
+            assertEquals(Duration.ofSeconds(3), delay.delayFor(3));
+        }
+
+        @Test
+        void noCapArg_largeAttempt_cappedAt30Seconds() {
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1));
+
+            assertEquals(Duration.ofSeconds(30), delay.delayFor(100));
+        }
+
+        @Test
+        void withCap_belowCap_scalesLinearly() {
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10));
+
+            assertEquals(Duration.ofSeconds(1), delay.delayFor(1));
+            assertEquals(Duration.ofSeconds(5), delay.delayFor(5));
+        }
+
+        @Test
+        void withCap_atExactBoundary_returnsCapValue() {
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10));
+
+            assertEquals(Duration.ofSeconds(10), delay.delayFor(10));
+        }
+
+        @Test
+        void withCap_largeAttempt_cappedAtMaxDelay() {
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10));
+
+            assertEquals(Duration.ofSeconds(10), delay.delayFor(1_000_000));
+        }
+
+        @Test
+        void withCap_extremelyLargeAttempt_doesNotOverflow() {
+            // Guards the division-before-multiplication overflow check itself: attempt
+            // near Integer.MAX_VALUE would overflow a long if baseMs * attempt were
+            // computed directly for a large-enough baseDelay.
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(1), Duration.ofSeconds(10));
+
+            assertEquals(Duration.ofSeconds(10), delay.delayFor(Integer.MAX_VALUE));
+        }
+
+        @Test
+        void baseDelayGreaterThanCap_firstAttemptAlreadyCapped() {
+            RetryDelay delay = RetryDelay.linear(Duration.ofSeconds(10), Duration.ofSeconds(5));
+
+            assertEquals(Duration.ofSeconds(5), delay.delayFor(1));
+        }
+
+        @Test
+        void subMillisecondBaseDelay_throwsDurationOutsideRangeException() {
+            // Duration.ofNanos(500) is positive but truncates to 0 via toMillis(), which
+            // would otherwise make this strategy a permanent no-op delay; rejected outright
+            // instead of silently accepted.
+            assertThrows(DurationOutsideRangeException.class, () -> RetryDelay.linear(Duration.ofNanos(500)));
+        }
+
+        @Test
+        void subMillisecondMaxDelay_throwsDurationOutsideRangeException() {
+            assertThrows(DurationOutsideRangeException.class,
+                    () -> RetryDelay.linear(Duration.ofSeconds(1), Duration.ofNanos(500)));
         }
     }
 }
