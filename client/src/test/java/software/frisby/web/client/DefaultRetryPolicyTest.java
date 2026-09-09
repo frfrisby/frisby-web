@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class DefaultRetryPolicyTest {
     private static final URI TEST_URI = URI.create("https://example.com/test");
     private static final String GET = "GET";
-    private static final String POST = "POST";
     private static final RetryDelay FIXED_1S = RetryDelay.fixed(Duration.ofSeconds(1));
 
     // -------------------------------------------------------------------------
@@ -54,18 +53,6 @@ class DefaultRetryPolicyTest {
         );
     }
 
-    private static DefaultRetryPolicy policyAllowingNonIdempotent(int maxAttempts,
-                                                                  Set<RetryOn> retryOn) {
-        return new DefaultRetryPolicy(
-                maxAttempts,
-                retryOn,
-                FIXED_1S,
-                false,
-                null,
-                true
-        );
-    }
-
     private static HttpHeaders headersWithRetryAfter(long seconds) {
         return HttpHeaders.of(
                 Map.of("Retry-After", List.of(String.valueOf(seconds))),
@@ -89,35 +76,6 @@ class DefaultRetryPolicyTest {
         return context(attempt, failure, GET);
     }
 
-    private static RetryContext contextHttpResponse(int attempt,
-                                                    Throwable failure,
-                                                    String method,
-                                                    int statusCode) {
-        return new RetryContext(
-                attempt,
-                failure,
-                method,
-                TEST_URI,
-                OptionalInt.of(statusCode),
-                true,
-                RetryPhase.HTTP_RESPONSE
-        );
-    }
-
-    private static RetryContext contextWithReplayability(int attempt,
-                                                         Throwable failure,
-                                                         String method,
-                                                         boolean replayable) {
-        return new RetryContext(
-                attempt,
-                failure,
-                method,
-                TEST_URI,
-                OptionalInt.empty(),
-                replayable,
-                RetryPhase.TRANSPORT
-        );
-    }
 
     // -------------------------------------------------------------------------
     // isIdempotentMethod
