@@ -110,7 +110,12 @@ class ClientServerSseCapstoneTest {
                     delivered.countDown();
                 }))
                 .onUnhandledEvent(message -> unhandledCount.incrementAndGet())
-                .onError(error -> errorCount.incrementAndGet())
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        errorCount.incrementAndGet();
+                    }
+                })
                 .build();
 
         try (listener) {
@@ -268,6 +273,3 @@ class ClientServerSseCapstoneTest {
         }
     }
 }
-
-
-

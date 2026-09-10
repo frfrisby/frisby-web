@@ -95,7 +95,3 @@ final class DefaultBasicAuthAuthenticationProvider implements BasicAuthAuthentic
         return ServerSecurityContext.of(identity.principal(), identity.roles(), isSecure, SecurityContext.BASIC_AUTH);
     }
 }
-
-
-
-

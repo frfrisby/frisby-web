@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -282,15 +283,18 @@ class ClientSseReconnectTest {
                 .parameter("channel", "buffer-full-policy-drop")
                 .parameter("count", String.valueOf(totalEvents))
                 .onBufferFull(BufferFullPolicy.DROP)
-                .onDropped(message -> {
-                    // A single append to a thread-safe list is the only shared state this
-                    // callback touches, so there is no window where a concurrently-reading
-                    // thread can observe a "count" and a "body list" that briefly disagree —
-                    // unlike maintaining a separate AtomicInteger counter alongside the list,
-                    // which previously let the main thread's assertEquals race the reader
-                    // thread's still-in-progress drops (increment visible, add() not yet).
-                    droppedBodies.add(message.body());
-                    someDropped.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onDropped(SseMessage<String> message) {
+                        // A single append to a thread-safe list is the only shared state this
+                        // callback touches, so there is no window where a concurrently-reading
+                        // thread can observe a "count" and a "body list" that briefly disagree —
+                        // unlike maintaining a separate AtomicInteger counter alongside the list,
+                        // which previously let the main thread's assertEquals race the reader
+                        // thread's still-in-progress drops (increment visible, add() not yet).
+                        droppedBodies.add(message.body());
+                        someDropped.countDown();
+                    }
                 })
                 // Blocking on the very first delivery — rather than merely being slow —
                 // deterministically keeps the capacity-1 pipeline's single slot occupied
@@ -358,7 +362,7 @@ class ClientSseReconnectTest {
                         .logger(DefaultSseListener.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message()
-                                .contains("The SSE onDropped handler threw an unexpected exception."))
+                                .contains("The SSE onDropped observer threw an unexpected exception."))
                         .build()
                 )
                 .build()) {
@@ -367,10 +371,13 @@ class ClientSseReconnectTest {
                     .parameter("channel", "on-dropped-handler-throws")
                     .parameter("count", String.valueOf(totalEvents))
                     .onBufferFull(BufferFullPolicy.DROP)
-                    .onDropped(message -> {
-                        droppedInvocations.incrementAndGet();
-                        secondDropped.countDown();
-                        throw new IllegalStateException("Simulated onDropped handler failure.");
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onDropped(SseMessage<String> message) {
+                            droppedInvocations.incrementAndGet();
+                            secondDropped.countDown();
+                            throw new IllegalStateException("Simulated onDropped handler failure.");
+                        }
                     })
                     // Same blocking-first-delivery technique as
                     // bufferFullPolicyDrop_discardsOverflow_withoutStoppingTheReader above —
@@ -476,13 +483,16 @@ class ClientSseReconnectTest {
                 .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                 .onEvent("message", SseHandler.of(message -> {
                 }))
-                .onError(error -> {
-                    errorCount.incrementAndGet();
-                    firstError.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        errorCount.incrementAndGet();
+                        firstError.countDown();
 
-                    SseListener current = listenerRef.get();
-                    if (null != current) {
-                        current.close();
+                        SseListener current = listenerRef.get();
+                        if (null != current) {
+                            current.close();
+                        }
                     }
                 })
                 .build();
@@ -517,7 +527,7 @@ class ClientSseReconnectTest {
                         .logger(DefaultSseListener.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message()
-                                .contains("The SSE onError handler threw an unexpected exception."))
+                                .contains("The SSE onError observer threw an unexpected exception."))
                         .build()
                 )
                 .build()) {
@@ -528,10 +538,13 @@ class ClientSseReconnectTest {
                     .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
                     .onEvent("message", SseHandler.of(message -> {
                     }))
-                    .onError(error -> {
-                        errorCount.incrementAndGet();
-                        secondError.countDown();
-                        throw new IllegalStateException("Simulated onError handler failure.");
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onError(SseErrorEvent error) {
+                            errorCount.incrementAndGet();
+                            secondError.countDown();
+                            throw new IllegalStateException("Simulated onError handler failure.");
+                        }
                     })
                     .build();
 
@@ -751,8 +764,162 @@ class ClientSseReconnectTest {
             listener.close();
         }
     }
+
+    @Test
+    void onReconnectFiresWithFailureCause_forEveryConnectFailure_withEscalatingAttemptAndEmptyEventType()
+            throws InterruptedException {
+        List<SseReconnectEvent> reconnects = new CopyOnWriteArrayList<>();
+        CountDownLatch secondReconnect = new CountDownLatch(2);
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/this-path-does-not-exist-for-reconnect-event")
+                // Bounded exponential rather than fixed — this test only needs two
+                // onReconnect invocations; kept consistent with the other
+                // reconnect-loop tests above.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onReconnect(SseReconnectEvent event) {
+                        reconnects.add(event);
+                        secondReconnect.countDown();
+                    }
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(
+                    secondReconnect.await(10, TimeUnit.SECONDS),
+                    "Expected onReconnect to fire at least twice for repeated connect failures"
+            );
+
+            SseReconnectEvent first = reconnects.get(0);
+            SseReconnectEvent second = reconnects.get(1);
+
+            assertEquals(SseReconnectCause.FAILURE, first.cause());
+            assertEquals(Optional.empty(), first.eventType());
+            assertEquals(1, first.attempt());
+            assertFalse(first.delay().isNegative());
+
+            assertEquals(SseReconnectCause.FAILURE, second.cause());
+            assertEquals(Optional.empty(), second.eventType());
+            assertEquals(2, second.attempt(), "Expected the attempt count to escalate on consecutive failures");
+            assertFalse(second.delay().isNegative());
+        } finally {
+            listener.close();
+        }
+    }
+
+    @Test
+    void onReconnectFiresWithBufferFullCause_andRegisteredEventType_forPolicyDrivenDisconnect()
+            throws InterruptedException {
+        int totalEvents = 20;
+        List<SseReconnectEvent> reconnects = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch firstReconnect = new CountDownLatch(1);
+        CountDownLatch releaseFirstEvent = new CountDownLatch(1);
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/stream")
+                .parameter("channel", "on-reconnect-buffer-full-event-type")
+                .parameter("count", String.valueOf(totalEvents))
+                .onBufferFull(BufferFullPolicy.DISCONNECT)
+                // Bounded exponential — same rationale as
+                // bufferFullPolicyDisconnect_triggersMultipleReconnects_... above: lets
+                // repeated DISCONNECT-driven reconnects self-throttle instead of
+                // hammering the server at a constant rate under CI contention.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(2)))
+                .onEvent("message", SseHandler.of(message -> {
+                    if (1 == firstEventDelivered.getCount()) {
+                        firstEventDelivered.countDown();
+
+                        try {
+                            releaseFirstEvent.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }).capacity(2))
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onReconnect(SseReconnectEvent event) {
+                        reconnects.add(event);
+                        firstReconnect.countDown();
+                    }
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+            assertTrue(
+                    firstReconnect.await(10, TimeUnit.SECONDS),
+                    "Expected onReconnect to fire while the first callback was blocked"
+            );
+
+            SseReconnectEvent event = reconnects.get(0);
+            assertEquals(SseReconnectCause.BUFFER_FULL, event.cause());
+            assertEquals(Optional.of("message"), event.eventType());
+            assertEquals(1, event.attempt());
+            assertFalse(event.delay().isNegative());
+        } finally {
+            releaseFirstEvent.countDown();
+            listener.close();
+        }
+    }
+
+    @Test
+    void onReconnectHandlerThrows_doesNotStopTheReconnectLoop() throws InterruptedException {
+        AtomicInteger reconnectCount = new AtomicInteger(0);
+        // Waiting for a SECOND invocation, not just the first, is what actually proves the
+        // reader thread survived its own onReconnect handler throwing — same reasoning
+        // already used for onErrorHandlerThrows_.../onDroppedHandlerThrows_... above.
+        CountDownLatch secondReconnect = new CountDownLatch(2);
+
+        try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                .expect(LogExpectation.builder()
+                        .logger(DefaultSseListener.class)
+                        .level(System.Logger.Level.WARNING)
+                        .predicate(e -> e.message()
+                                .contains("The SSE onReconnect observer threw an unexpected exception."))
+                        .build()
+                )
+                .build()) {
+            SseListener listener = SseListener.builder().client(client)
+                    .path("/sse/this-path-does-not-exist-for-on-reconnect-throws")
+                    // Bounded exponential rather than fixed — this test only needs two
+                    // onReconnect invocations; kept consistent with the other
+                    // reconnect-loop tests above.
+                    .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
+                    .onEvent("message", SseHandler.of(message -> {
+                    }))
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onReconnect(SseReconnectEvent event) {
+                            reconnectCount.incrementAndGet();
+                            secondReconnect.countDown();
+                            throw new IllegalStateException("Simulated onReconnect handler failure.");
+                        }
+                    })
+                    .build();
+
+            try {
+                listener.connectAsync();
+
+                assertTrue(secondReconnect.await(10, TimeUnit.SECONDS));
+                verifier.assertExpectations(Duration.ofSeconds(10));
+                assertTrue(
+                        reconnectCount.get() >= 2,
+                        "Expected the reconnect loop to survive the onReconnect handler throwing"
+                );
+            } finally {
+                listener.close();
+            }
+        }
+    }
 }
-
-
-
 

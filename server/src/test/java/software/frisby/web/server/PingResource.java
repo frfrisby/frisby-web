@@ -380,6 +380,3 @@ public final class PingResource {
     public record PingRequest(String message) {
     }
 }
-
-
-

@@ -26,11 +26,12 @@ requires understanding both.
 6. [Per-handler tuning — `SseHandler` / `SseBatchHandler`](#6-per-handler-tuning--ssehandler--ssebatchhandler)
 7. [`SseMessage<T>` — the value delivered to every handler](#7-ssemessaget--the-value-delivered-to-every-handler)
 8. [Backpressure — `BufferFullPolicy`](#8-backpressure--bufferfullpolicy)
-9. [Reconnection and `Last-Event-ID` replay](#9-reconnection-and-last-event-id-replay)
-10. [Error handling — `onError` / `SseErrorEvent`](#10-error-handling--onerror--sseerrorevent)
-11. [Executor, virtual threads, and shutdown](#11-executor-virtual-threads-and-shutdown)
-12. [Complete example](#12-complete-example)
-13. [Server-side SSE — `server-sse`](#13-server-side-sse--server-sse)
+9. [Observability — `SseListenerObserver`](#9-observability--sselistenerobserver)
+10. [`pipelineStats()` — `SsePipelineSnapshot` / `SsePipelineStats`](#10-pipelinestats--ssepipelinesnapshot--ssepipelinestats)
+11. [Reconnection and `Last-Event-ID` replay](#11-reconnection-and-last-event-id-replay)
+12. [Executor, virtual threads, and shutdown](#12-executor-virtual-threads-and-shutdown)
+13. [Complete example](#13-complete-example)
+14. [Server-side SSE — `server-sse`](#14-server-side-sse--server-sse)
 
 ---
 
@@ -70,7 +71,7 @@ Typed callback dispatch, automatic reconnection, and backpressure handling — a
 </dependency>
 ```
 
-(See [Section 13](#13-server-side-sse--server-sse) for the server-side `server-sse` module.)
+(See [Section 14](#14-server-side-sse--server-sse) for the server-side `server-sse` module.)
 
 ---
 
@@ -91,7 +92,12 @@ SseListener listener = SseListener.builder().client(client)
         .onEvent("file-ready", SseHandler.of(FileReadyPayload.class, message ->
                 processFile(message.body())))
         .onUnhandledEvent(message -> log.warn("Unknown event type: {}", message.event()))
-        .onError(error -> log.error("SSE stream error", error.cause()))
+        .observer(new SseListenerObserver() {
+            @Override
+            public void onError(SseErrorEvent error) {
+                log.error("SSE stream error", error.cause());
+            }
+        })
         .build();
 
 listener.connectAsync();   // non-blocking; returns immediately
@@ -186,19 +192,18 @@ no `event` field at all is never matched here, even against a handler registered
 the literal string `"message"`; it's always routed to `onUnhandledEvent` instead. See
 [§7](#7-ssemessaget--the-value-delivered-to-every-handler).
 
-`onEvent`/`onEventBatch` throw `DuplicateElementsException` if `event` is already
-registered, via either method.
+`onEvent` throws `DuplicateElementsException` if `event` is already registered, via
+either overload.
 
-### Backpressure, error handling, reconnection, executor, shutdown
+### Backpressure, observability, reconnection, executor, shutdown
 
-| Method                                            | Default                                                   | Notes                                                                    |
-|---------------------------------------------------|-----------------------------------------------------------|--------------------------------------------------------------------------|
-| `onBufferFull(BufferFullPolicy)`                  | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                             |
-| `onDropped(Consumer<SseMessage<String>> handler)` | —                                                         | Only relevant under `DROP`. See [§8](#8-backpressure--bufferfullpolicy). |
-| `onError(Consumer<SseErrorEvent> handler)`        | —                                                         | See [§10](#10-error-handling--onerror--sseerrorevent).                   |
-| `reconnectDelay(RetryDelay strategy)`             | Server `retry` field when present, else `exponential(3s)` | See [§9](#9-reconnection-and-last-event-id-replay).                      |
-| `executor(ExecutorService executor)`              | A dedicated `NamedExecutorService` per connection         | See [§11](#11-executor-virtual-threads-and-shutdown).                    |
-| `closeTimeout(Duration timeout)`                  | 30 seconds                                                | See [§11](#11-executor-virtual-threads-and-shutdown).                    |
+| Method                                | Default                                                   | Notes                                                                                                                                 |
+|----------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `onBufferFull(BufferFullPolicy)`      | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                                                                                          |
+| `observer(SseListenerObserver)`       | —                                                          | Single registration point for failures, drops, reconnects, and per-event telemetry. See [§9](#9-observability--sselistenerobserver). |
+| `reconnectDelay(RetryDelay strategy)` | Server `retry` field when present, else `exponential(3s)` | See [§11](#11-reconnection-and-last-event-id-replay).                                                                                 |
+| `executor(ExecutorService executor)`  | A dedicated `NamedExecutorService` per connection         | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                 |
+| `closeTimeout(Duration timeout)`      | 30 seconds                                                | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                 |
 
 ### Terminal
 
@@ -215,6 +220,9 @@ boolean isOpen();          // true from connectAsync() until close(); unaffected
                             // reconnect attempts, no matter how many consecutive failures
 void    close();           // the ONLY way a connection ever stops; blocks until
                             // in-flight dispatch work completes; idempotent
+
+SsePipelineSnapshot pipelineStats();   // on-demand occupancy snapshot; throws
+                                       // IllegalStateException before connectAsync()
 ```
 
 Once closed, an `SseListener` cannot be reopened — build a fresh instance.
@@ -320,12 +328,14 @@ default `BLOCK`.
   drops begins, another when the buffer recovers (or the connection ends while a drop
   episode is still in progress), summarizing the count and duration. This avoids log
   floods under the sustained-high-volume conditions `DROP` is meant for.
-- `onDropped(Consumer<SseMessage<String>> handler)` fires once per dropped event,
-  unsummarized, for callers who want per-item granularity (a metrics counter, custom
-  sampling, etc.) — regardless of the built-in logging above.
+- `SseListenerObserver#onDropped` fires once per dropped event, unsummarized, for
+  callers who want per-item granularity (a metrics counter, custom sampling, etc.) —
+  regardless of the built-in logging above. Registered via
+  [`observer(SseListenerObserver)`](#9-observability--sselistenerobserver).
 - `onDropped` only ever fires under `DROP` — never under `BLOCK` or `DISCONNECT`
   (`DISCONNECT` never actually discards an event; it reconnects and relies on
-  `Last-Event-ID` replay instead).
+  `Last-Event-ID` replay instead — see [§9](#9-observability--sselistenerobserver)'s
+  `onReconnect` for that case).
 
 ### ⚠️ Pitfall: `DISCONNECT` can turn into a reconnect storm
 
@@ -346,7 +356,7 @@ relief. Two settings determine how bad it gets:
   room; every disconnect immediately triggers the next reconnect at the same fixed
   interval, forever. Prefer an escalating strategy — the builder's default,
   `exponential(3s)`, already escalates — so a genuine storm backs off over time instead
-  of retrying at a constant rate.
+ of retrying at a constant rate.
 
 If a handler is fundamentally too slow for the stream's volume, no `reconnectDelay`
 tuning fixes that on its own — consider `BLOCK` (bounded, no data loss, but may
@@ -356,55 +366,58 @@ drain rate.
 
 ---
 
-## 9. Reconnection and `Last-Event-ID` replay
+## 9. Observability — `SseListenerObserver`
 
-```
-Connection drops (clean EOF, an I/O failure, or a policy-driven DISCONNECT)
-    ↓
-Not a clean close/deliberate DISCONNECT? → log at Error, invoke onError
-    ↓
-Wait: the server's most recently received retry field (one attempt only), else
-      the configured reconnectDelay(RetryDelay) strategy
-    ↓
-Reconnect: re-invoke client.sse()...stream() (replaying the stored navigation
-           template) with header(Headers.LAST_EVENT_ID, lastReceivedId)
-    ↓
-Server replays missed events (if it supports it) — normal event flow resumes
-```
-
-- Reconnection is **unconditional and indefinite** — there is no retry limit, and no way
-  to disable it. `onError` is the caller's **only** mechanism for ever stopping a
-  connection: track state (a failure count, or a specific unrecoverable HTTP status)
-  inside the handler, and call `SseListener.close()` once a condition is met. Omitting
-  `onError` for a connection prone to permanent failure results in a silent, indefinitely
-  reconnecting connection.
-- Because every reconnect is an ordinary request through the standard `client` request
-  path, a `SecurityProvider` with a dynamic token supplier (e.g. OAuth2
-  client-credentials) is re-consulted on every attempt — token refresh on reconnect
-  requires no special handling.
-- A clean end-of-stream (the server finished writing normally) reconnects **silently** —
-  no `Error` log, no `onError` call. Only an actual `IOException`/unexpected failure, or
-  an unrecoverable HTTP status (404, 401/403, unresolvable host), triggers logging and
-  `onError` — every such failure, even ones that can never succeed on retry.
-- `reconnectDelay(RetryDelay strategy)` reuses `client`'s existing `RetryDelay`
-  abstraction — `RetryDelay.fixed(Duration)`, `.linear(Duration)`,
-  `.exponential(Duration)`, or a custom lambda. A server-supplied `retry` field takes
-  precedence over this strategy for the very next reconnect attempt only.
-
----
-
-## 10. Error handling — `onError` / `SseErrorEvent`
+A single, optional registration point covering every observability concern
+`client-sse` reports — failures, drops, reconnects, and per-event telemetry. Registered
+via `SseListenerBuilder.observer(SseListenerObserver)`. Every method is a `default`
+no-op — implement only the ones you care about; they are not mutually exclusive with
+each other (e.g. `onEventReceived` always fires before `onEventProcessed` for a
+dispatched event, and `onReconnect` fires alongside `onError` for the same transport
+failure).
 
 ```java
-SseListenerBuilder onError(Consumer<SseErrorEvent> handler)
+default void onError(SseErrorEvent event)
+default void onDropped(SseMessage<String> event)
+default void onReconnect(SseReconnectEvent event)
+default void onEventReceived(SseEventReceived event)
+default void onEventProcessed(SseEventProcessed event)
 ```
+
+Every method is invoked from whichever internal thread produced the event (typically
+the reader thread for `onError`/`onReconnect`/`onDropped`/`onEventReceived`, or a
+handler's own dispatch-pipeline worker thread for `onEventProcessed`) and is isolated
+from any exception it throws — a misbehaving observer is logged at `WARNING` and cannot
+take down a reader or worker thread. Optional overall; if never registered, failures
+are still logged at `Error` and drop-episode summaries at `WARNING` internally, but no
+programmatic callback fires.
+
+```java
+SseListener.builder().client(client)
+        // ...
+        .observer(new SseListenerObserver() {
+            @Override
+            public void onEventProcessed(SseEventProcessed event) {
+                latencyTimer.record(event.totalLatency());
+            }
+
+            @Override
+            public void onReconnect(SseReconnectEvent event) {
+                metrics.increment("sse.reconnect." + event.cause());
+            }
+        })
+        .build();
+```
+
+### `onError` / `SseErrorEvent`
 
 Fires for every failed connect/reconnect attempt (including permanently unrecoverable
 ones) and every deserialization failure or handler callback exception. Always logged at
-`Error` level regardless of whether a handler is registered. Does **not** stop the
-pipeline or close the connection by itself — see [§9](#9-reconnection-and-last-event-id-replay).
-An exception thrown by the `onError` handler itself is caught and logged at `WARNING` —
-it never kills the reader task or a dispatch pipeline's worker thread.
+`Error` level regardless of whether an observer is registered. Does **not** stop the
+pipeline or close the connection by itself — see
+[§11](#11-reconnection-and-last-event-id-replay). An exception thrown by `onError`
+itself is caught and logged at `WARNING` — it never kills the reader task or a dispatch
+pipeline's worker thread.
 
 `SseErrorEvent` pairs the failure with whatever raw event context was available:
 
@@ -420,27 +433,194 @@ public record SseErrorEvent(Optional<SseMessage<String>> message, Throwable caus
 | A batch handler's whole-batch callback throws | Empty — not attributable to any single item in the batch                 |
 
 ```java
+AtomicReference<SseListener> listenerRef = new AtomicReference<>();
+
 SseListener listener = SseListener.builder().client(client)
         // ...
-        .onError(error -> {
-            metrics.increment("sse.errors");
+        .observer(new SseListenerObserver() {
+            @Override
+            public void onError(SseErrorEvent error) {
+                metrics.increment("sse.errors");
 
-            if (isUnrecoverable(error.cause())) {
-                listener.close();
+                // listener isn't assigned until build() returns — read it back
+                // through a reference set immediately after build() completes below.
+                if (isUnrecoverable(error.cause())) {
+                    SseListener current = listenerRef.get();
+
+                    if (null != current) {
+                        current.close();
+                    }
+                }
             }
         })
         .build();
+
+listenerRef.set(listener);
 ```
 
-**Watch out:** the `listener` variable above isn't assigned until `.build()` returns,
-so it can't be referenced from inside its own `.onError(...)` lambda like this — the
-snippet above is illustrative only. In real code, capture a mutable reference (e.g. an
-`AtomicReference<SseListener>`) set immediately after `build()` completes, and read it
-back from within the handler instead.
+`onError` is the caller's **only** mechanism for ever stopping a connection: track
+state (a failure count, or a specific unrecoverable status) inside the observer, and
+call `SseListener.close()` once a condition is met. Omitting an `observer` entirely for
+a connection prone to permanent failure results in silent, indefinite reconnects (still
+logged internally, but with no programmatic hook).
+
+### `onDropped`
+
+Only relevant under `BufferFullPolicy.DROP` — see [§8](#8-backpressure--bufferfullpolicy).
+Fires once per dropped event, unsummarized; never fires under `BLOCK` or `DISCONNECT`.
+
+### `onReconnect` / `SseReconnectEvent` / `SseReconnectCause`
+
+Fires immediately before every reconnect attempt that follows a **setback** — either a
+genuine transport failure or a policy-driven `BufferFullPolicy.DISCONNECT` — never for
+a clean end-of-stream reconnect, since that does not advance the backoff strategy's
+attempt count.
+
+```java
+public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventType, int attempt, Duration delay)
+
+public enum SseReconnectCause { FAILURE, BUFFER_FULL }
+```
+
+| Field       | Meaning                                                                                                                                                                                                                        |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `DISCONNECT`; never paired with `onError`. |
+| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty for the catch-all pipeline.   |
+| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                       |
+| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                              |
+
+This is the programmatic way to detect a `DISCONNECT` reconnect storm forming (see the
+pitfall in [§8](#8-backpressure--bufferfullpolicy)) — wire `onReconnect` (with
+`cause == BUFFER_FULL`) into metrics/alerting instead of only log-scraping.
+
+### `onEventReceived` / `onEventProcessed` / `SseEventReceived` / `SseEventProcessed`
+
+Real-time, per-event telemetry — as distinct from [`pipelineStats()`](#10-pipelinestats--ssepipelinesnapshot--ssepipelinestats)'s
+on-demand occupancy snapshot. `onEventReceived` always fires before `onEventProcessed`
+for an event that is actually dispatched.
+
+```java
+public record SseEventReceived(Optional<String> event,
+                               Optional<String> registeredAs,
+                               Optional<String> id,
+                               Instant receivedAt)
+
+public record SseEventProcessed(Optional<String> event,
+                                Optional<String> registeredAs,
+                                Optional<String> id,
+                                Instant receivedAt,
+                                Duration totalLatency,
+                                Duration processingDuration,
+                                boolean succeeded)
+```
+
+- **`onEventReceived`** fires the moment a raw event is accepted into a dispatch
+  pipeline, before deserialization — mirrors `SseMessage` minus `body()`. Fired only
+  when the event is actually accepted; an event rejected under `DROP` or one that
+  triggers `DISCONNECT` never reaches this callback (already reported via `onDropped`/
+  `onReconnect` respectively).
+- **`registeredAs()`** distinguishes a named handler's pipeline from the catch-all
+  unhandled-event pipeline — present when a named `onEvent` handler matched; empty when
+  routed to the catch-all pipeline, regardless of whether `event()` itself was present:
+
+  | Case                  | `event()`           | `registeredAs()`    |
+  |-----------------------|---------------------|----------------------|
+  | Handled               | `Some("foo")`       | `Some("foo")`        |
+  | Unhandled but named   | `Some("foo")`       | `Optional.empty()`   |
+  | Unhandled and unnamed | `Optional.empty()`  | `Optional.empty()`   |
+
+- **`onEventProcessed`** fires the moment a handler's callback returns or throws.
+  `succeeded()` is `false` whenever the callback threw, rather than suppressing the
+  event entirely, so telemetry built purely on this callback never has a blind spot for
+  failed invocations. A failed callback is still fully reported via `onError` as well.
+  - `totalLatency()` — elapsed time from `receivedAt()` to the callback returning or
+    throwing; includes queueing, deserialization, and the callback's own execution time.
+  - `processingDuration()` — the callback's own wall-clock execution time only.
+  - For a batch handler, one `SseEventProcessed` fires per item in the delivered batch
+    — each with its own accurate `totalLatency()`, but all sharing the same
+    `processingDuration()`/`succeeded()`, since the callback ran once for the whole batch.
 
 ---
 
-## 11. Executor, virtual threads, and shutdown
+## 10. `pipelineStats()` — `SsePipelineSnapshot` / `SsePipelineStats`
+
+`SseListener#pipelineStats()` returns a point-in-time occupancy snapshot of every
+dispatch pipeline — one entry per named `onEvent` handler, plus one for the catch-all
+unhandled-event pipeline. Policy-agnostic — useful under `BLOCK`, `DROP`, or
+`DISCONNECT` alike. Intended for polling on a caller-chosen cadence (e.g. to feed a
+"pipeline X has been over 80% full for 30s" alert); for real-time, per-event telemetry
+instead of a snapshot, see [§9](#9-observability--sselistenerobserver) above. Throws
+`IllegalStateException` if called before `connectAsync()`.
+
+```java
+public record SsePipelineSnapshot(Map<String, SsePipelineStats> handlers, SsePipelineStats unhandled)
+
+public record SsePipelineStats(int capacity, int concurrency, int inFlight)
+```
+
+- **`handlers`** — keyed by the same event type string passed to `onEvent(String, ...)`.
+- **`unhandled`** — always present, even when no `onUnhandledEvent` handler was
+  explicitly registered (a no-op fallback pipeline is always built). A dedicated field
+  rather than a sentinel map entry — there is no `String` event-type key of its own.
+- **`capacity`** — the total capacity across every concurrent worker arm
+  (`handler.capacity() × handler.concurrency()`), not the per-arm `capacity()` value
+  configured on `SseHandler`/`SseBatchHandler`.
+- **`concurrency`** — included so a caller can see how `capacity` was derived.
+- **`inFlight`** — items currently queued or being processed anywhere in the pipeline,
+  summed across every worker arm. Can never exceed `capacity`.
+
+```java
+SsePipelineSnapshot snapshot = listener.pipelineStats();
+SsePipelineStats fileReadyStats = snapshot.handlers().get("file-ready");
+
+if (fileReadyStats.inFlight() >= fileReadyStats.capacity()) {
+    log.warn("file-ready pipeline is at capacity");
+}
+```
+
+---
+
+## 11. Reconnection and `Last-Event-ID` replay
+
+```
+Connection drops (clean EOF, an I/O failure, or a policy-driven DISCONNECT)
+    ↓
+Not a clean close/deliberate DISCONNECT? → log at Error, invoke onError
+    ↓
+Setback (failure or DISCONNECT)? → invoke onReconnect with the computed delay
+    ↓
+Wait: the server's most recently received retry field (one attempt only), else
+      the configured reconnectDelay(RetryDelay) strategy
+    ↓
+Reconnect: re-invoke client.sse()...stream() (replaying the stored navigation
+           template) with header(Headers.LAST_EVENT_ID, lastReceivedId)
+    ↓
+Server replays missed events (if it supports it) — normal event flow resumes
+```
+
+- Reconnection is **unconditional and indefinite** — there is no retry limit, and no way
+  to disable it. `onError` is the caller's **only** mechanism for ever stopping a
+  connection: track state (a failure count, or a specific unrecoverable HTTP status)
+  inside a registered [`observer`](#9-observability--sselistenerobserver), and call
+  `SseListener.close()` once a condition is met. Omitting an `observer` for a connection
+  prone to permanent failure results in a silent, indefinitely reconnecting connection.
+- Because every reconnect is an ordinary request through the standard `client` request
+  path, a `SecurityProvider` with a dynamic token supplier (e.g. OAuth2
+  client-credentials) is re-consulted on every attempt — token refresh on reconnect
+  requires no special handling.
+- A clean end-of-stream (the server finished writing normally) reconnects **silently** —
+  no `Error` log, no `onError`/`onReconnect` call. Only an actual `IOException`/
+  unexpected failure, or an unrecoverable HTTP status (404, 401/403, unresolvable
+  host), or a policy-driven `DISCONNECT`, triggers `onReconnect`; only the former
+  triggers logging and `onError` as well.
+- `reconnectDelay(RetryDelay strategy)` reuses `client`'s existing `RetryDelay`
+  abstraction — `RetryDelay.fixed(Duration)`, `.linear(Duration)`,
+  `.exponential(Duration)`, or a custom lambda. A server-supplied `retry` field takes
+  precedence over this strategy for the very next reconnect attempt only.
+
+---
+
+## 12. Executor, virtual threads, and shutdown
 
 ```java
 SseListenerBuilder executor(ExecutorService executor)   // default: a dedicated
@@ -484,7 +664,7 @@ and an unbounded wait would hang `close()` forever. A timeout in that situation 
 
 ---
 
-## 12. Complete example
+## 13. Complete example
 
 ```java
 AtomicReference<SseListener> listenerRef = new AtomicReference<>();
@@ -495,25 +675,44 @@ SseListener listener = SseListener.builder().client(client)
         .lastEventId(lastKnownEventId)               // resume after a process restart
         .executor(Executors.newVirtualThreadPerTaskExecutor())
         .onBufferFull(BufferFullPolicy.DISCONNECT)
-        .onDropped(message -> metrics.increment("sse.dropped"))
         .reconnectDelay(RetryDelay.exponential(Duration.ofSeconds(1), Duration.ofSeconds(60)))
         .closeTimeout(Duration.ofSeconds(10))
         .onEvent("file-ready", SseHandler.of(FileReadyPayload.class, message -> processFile(message.body()))
                 .capacity(4096)
                 .concurrency(8))
-        .onEventBatch("price-update", SseBatchHandler.of(PriceUpdate.class, updates -> processBatch(updates))
+        .onEvent("price-update", SseBatchHandler.of(PriceUpdate.class, updates -> processBatch(updates))
                 .batchSize(50)
                 .batchTimeout(Duration.ofMillis(100)))
         .onUnhandledEvent(message -> log.warn("Unknown event type: {}", message.event()))
-        .onError(error -> {
-            metrics.increment("sse.errors");
+        .observer(new SseListenerObserver() {
+            @Override
+            public void onError(SseErrorEvent error) {
+                metrics.increment("sse.errors");
 
-            if (isUnrecoverable(error.cause())) {
-                SseListener current = listenerRef.get();
+                // listener isn't assigned yet at builder-construction time — read it
+                // back through a reference set immediately after build() completes below.
+                if (isUnrecoverable(error.cause())) {
+                    SseListener current = listenerRef.get();
 
-                if (null != current) {
-                    current.close();
+                    if (null != current) {
+                        current.close();
+                    }
                 }
+            }
+
+            @Override
+            public void onDropped(SseMessage<String> event) {
+                metrics.increment("sse.dropped");
+            }
+
+            @Override
+            public void onReconnect(SseReconnectEvent event) {
+                metrics.increment("sse.reconnect." + event.cause());
+            }
+
+            @Override
+            public void onEventProcessed(SseEventProcessed event) {
+                metrics.recordLatency("sse.event.latency", event.totalLatency());
             }
         })
         .build();
@@ -527,7 +726,7 @@ listener.close();
 
 ---
 
-## 13. Server-side SSE — `server-sse`
+## 14. Server-side SSE — `server-sse`
 
 `server-sse` is the server-side companion to the client APIs above. It keeps the public
 surface wire-focused:
@@ -652,11 +851,11 @@ public final class NotificationResource {
 ### Server/client interaction notes
 
 - The server can send `retry` hints per event; the client uses that as documented in
-  [Section 9](#9-reconnection-and-last-event-id-replay).
+  [Section 11](#11-reconnection-and-last-event-id-replay).
 - If a client reconnects with `Last-Event-ID`, expose it via `@HeaderParam` and replay
   only newer events.
 - Heartbeat comment lines help keep idle connections alive and are ignored by client
   dispatch, as documented in [Section 8](#8-backpressure--bufferfullpolicy) and
-  [Section 9](#9-reconnection-and-last-event-id-replay).
+  [Section 11](#11-reconnection-and-last-event-id-replay).
 
 

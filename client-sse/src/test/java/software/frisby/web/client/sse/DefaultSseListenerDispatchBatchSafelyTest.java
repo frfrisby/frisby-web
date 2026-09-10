@@ -46,7 +46,7 @@ class DefaultSseListenerDispatchBatchSafelyTest {
                 .onEvent("message", handler)
                 .build()
         ) {
-            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, null));
+            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, null, null));
             assertFalse(callbackInvoked.get(), "Expected null deliveries to never invoke the handler's callback");
         }
     }
@@ -70,7 +70,7 @@ class DefaultSseListenerDispatchBatchSafelyTest {
                 .onEvent("message", handler)
                 .build()
         ) {
-            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, List.of()));
+            assertDoesNotThrow(() -> listener.dispatchBatchSafely(handler, List.of(), null));
             assertFalse(callbackInvoked.get(), "Expected empty deliveries to never invoke the handler's callback");
         }
     }

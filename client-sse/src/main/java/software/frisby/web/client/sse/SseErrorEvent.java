@@ -5,7 +5,7 @@ import software.frisby.core.validation.Values;
 import java.util.Optional;
 
 /**
- * The value delivered to a registered {@code onError} handler, pairing the failure with
+ * The value delivered to {@link SseListenerObserver#onError}, pairing the failure with
  * whatever raw event context was available at the point it occurred.
  * <p>
  * {@link #message()} is present whenever the failure occurred while processing a specific
@@ -22,12 +22,14 @@ import java.util.Optional;
  *
  * @param message The raw event being processed when {@code cause} occurred, if any.
  * @param cause   The failure.
- * @see SseListenerBuilder#onError
+ * @see SseListenerObserver#onError(SseErrorEvent)
  */
 public record SseErrorEvent(Optional<SseMessage<String>> message, Throwable cause) {
     /**
      * Compact constructor — validates that all fields satisfy their documented constraints.
      *
+     * @param message the raw event being processed; must not be {@code null}
+     * @param cause   the failure; must not be {@code null}
      * @throws software.frisby.core.validation.NullValueException if {@code message} or
      *                                                            {@code cause} is {@code null}.
      */

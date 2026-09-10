@@ -152,6 +152,3 @@ public interface SseHandler<T> {
      */
     Consumer<SseMessage<T>> callback();
 }
-
-
-

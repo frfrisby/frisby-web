@@ -185,9 +185,12 @@ class ClientSseTypedDispatchTest {
                         deliveredBatch.set(messages.stream().map(SseMessage::body).toList());
                         batchLatch.countDown();
                     }).batchSize(3))
-                    .onError(error -> {
-                        capturedError.set(error);
-                        errorLatch.countDown();
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onError(SseErrorEvent error) {
+                            capturedError.set(error);
+                            errorLatch.countDown();
+                        }
                     })
                     .build();
 
@@ -234,9 +237,12 @@ class ClientSseTypedDispatchTest {
                     deliveredBatches.add(messages.stream().map(SseMessage::body).toList());
                     batchLatch.countDown();
                 }).batchSize(1))
-                .onError(error -> {
-                    capturedError.set(error);
-                    errorLatch.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        capturedError.set(error);
+                        errorLatch.countDown();
+                    }
                 })
                 .build();
 
@@ -288,9 +294,12 @@ class ClientSseTypedDispatchTest {
                         received.add(message.body());
                         latch.countDown();
                     }))
-                    .onError(error -> {
-                        capturedError.set(error);
-                        errorLatch.countDown();
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onError(SseErrorEvent error) {
+                            capturedError.set(error);
+                            errorLatch.countDown();
+                        }
                     })
                     .build();
 

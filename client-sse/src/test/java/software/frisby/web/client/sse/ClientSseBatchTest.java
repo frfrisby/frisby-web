@@ -219,9 +219,12 @@ class ClientSseBatchTest {
                     deliveredBatches.add(messages.stream().map(SseMessage::body).toList());
                     batchLatch.countDown();
                 }).batchSize(2))
-                .onError(error -> {
-                    capturedError.set(error);
-                    errorLatch.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        capturedError.set(error);
+                        errorLatch.countDown();
+                    }
                 })
                 .build();
 

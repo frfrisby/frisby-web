@@ -33,6 +33,3 @@ record DefaultSseMessage<T>(Optional<String> id,
         Values.notNull("receivedAt", receivedAt);
     }
 }
-
-
-

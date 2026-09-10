@@ -196,6 +196,3 @@ public interface StaticAssetsConfigurationBuilder {
      */
     StaticAssetsConfiguration build();
 }
-
-
-

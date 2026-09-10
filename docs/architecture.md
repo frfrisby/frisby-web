@@ -53,10 +53,14 @@ A single client class with overloads for every verb × response type × body typ
 combination grows quickly and becomes difficult to read and impossible to discover.
 
 Instead: **fluent per-verb spec types** (`GetSpec`, `PostSpec`, `PutSpec`,
-`PatchSpec`, `DeleteSpec`, `HeadSpec`). Each spec exposes only the options relevant to
-that verb. `send()` and `sendAsync()` live directly on each spec. There is no separate
-`Target` or `BodySpec` intermediary — every method returns the same spec type, enabling
-fluent chains without CRTP visible to callers.
+`PatchSpec`, `DeleteSpec`, `HeadSpec`, `SseSpec`). Each spec exposes only the options
+relevant to that verb. `send()` and `sendAsync()` live directly on each spec. There is
+no separate `Target` or `BodySpec` intermediary — every method returns the same spec
+type, enabling fluent chains without CRTP visible to callers. `SseSpec` (obtained from
+`Client.sse()`) follows the identical shape, swapping the typed `send()`/`sendAsync()`
+terminals for raw `stream()`/`streamAsync()` terminals — the same pattern `GetSpec`
+already uses for `download()`/`downloadAsync()` — so a caller who wants to write their
+own SSE reader gets the same fluent navigation with no dependency beyond `client`.
 
 ### JDK `HttpClient`
 
@@ -91,6 +95,67 @@ There is no StatsD, OpenTelemetry, or Micrometer in the core. `ClientEventListen
 fires `onRequestCompleted` with method, URI, status, and latency after every request.
 Callers forward these events to whatever metrics backend they use, or ignore them. A
 `NoOpClientEventListener` is the default.
+
+---
+
+## Client SSE Design (`client-sse`)
+
+### `SseListenerObserver` instead of reusing `ClientEventListener`
+
+A long-lived SSE connection has observability needs `ClientEventListener` was never
+shaped for — per-event dispatch telemetry, backpressure drops, and reconnect attempts,
+none of which map onto "one request completed with a status and a latency." Rather than
+force those concerns through an interface designed around discrete request/response
+calls, `client-sse` defines its own `SseListenerObserver` — a single registration point
+covering every observability concern this module reports (`onError`, `onDropped`,
+`onReconnect`, `onEventReceived`, `onEventProcessed`).
+
+Its shape deliberately mirrors `ClientEventListener`'s pattern of "one interface,
+registered once, every method a no-op by default" — but unlike `ClientEventListener`'s
+two methods, which are mutually exclusive outcomes of a single request,
+`SseListenerObserver`'s five methods are not mutually exclusive with each other (a
+processed event was always received first; a reconnect can fire alongside an error for
+the same failure). This is also why `SseListenerObserver` is deliberately not a
+`@FunctionalInterface` — with every method defaulted, there is no single abstract method
+for a lambda to target, so callers register an anonymous class or named implementation
+instead.
+
+### Backpressure as an explicit, caller-chosen policy — `BufferFullPolicy`
+
+A dispatch pipeline that can't keep up with the incoming event rate has exactly three
+honest outcomes: stall the reader (propagating backpressure to the server via TCP flow
+control), drop events, or disconnect and let `Last-Event-ID` replay cover the gap. There
+is no universally "correct" choice — it depends on whether the caller can tolerate
+connection churn, event loss, or increased server-side resource usage — so
+`BufferFullPolicy` makes the tradeoff an explicit, per-connection setting (default
+`BLOCK`, the safest default against unbounded memory growth) rather than picking one
+behavior silently.
+
+`DISCONNECT`'s reconnect timing was deliberately left unchanged when this backpressure
+observability was added — an earlier idea to have `DISCONNECT` wait for the triggering
+pipeline to drain before reconnecting was rejected: the reader thread is single-threaded
+across every pipeline, so a wait-to-drain step is strictly worse than what `BLOCK`
+already does for that one pipeline (same stall, plus a teardown/reconnect round-trip),
+and it does not protect against a *different* handler's pipeline being full by the time
+of the next reconnect. The existing escalating `reconnectDelay` backoff already gives an
+overwhelmed handler the same breathing room a drain-wait would, without the added
+complexity.
+
+### `pipelineStats()` — no new `frisby-core` API required
+
+`SseListener#pipelineStats()` reports each dispatch pipeline's capacity, concurrency,
+and current occupancy without requiring any new capability from
+`software.frisby.core:concurrency`. `Pipeline#inFlight()` already exists and is
+documented as the correct backpressure-inspection tool, and already sums correctly
+across every concurrent worker arm for a `Router`-backed pipeline — each arm's own
+`Buffer`/`Batch` independently enforces its own capacity ceiling, so the aggregate can
+never exceed `capacity × concurrency`. `client-sse` only needed to report values it
+already owns (`capacity`, `concurrency`, from the `SseHandler`/`SseBatchHandler`
+configuration that built each pipeline) alongside that existing `inFlight()` call —
+this is why `pipelineStats()` is a point-in-time snapshot rather than a rolling window:
+a caller who needs "percent of the last N seconds at capacity" can build that by polling
+this accessor on their own cadence, without `client-sse` owning a sampling/windowing
+concern of its own.
 
 ---
 
@@ -263,16 +328,8 @@ placeholder appears instead. The limit is configurable on both client and server
 | Static asset authentication           | `StaticAssetsAuthFilter` in `server`                         |
 | Metrics / observability (client)      | `ClientEventListener` in `client.event`                      |
 | Metrics / observability (server)      | `ServerEventListener` in `server.event`                      |
+| Metrics / observability (client-sse)  | `SseListenerObserver` in `client.sse`                        |
 | Request/response compression (client) | `ContentCompressor` / `ContentDecompressor`                  |
 | Custom JAX-RS components (server)     | `ServerBuilder.components(Object...)`                        |
 | Custom serializer module              | Implement `JsonSerializer`; declare `serial` as a dependency |
 | OAuth2 token fetch metrics            | `TokenEventListener` in `oauth2-security`                    |
-
-
-
-
-
-
-
-
-

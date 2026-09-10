@@ -148,6 +148,3 @@ public final class SseStreamTestResource {
                 .build();
     }
 }
-
-
-

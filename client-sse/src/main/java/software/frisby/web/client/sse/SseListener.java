@@ -12,8 +12,9 @@ package software.frisby.web.client.sse;
  * Reconnects unconditionally and indefinitely on failure; there is no configurable
  * retry limit and no way to disable reconnection. The only way a connection ever
  * stops is an explicit {@link #close()} call, whether invoked directly by application
- * code or from within a registered {@code onError} handler once the caller decides a
- * run of failures is unrecoverable. See {@link SseListenerBuilder#onError} for details.
+ * code or from within a registered {@link SseListenerObserver#onError} once the caller
+ * decides a run of failures is unrecoverable. See {@link SseListenerBuilder#observer}
+ * for details.
  * <p>
  * Once closed, an {@code SseListener} cannot be reopened — build a fresh instance via
  * {@link #builder()} instead.
@@ -52,6 +53,22 @@ public interface SseListener extends AutoCloseable {
     boolean isOpen();
 
     /**
+     * Returns a point-in-time occupancy snapshot of every dispatch pipeline — one entry
+     * per named {@code onEvent} handler, plus one for the catch-all unhandled-event
+     * pipeline.
+     * <p>
+     * Policy-agnostic — useful under {@link BufferFullPolicy#BLOCK}, {@code DROP}, or
+     * {@code DISCONNECT} alike. Intended for polling on a caller-chosen cadence (e.g. to
+     * feed a "pipeline X has been over 80% full for 30s" alert) — for real-time,
+     * per-event telemetry instead of a snapshot, see
+     * {@link SseListenerBuilder#observer(SseListenerObserver)}.
+     *
+     * @return The current occupancy snapshot.
+     * @throws IllegalStateException if called before {@link #connectAsync()}.
+     */
+    SsePipelineSnapshot pipelineStats();
+
+    /**
      * Closes this connection, stopping the reader thread and disabling any further
      * reconnect attempts.
      * <p>
@@ -61,7 +78,3 @@ public interface SseListener extends AutoCloseable {
     @Override
     void close();
 }
-
-
-
-

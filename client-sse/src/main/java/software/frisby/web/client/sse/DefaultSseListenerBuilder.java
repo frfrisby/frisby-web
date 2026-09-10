@@ -43,11 +43,21 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private static final String ID_ARGUMENT_NAME = "id";
     private static final String POLICY_ARGUMENT_NAME = "policy";
     private static final String EXECUTOR_ARGUMENT_NAME = "executor";
+    private static final String OBSERVER_ARGUMENT_NAME = "observer";
     private static final String STRATEGY_ARGUMENT_NAME = "strategy";
     private static final String TIMEOUT_ARGUMENT_NAME = "timeout";
 
     private static final RetryDelay DEFAULT_RECONNECT_DELAY = RetryDelay.exponential(Duration.ofSeconds(3));
     private static final Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
+
+    /**
+     * The observer used whenever a caller never calls {@link #observer(SseListenerObserver)}
+     * — every method is already a no-op default, so this is simply the base
+     * {@link SseListenerObserver} with nothing overridden, letting {@code DefaultSseListener}
+     * invoke {@code observer.onX(...)} unconditionally everywhere without a null check.
+     */
+    private static final SseListenerObserver NO_OP_OBSERVER = new SseListenerObserver() {
+    };
 
     private final List<Consumer<SseSpec>> navigationOps;
     private final Map<String, SseHandler<?>> eventHandlers;
@@ -57,11 +67,10 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private SseSpec navigationTemplate;
     private String lastEventId;
     private BufferFullPolicy bufferFullPolicy;
-    private Consumer<SseMessage<String>> droppedHandler;
+    private SseListenerObserver observer;
     private ExecutorService executor;
     private SseHandler<String> unhandledHandler;
     private SseBatchHandler<String> unhandledBatchHandler;
-    private Consumer<SseErrorEvent> errorHandler;
     private RetryDelay reconnectDelay;
     private Duration closeTimeout;
 
@@ -73,14 +82,14 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         this.navigationTemplate = null;
         this.lastEventId = null;
         this.bufferFullPolicy = BufferFullPolicy.BLOCK;
-        this.droppedHandler = null;
+        this.observer = null;
         this.executor = null;
         this.unhandledHandler = null;
         this.unhandledBatchHandler = null;
-        this.errorHandler = null;
         this.reconnectDelay = null;
         this.closeTimeout = null;
     }
+
 
     @Override
     public SseListenerBuilder client(Client client) {
@@ -178,8 +187,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler) {
-        this.droppedHandler = Values.notNull(HANDLER_ARGUMENT_NAME, handler);
+    public SseListenerBuilder observer(SseListenerObserver observer) {
+        this.observer = Values.notNull(OBSERVER_ARGUMENT_NAME, observer);
         return this;
     }
 
@@ -236,12 +245,6 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     }
 
     @Override
-    public SseListenerBuilder onError(Consumer<SseErrorEvent> handler) {
-        this.errorHandler = Values.notNull(HANDLER_ARGUMENT_NAME, handler);
-        return this;
-    }
-
-    @Override
     public SseListenerBuilder reconnectDelay(RetryDelay strategy) {
         this.reconnectDelay = Values.notNull(STRATEGY_ARGUMENT_NAME, strategy);
         return this;
@@ -272,18 +275,14 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
                 List.copyOf(navigationOps),
                 lastEventId,
                 bufferFullPolicy,
-                droppedHandler,
+                null != observer ? observer : NO_OP_OBSERVER,
                 executor,
                 Map.copyOf(eventHandlers),
                 Map.copyOf(batchHandlers),
                 unhandledHandler,
                 unhandledBatchHandler,
-                errorHandler,
                 null != reconnectDelay ? reconnectDelay : DEFAULT_RECONNECT_DELAY,
                 null != closeTimeout ? closeTimeout : DEFAULT_CLOSE_TIMEOUT
         );
     }
 }
-
-
-
