@@ -256,6 +256,7 @@ Terminal stages are passed to `.to()` on a `Chain`, or directly to
 Action.of(Invoice.class)
     .action(invoice -> store(invoice))   // required
     .itemPostedHandler(...)
+    .itemDeliveredHandler(...)
 ```
 
 Shorthand — pass a `Consumer<T>` directly to `.to()`:
@@ -263,6 +264,14 @@ Shorthand — pass a `Consumer<T>` directly to `.to()`:
 ```java
 .to(invoice -> store(invoice))
 ```
+
+`ActionBlock` has no downstream target, so `itemDeliveredHandler` here reports that the
+configured `Consumer` completed successfully for a given item — it fires immediately after
+`action.accept(item)` returns without throwing. If the action throws, `itemPostedHandler`
+still fires (the item was accepted for processing) but `itemDeliveredHandler` does not —
+consistent with every other block's "success-only" delivery semantics.  Since `ActionBlock`
+is synchronous with no `errorOccurredHandler`, failures propagate as exceptions on the
+calling thread; instrument failure telemetry inside the `Consumer` itself if you need it.
 
 #### `Branch<T>` — conditional routing to separate pipelines
 
@@ -425,6 +434,14 @@ if (pipeline.inFlight() < capacityThreshold) {
 This pattern is the idiomatic alternative to relying on `Buffer`'s blocking `post()`.
 `itemPostedHandler` and `itemDeliveredHandler` are per-event callbacks intended for
 metrics and observability — they are not the right tool for backpressure decisions.
+
+> **`itemDeliveredHandler` reports success only.** It is never invoked if the downstream
+> target (or, for terminal blocks like `Action`, the consumer itself) throws. Blocks with
+> an `errorOccurredHandler` (the async blocks — `Buffer`, `Batch`, `Group`, `PriorityBuffer`,
+> `Delay`) can pair the two for full success/failure metrics. Synchronous terminal/routing
+> stages without an `errorOccurredHandler` (`Action`, `Tap`, `Branch`, `Broadcast`, `Router`)
+> propagate failures as exceptions on the calling thread instead — `itemDeliveredHandler` is
+> not a substitute for instrumenting failure telemetry inside your own `Consumer`/`Function`.
 
 ---
 
