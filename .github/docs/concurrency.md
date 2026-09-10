@@ -272,6 +272,8 @@ still fires (the item was accepted for processing) but `itemDeliveredHandler` do
 consistent with every other block's "success-only" delivery semantics.  Since `ActionBlock`
 is synchronous with no `errorOccurredHandler`, failures propagate as exceptions on the
 calling thread; instrument failure telemetry inside the `Consumer` itself if you need it.
+See [Item Lifecycle Hooks](#item-lifecycle-hooks--itempostedhandler--itemdeliveredhandler--erroroccurredhandler)
+for the general firing/timing contract these hooks follow across every block type.
 
 #### `Branch<T>` — conditional routing to separate pipelines
 
@@ -409,6 +411,29 @@ pipeline.completion()                             // CompletableFuture<Void>
 
 executor.shutdown();   // after awaitCompletion() — interrupts blocked workers
 ```
+
+---
+
+## Item Lifecycle Hooks — `itemPostedHandler` / `itemDeliveredHandler` / `errorOccurredHandler`
+
+Every block accepts up to three optional per-item callbacks. Their firing guarantees are
+part of the documented contract for every block type, with no exceptions:
+
+| Hook                   | Fires                                                                                                                                                             |
+|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `itemPostedHandler`    | Synchronously and immediately once a `post()` call is accepted — before the item undergoes any further processing at that stage. True for every block, including `Action`. |
+| `itemDeliveredHandler` | Only on a successful outcome for that item at that stage — never invoked if the stage (or, for a terminal block, the consumer itself) throws. See the [Capacity Monitoring](#capacity-monitoring) callout below for which blocks pair this with an `errorOccurredHandler`. |
+| `errorOccurredHandler` | Only on the async blocks (`Buffer`, `Batch`, `Group`, `PriorityBuffer`, `Delay`) — the synchronous stages have no equivalent and propagate failures as exceptions on the calling thread instead. |
+
+**These hooks carry item identity and outcome only — never timing.** None of the three is
+passed a duration, a start time, or any other timing information; each is simply invoked
+with `(source, item)` or `(source, item, error)` at the moment the event occurs. If your
+application needs per-item latency (e.g. "how long was this item queued before being
+delivered"), do not attempt to derive it from hook invocation order or wall-clock proximity
+between two separate hook calls — capture the timestamp yourself and carry it as state on
+your own item type (or a wrapper around it) as it flows through the pipeline. See the
+[anti-pattern](#-deriving-per-item-latency-from-hook-invocation-timing) below for the
+pattern to follow instead.
 
 ---
 
@@ -744,6 +769,34 @@ Pipeline<Message> p2 = Pipeline.<Message>builder().executor(executor).from(share
 // Correct — create a fresh fluent builder per pipeline
 Pipeline<Message> p1 = Pipeline.<Message>builder().executor(executor).from(Buffer.of(Message.class)).to(...);
 Pipeline<Message> p2 = Pipeline.<Message>builder().executor(executor).from(Buffer.of(Message.class)).to(...);
+```
+
+### ❌ Deriving per-item latency from hook invocation timing
+
+```java
+// Wrong — itemPostedHandler/itemDeliveredHandler carry no timing information, and there
+// is no guaranteed wall-clock relationship between "when this hook fired" and "when your
+// own code observes it," especially across threads (async blocks) or across stages.
+AtomicReference<Instant> postedAt = new AtomicReference<>();
+
+Buffer.of(Order.class)
+        .itemPostedHandler((source, item, accepted) -> postedAt.set(Instant.now()))
+        .itemDeliveredHandler((source, item) -> {
+            Duration latency = Duration.between(postedAt.get(), Instant.now()); // unreliable
+            metrics.record(latency);
+        });
+
+// Correct — carry the timestamp as state on the item itself (or a wrapper record), so
+// latency is computed from data that traveled with the item, not from hook-timing
+// coincidences.
+record TimedOrder(Order order, Instant receivedAt) {
+}
+
+Buffer.of(TimedOrder.class)
+        .itemDeliveredHandler((source, timedOrder) -> {
+            Duration latency = Duration.between(timedOrder.receivedAt(), Instant.now());
+            metrics.record(latency);
+        });
 ```
 
 ---
