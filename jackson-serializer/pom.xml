@@ -10,7 +10,13 @@
 
     <artifactId>jackson-serializer</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Jackson Serializer</name>
+    <description>
+        Jackson-backed implementation of the frisby-web JsonSerializer contract.  Wraps
+        a preconfigured com.fasterxml.jackson.databind.ObjectMapper (with JSR-310 and
+        JDK8 module support) so client and server modules can serialize and deserialize
+        JSON request/response bodies.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

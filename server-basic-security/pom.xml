@@ -10,7 +10,13 @@
 
     <artifactId>server-basic-security</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Server Basic Security</name>
+    <description>
+        Server-side HTTP Basic Authentication for the frisby-web embedded server.
+        Provides a Jersey/Jetty authentication filter that validates client credentials
+        against a pluggable credential store before allowing access to protected
+        resources.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

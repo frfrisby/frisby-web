@@ -10,7 +10,13 @@
 
     <artifactId>server-sse</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Server SSE</name>
+    <description>
+        Server-Sent Events (SSE) support for the frisby-web embedded server.  Provides
+        SseEvent/SseEventBuilder and SseEmitter/SseEmitterBuilder for publishing SSE
+        streams from JAX-RS resources, plus SseEvents helpers and automatic heartbeat
+        handling to keep idle connections alive.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

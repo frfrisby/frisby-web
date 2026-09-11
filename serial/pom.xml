@@ -10,7 +10,13 @@
 
     <artifactId>serial</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Serial</name>
+    <description>
+        Shared serialization contracts for frisby-web.  Defines the JsonSerializer
+        interface and GenericType token used by both the client and server modules to
+        marshal and unmarshal JSON request/response bodies, independent of any specific
+        JSON library implementation.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

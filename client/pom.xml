@@ -10,7 +10,13 @@
 
     <artifactId>client</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Client</name>
+    <description>
+        HTTP client for Java 17+, built on the JDK's java.net.http.HttpClient.  Provides
+        a fluent request/response API, pluggable JsonSerializer-based body handling,
+        compression, configurable request/response logging, and a typed
+        HttpResponseException hierarchy for client and server error responses.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

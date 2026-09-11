@@ -10,7 +10,13 @@
 
     <artifactId>oauth2-security</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Client OAuth2 Security</name>
+    <description>
+        Client-side OAuth 2.0 client-credentials authentication provider for the
+        frisby-web HTTP client.  Handles token acquisition, caching, and automatic
+        refresh so that outgoing requests are always authenticated with a valid
+        bearer token.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

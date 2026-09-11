@@ -10,7 +10,12 @@
 
     <artifactId>server-oauth2-security</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Server OAuth2 Security</name>
+    <description>
+        Server-side Bearer Token authentication for the frisby-web embedded server,
+        including role-based access control (RBAC) and support for combining Bearer
+        Token authentication with other authentication providers on the same server.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

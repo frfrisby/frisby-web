@@ -10,7 +10,12 @@
 
     <artifactId>basic-security</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Client Basic Security</name>
+    <description>
+        Client-side HTTP Basic Authentication and Bearer Token providers for the
+        frisby-web HTTP client.  Plugs into the client's authentication provider
+        mechanism to attach credentials to outgoing requests automatically.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>

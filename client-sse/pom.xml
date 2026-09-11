@@ -10,7 +10,13 @@
 
     <artifactId>client-sse</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Client SSE</name>
+    <description>
+        Server-Sent Events (SSE) support for the frisby-web HTTP client.  Provides
+        SseSpec, SseListener/SseListenerBuilder, and SseHandler/SseBatchHandler for
+        consuming SSE streams, with automatic reconnect, buffered backpressure, and
+        observability events (reconnect, pipeline stats) via SseListenerObserver.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>
