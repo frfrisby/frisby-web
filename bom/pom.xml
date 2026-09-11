@@ -10,7 +10,13 @@
 
     <artifactId>bom</artifactId>
     <packaging>pom</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: BOM</name>
+    <description>
+        Bill of Materials for frisby-web.  Import this POM to align versions of all
+        published frisby-web artifacts (client, server, security providers, SSE modules,
+        serializers) via a single dependencyManagement import, without declaring each
+        module's version individually.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <dependencyManagement>

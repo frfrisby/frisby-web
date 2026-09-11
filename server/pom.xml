@@ -10,7 +10,13 @@
 
     <artifactId>server</artifactId>
     <packaging>jar</packaging>
-    <name>${project.artifactId}</name>
+    <name>frisby-web :: Server</name>
+    <description>
+        Embedded HTTP server for Java 17+, built on Jersey 3.x and Jetty 12.  Provides
+        Server and ServerConfiguration for hosting JAX-RS resources with CORS, health
+        check endpoints, configurable request/response logging, and HTTP/2 support
+        out of the box.
+    </description>
     <url>https://github.com/frfrisby/frisby-web</url>
 
     <properties>
