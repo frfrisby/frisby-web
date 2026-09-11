@@ -73,7 +73,7 @@ jobs:
       - name: Run Release Please
         id: release
         if: ${{ steps.gates.outputs.all_passed == 'true' }}
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
