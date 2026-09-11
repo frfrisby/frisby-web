@@ -911,8 +911,6 @@ final class DefaultSseListener implements SseListener {
 
         private final AtomicReference<String> lastEventId;
         private final AtomicReference<Duration> pendingServerRetryDelay;
-        private final AtomicBoolean disconnectRequested;
-        private final AtomicReference<String> disconnectEventType;
         private final AtomicLong droppedCount;
         private final AtomicReference<Instant> dropEpisodeStart;
 
@@ -940,8 +938,6 @@ final class DefaultSseListener implements SseListener {
             this.closed = closed;
             this.lastEventId = new AtomicReference<>(initialLastEventId);
             this.pendingServerRetryDelay = new AtomicReference<>();
-            this.disconnectRequested = new AtomicBoolean(false);
-            this.disconnectEventType = new AtomicReference<>();
             this.droppedCount = new AtomicLong(0);
             this.dropEpisodeStart = new AtomicReference<>();
         }
@@ -1016,7 +1012,6 @@ final class DefaultSseListener implements SseListener {
 
                 try (InputStream in = openStream()) {
                     currentStream.set(in);
-                    disconnectRequested.set(false);
 
                     SseEventParser parser = new SseEventParser(in);
                     Optional<RawSseEvent> event;
@@ -1030,15 +1025,14 @@ final class DefaultSseListener implements SseListener {
                         }
                     }
                 } catch (IOException | RuntimeException e) {
-                    boolean wasDisconnect = disconnectRequested.getAndSet(false);
-                    String disconnectedEventType = disconnectEventType.getAndSet(null);
-
                     if (!closed.get()) {
                         setbackThisAttempt = true;
-                        setbackCause = wasDisconnect ? SseReconnectCause.BUFFER_FULL : SseReconnectCause.FAILURE;
-                        setbackEventType = wasDisconnect ? disconnectedEventType : null;
 
-                        if (!wasDisconnect) {
+                        if (e instanceof DisconnectSignal disconnectSignal) {
+                            setbackCause = SseReconnectCause.BUFFER_FULL;
+                            setbackEventType = disconnectSignal.eventType();
+                        } else {
+                            setbackCause = SseReconnectCause.FAILURE;
                             LOGGER.log(System.Logger.Level.ERROR, "The SSE connection failed.", e);
                             notifyError(e);
                         }
@@ -1136,10 +1130,13 @@ final class DefaultSseListener implements SseListener {
          * ({@link BufferFullPolicy#BLOCK} in the overwhelmingly common case — see
          * {@link #postWithPolicy} for the one shutdown-driven exception; {@link BufferFullPolicy#DROP} /
          * {@link BufferFullPolicy#DISCONNECT} only when capacity allowed it), {@code
-         * false} if it was dropped or triggered a disconnect — the caller must not
-         * advance {@link #lastEventId} for an event this method reports as not posted,
-         * since an event never handed to a pipeline must still be replayed by the
-         * server after a {@code DISCONNECT}-driven reconnect, not skipped.
+         * false} if it was dropped ({@link BufferFullPolicy#DROP}) — the caller must not
+         * advance {@link #lastEventId} for an event this method reports as not posted.
+         * {@link BufferFullPolicy#DISCONNECT} overflowing capacity is reported by
+         * {@link #postWithPolicy} throwing {@link DisconnectSignal} instead of returning
+         * {@code false}, precisely so an event never handed to a pipeline can never be
+         * mistaken for one that was — it must still be replayed by the server after the
+         * resulting reconnect, not skipped.
          */
         private boolean dispatch(RawSseEvent raw) {
             if (raw.event().isEmpty()) {
@@ -1176,17 +1173,18 @@ final class DefaultSseListener implements SseListener {
          * silently dropped by the shutdown race, which would otherwise permanently skip
          * replaying it on the next reconnect.
          * <p>
-         * {@code registeredAs} is stashed into {@code disconnectEventType} the moment a
-         * {@code DISCONNECT} is triggered, so {@link #run()}'s catch block can report it on
-         * {@link SseListenerObserver#onReconnect} once the resulting exception surfaces —
-         * this method itself never fires {@code onReconnect} directly, since the actual
-         * reconnect (and its computed delay) only happens once control returns to
-         * {@code run()}.
+         * {@code registeredAs} is carried directly on the thrown {@link DisconnectSignal} —
+         * see its javadoc for why a thrown signal, rather than a returned {@code false} plus
+         * a side-channel field, is what actually stops the reader from reading any further
+         * events off a stream this method just closed.
          *
          * @return {@code true} if {@code raw} was posted to {@code target}, {@code false}
-         * if it was dropped ({@link BufferFullPolicy#DROP}), triggered a disconnect
-         * ({@link BufferFullPolicy#DISCONNECT}), or — under {@link BufferFullPolicy#BLOCK}
-         * only — the reader was interrupted (via {@code close()}) while blocked posting.
+         * if it was dropped ({@link BufferFullPolicy#DROP}) or — under
+         * {@link BufferFullPolicy#BLOCK} only — the reader was interrupted (via
+         * {@code close()}) while blocked posting.
+         * @throws DisconnectSignal if posting {@code raw} would overflow {@code target}'s
+         *                          capacity under {@link BufferFullPolicy#DISCONNECT} — the
+         *                          stream is already closed by the time this is thrown.
          */
         private boolean postWithPolicy(Pipeline<RawSseEvent> target, RawSseEvent raw, String registeredAs) {
             if (BufferFullPolicy.BLOCK == bufferFullPolicy) {
@@ -1212,13 +1210,11 @@ final class DefaultSseListener implements SseListener {
                     "The SSE dispatch buffer is full; disconnecting and reconnecting per "
                             + "BufferFullPolicy.DISCONNECT."
             );
-            disconnectRequested.set(true);
-            disconnectEventType.set(registeredAs);
 
             InputStream stream = currentStream.getAndSet(null);
             closeStreamSafely(stream, "Failed to close the SSE input stream for a policy-driven disconnect.");
 
-            return false;
+            throw new DisconnectSignal(registeredAs);
         }
 
         /**
@@ -1302,6 +1298,48 @@ final class DefaultSseListener implements SseListener {
                         ex
 
                 );
+            }
+        }
+
+        /**
+         * Thrown by {@link #postWithPolicy} the instant a {@link BufferFullPolicy#DISCONNECT}
+         * decision closes the current stream, to unwind {@link #run()}'s inner read loop
+         * immediately — a pure internal control-flow signal, never surfaced to a caller.
+         * Deliberately a {@code RuntimeException} rather than a new checked type, so it is
+         * caught by the loop's own existing {@code catch (IOException | RuntimeException e)}
+         * block and handled by exactly the same {@code consecutiveSetbacks}/{@code onReconnect}
+         * logic already in place for a genuine transport failure — {@link #run()} tells the
+         * two apart with a single {@code instanceof} check, rather than needing any separate
+         * shared state to communicate "a disconnect just happened, and here's which pipeline
+         * caused it" from {@link #postWithPolicy} across to that catch block; this signal
+         * carries {@link #eventType()} directly for exactly that purpose instead.
+         * <p>
+         * Thrown eagerly here rather than left to surface from the loop's own subsequent
+         * {@code parser.next()} call (the original design, before a real data-loss bug was
+         * traced to it): once the stream is closed, looping back to read from it again can
+         * still succeed against bytes the underlying {@code BufferedReader} had already
+         * buffered from the socket before the close took effect — silently reading and
+         * dispatching a <em>later</em> event that was never meant to be posted at all, which
+         * can advance {@link #lastEventId} past the event that actually triggered this
+         * disconnect and cause the server's {@code Last-Event-ID} replay to skip it forever.
+         * Throwing immediately, at the exact point the disconnect decision is made, closes
+         * that window entirely.
+         * <p>
+         * Stack trace capture is suppressed ({@code super(null, null, false, false)}) since
+         * this exception exists purely to unwind the loop and is never logged or inspected
+         * for its trace — capturing one would be pure overhead on what can legitimately be a
+         * very hot path under sustained backpressure.
+         */
+        private static final class DisconnectSignal extends RuntimeException {
+            private final String eventType;
+
+            private DisconnectSignal(String eventType) {
+                super(null, null, false, false);
+                this.eventType = eventType;
+            }
+
+            private String eventType() {
+                return eventType;
             }
         }
     }

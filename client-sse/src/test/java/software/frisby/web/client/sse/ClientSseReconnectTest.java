@@ -17,13 +17,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -616,6 +620,22 @@ class ClientSseReconnectTest {
         CountDownLatch releaseFirstEvent = new CountDownLatch(1);
         CountDownLatch latch = new CountDownLatch(totalEvents);
 
+        // Diagnostic-only state — not part of the pass/fail contract, but recorded so a
+        // future failure's message can distinguish "an event was never even accepted into
+        // the pipeline" (a genuine backpressure/replay problem) from "an event was accepted
+        // but its handler callback never ran" (a stuck/dead pipeline worker) — the two have
+        // very different root causes and the plain received/unique/securityInvocations
+        // summary previously logged here cannot tell them apart. Full ordered logs (not just
+        // sets) are kept as well, since a permanently-skipped id with a low onReconnect count
+        // but a huge securityInvocations count points at a "clean" (non-setback) reconnect
+        // loop repeating forever — seeing the actual sequence, not just a missing-id summary,
+        // is what will confirm or refute that.
+        Set<String> receivedIds = ConcurrentHashMap.newKeySet();
+        Set<String> processedIds = ConcurrentHashMap.newKeySet();
+        List<String> receivedLog = new CopyOnWriteArrayList<>();
+        List<String> reconnectLog = new CopyOnWriteArrayList<>();
+        AtomicInteger reconnectCount = new AtomicInteger(0);
+
         SecurityProvider countingProvider = request -> {
             securityInvocations.incrementAndGet();
             secondConnectionAttempt.countDown();
@@ -652,6 +672,25 @@ class ClientSseReconnectTest {
 
                     latch.countDown();
                 }).capacity(2))
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onEventReceived(SseEventReceived event) {
+                        event.id().ifPresent(receivedIds::add);
+                        receivedLog.add(event.id().orElse("<no-id>"));
+                    }
+
+                    @Override
+                    public void onEventProcessed(SseEventProcessed event) {
+                        event.id().ifPresent(processedIds::add);
+                    }
+
+                    @Override
+                    public void onReconnect(SseReconnectEvent event) {
+                        reconnectCount.incrementAndGet();
+                        reconnectLog.add(event.cause() + "/" + event.eventType().orElse("<unhandled>")
+                                + "/attempt=" + event.attempt() + "/delay=" + event.delay().toMillis() + "ms");
+                    }
+                })
                 .build();
 
         try {
@@ -681,19 +720,52 @@ class ClientSseReconnectTest {
             // repeatedly manage just enough scheduling to drain a couple of events —
             // resetting the backoff to zero — before stalling and hitting DISCONNECT again,
             // producing many more (but still forward-progressing, non-duplicating) low-delay
-            // reconnects than the monotonic-escalation estimate ever accounted for. A CI
-            // failure previously observed here (received=19/20, zero duplicates,
-            // securityInvocations=514) is consistent with exactly this: real, steady forward
-            // progress that simply needed more wall-clock time than budgeted, not a stalled
-            // or runaway reconnect loop. 60 s gives a substantially wider margin for that
-            // reset-driven worst case while still failing far faster than the original 120 s
-            // if a genuine regression ever reintroduces true non-convergence.
-            assertTrue(
-                    latch.await(60, TimeUnit.SECONDS),
-                    "Timed out waiting for full replay: received=" + received.size()
-                            + ", unique=" + new HashSet<>(received).size()
-                            + ", securityInvocations=" + securityInvocations.get()
-            );
+            // reconnects than the monotonic-escalation estimate ever accounted for.
+            //
+            // UPDATE — this "just needs more time" theory has since been falsified: a repeat
+            // CI failure at 60 s (double the previous 30 s budget) stalled at the exact same
+            // received=19/20 as before, with securityInvocations roughly doubling in lock
+            // step (514 -> 954). Genuine steady progress would show received climbing with
+            // more wall-clock time, not freezing at an identical count while reconnects keep
+            // accumulating — this is a real stall on the last event, not a margin problem.
+            // receivedIds/processedIds below exist to pin down exactly where that stall
+            // occurs the next time this fails: if an id appears in receivedIds but never in
+            // processedIds, the item was accepted into the dispatch pipeline but its worker
+            // never ran the handler for it (a stuck/dead pipeline worker); if an id never
+            // appears in receivedIds at all, it was never even accepted (a replay/backpressure
+            // bookkeeping problem instead).
+            boolean completed = latch.await(60, TimeUnit.SECONDS);
+
+            if (!completed) {
+                Set<String> expectedIds = IntStream.rangeClosed(1, totalEvents)
+                        .mapToObj(String::valueOf)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+                Set<String> neverReceived = new LinkedHashSet<>(expectedIds);
+                neverReceived.removeAll(receivedIds);
+                Set<String> receivedButNeverProcessed = new LinkedHashSet<>(receivedIds);
+                receivedButNeverProcessed.removeAll(processedIds);
+                SsePipelineSnapshot snapshot = listener.pipelineStats();
+
+                int logSize = receivedLog.size();
+                int reconnectLogSize = reconnectLog.size();
+
+                fail(
+                        "Timed out waiting for full replay: received=" + received.size()
+                                + ", unique=" + new HashSet<>(received).size()
+                                + ", securityInvocations=" + securityInvocations.get()
+                                + ", reconnectCount=" + reconnectCount.get()
+                                + ", neverReceivedIds=" + neverReceived
+                                + ", receivedButNeverProcessedIds=" + receivedButNeverProcessed
+                                + ", messagePipelineStats=" + snapshot.handlers().get("message")
+                                + ", unhandledPipelineStats=" + snapshot.unhandled()
+                                + ", fullReceivedIdLog(" + logSize + ")=" + receivedLog
+                                + ", reconnectLog(" + reconnectLogSize + ", first20)="
+                                + reconnectLog.subList(0, Math.min(20, reconnectLogSize))
+                                + ", reconnectLog(last20)=" + reconnectLog.subList(
+                                        Math.max(0, reconnectLogSize - 20), reconnectLogSize)
+                );
+            }
+
             assertEquals(totalEvents, received.size());
             assertEquals(totalEvents, new HashSet<>(received).size(), "Expected no duplicate deliveries");
             assertTrue(
