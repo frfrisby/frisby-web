@@ -30,13 +30,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code ClientSseReconnectTest}).
  * <p>
  * Every test uses a unique {@code channel} query parameter so the resource's in-memory
- * per-channel event log does not leak state between tests. Tests that assert on
- * {@code onEventProcessed} count down a dedicated latch from inside the observer callback
- * itself, rather than reusing the handler's own delivery latch — {@code notifyProcessed}
- * is invoked strictly after the handler callback returns (see
- * {@code DefaultSseListener.dispatchSafely}), so racing the test thread's own assertions
- * against the handler's completion latch would leave a window where {@code onEventProcessed}
- * has not fired yet.
+ * per-channel event log does not leak state between tests. Every test — both
+ * {@code onEventReceived} and {@code onEventProcessed} — counts down its own dedicated
+ * latch from inside the observer callback itself, rather than reusing the handler's own
+ * delivery latch. This matters for two distinct reasons depending on which callback is
+ * under test:
+ * <ul>
+ *   <li>{@code onEventProcessed} is invoked strictly after the handler callback returns
+ *       (see {@code DefaultSseListener.dispatchSafely}) — on the <em>same</em> pipeline
+ *       worker thread — so racing the test thread's own assertions against the handler's
+ *       completion latch would leave a window where {@code onEventProcessed} has not
+ *       fired yet.</li>
+ *   <li>{@code onEventReceived} fires from the reader thread as part of
+ *       {@code Buffer.post()}'s posted-notification callback, strictly <em>before</em>
+ *       the item is handed to the pipeline's worker thread for dispatch — but that
+ *       worker thread runs concurrently and independently once the item is enqueued.
+ *       There is no happens-before relationship guaranteeing the reader thread's
+ *       notification completes before the worker thread finishes invoking the handler
+ *       callback, so waiting on the handler's own latch is a genuine race that can fail
+ *       under load even though it usually passes when run in isolation.</li>
+ * </ul>
  */
 class ClientSseTelemetryTest {
     private static Server server;
@@ -76,17 +89,19 @@ class ClientSseTelemetryTest {
     @Test
     void onEventReceived_firesForHandledEvent_withRegisteredAsPresent() throws InterruptedException {
         List<SseEventReceived> received = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch receivedLatch = new CountDownLatch(1);
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "telemetry-received-handled")
                 .parameter("count", "1")
-                .onEvent("message", SseHandler.of(message -> latch.countDown()))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
                 .observer(new SseListenerObserver() {
                     @Override
                     public void onEventReceived(SseEventReceived event) {
                         received.add(event);
+                        receivedLatch.countDown();
                     }
                 })
                 .build();
@@ -94,7 +109,7 @@ class ClientSseTelemetryTest {
         try {
             listener.connectAsync();
 
-            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertTrue(receivedLatch.await(10, TimeUnit.SECONDS));
             assertEquals(1, received.size());
 
             SseEventReceived event = received.get(0);
@@ -110,17 +125,19 @@ class ClientSseTelemetryTest {
     @Test
     void onEventReceived_forNamedButUnhandledEvent_hasEventPresentAndRegisteredAsEmpty() throws InterruptedException {
         List<SseEventReceived> received = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch receivedLatch = new CountDownLatch(1);
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "telemetry-received-named-unhandled")
                 .parameter("count", "1")
-                .onUnhandledEvent(message -> latch.countDown())
+                .onUnhandledEvent(message -> {
+                })
                 .observer(new SseListenerObserver() {
                     @Override
                     public void onEventReceived(SseEventReceived event) {
                         received.add(event);
+                        receivedLatch.countDown();
                     }
                 })
                 .build();
@@ -128,7 +145,7 @@ class ClientSseTelemetryTest {
         try {
             listener.connectAsync();
 
-            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertTrue(receivedLatch.await(10, TimeUnit.SECONDS));
             assertEquals(1, received.size());
             assertEquals(Optional.of("message"), received.get(0).event());
             assertEquals(Optional.empty(), received.get(0).registeredAs());
@@ -140,18 +157,20 @@ class ClientSseTelemetryTest {
     @Test
     void onEventReceived_forUnnamedEvent_hasEventAndRegisteredAsBothEmpty() throws InterruptedException {
         List<SseEventReceived> received = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch receivedLatch = new CountDownLatch(1);
 
         SseListener listener = SseListener.builder().client(client)
                 .path("/sse/stream")
                 .parameter("channel", "telemetry-received-unnamed")
                 .parameter("count", "1")
                 .parameter("includeEventField", "false")
-                .onUnhandledEvent(message -> latch.countDown())
+                .onUnhandledEvent(message -> {
+                })
                 .observer(new SseListenerObserver() {
                     @Override
                     public void onEventReceived(SseEventReceived event) {
                         received.add(event);
+                        receivedLatch.countDown();
                     }
                 })
                 .build();
@@ -159,7 +178,7 @@ class ClientSseTelemetryTest {
         try {
             listener.connectAsync();
 
-            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertTrue(receivedLatch.await(10, TimeUnit.SECONDS));
             assertEquals(1, received.size());
             assertEquals(Optional.empty(), received.get(0).event());
             assertEquals(Optional.empty(), received.get(0).registeredAs());

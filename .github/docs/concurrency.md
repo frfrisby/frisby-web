@@ -419,11 +419,11 @@ executor.shutdown();   // after awaitCompletion() — interrupts blocked workers
 Every block accepts up to three optional per-item callbacks. Their firing guarantees are
 part of the documented contract for every block type, with no exceptions:
 
-| Hook                   | Fires                                                                                                                                                             |
-|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `itemPostedHandler`    | Synchronously and immediately once a `post()` call is accepted — before the item undergoes any further processing at that stage. True for every block, including `Action`. |
-| `itemDeliveredHandler` | Only on a successful outcome for that item at that stage — never invoked if the stage (or, for a terminal block, the consumer itself) throws. See the [Capacity Monitoring](#capacity-monitoring) callout below for which blocks pair this with an `errorOccurredHandler`. |
-| `errorOccurredHandler` | Only on the async blocks (`Buffer`, `Batch`, `Group`, `PriorityBuffer`, `Delay`) — the synchronous stages have no equivalent and propagate failures as exceptions on the calling thread instead. |
+| Hook                   | Fires                                                                                                                                                                                                                                                                             |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `itemPostedHandler`    | Synchronously and immediately once a `post()` call is accepted — before the item undergoes any further processing at that stage. True for every block, including `Action`. **On an async block, this only means "enqueued," not "consumed" — see the callout immediately below.** |
+| `itemDeliveredHandler` | Only on a successful outcome for that item at that stage — never invoked if the stage (or, for a terminal block, the consumer itself) throws. See the [Capacity Monitoring](#capacity-monitoring) callout below for which blocks pair this with an `errorOccurredHandler`.        |
+| `errorOccurredHandler` | Only on the async blocks (`Buffer`, `Batch`, `Group`, `PriorityBuffer`, `Delay`) — the synchronous stages have no equivalent and propagate failures as exceptions on the calling thread instead.                                                                                  |
 
 **These hooks carry item identity and outcome only — never timing.** None of the three is
 passed a duration, a start time, or any other timing information; each is simply invoked
@@ -434,6 +434,68 @@ between two separate hook calls — capture the timestamp yourself and carry it 
 your own item type (or a wrapper around it) as it flows through the pipeline. See the
 [anti-pattern](#-deriving-per-item-latency-from-hook-invocation-timing) below for the
 pattern to follow instead.
+
+### ⚠️ No Ordering Guarantee Between `itemPostedHandler` and Downstream Completion (Async Blocks)
+
+For every **async** block (`Buffer`, `Batch`, `Group`, `PriorityBuffer`, `Delay`),
+`itemPostedHandler` fires on the **posting thread**, immediately after the item is
+successfully enqueued — but the item is then picked up and processed by a **separate
+worker thread**, running concurrently and independently from that point on. Concretely,
+for `Buffer` (verified directly against `DefaultBufferBlock`/`AsyncBuffer` source):
+
+`Router` and `OpenRouter` are **not** in this list — `DefaultRouterBlock.post()` is fully
+synchronous: it calls `target.post(item)` directly on the calling thread and only fires
+its own `itemPostedHandler`/`itemDeliveredHandler` after that call returns. The router
+itself introduces no worker-thread hand-off. The same race described below can still
+show up transitively if a router's *arm* happens to begin with one of the async blocks
+above — but that is the arm's own `Buffer`/`Batch`/etc. race, not something the router
+adds on top of it.
+
+```java
+// DefaultBufferBlock.post(T item) — runs on the caller's (posting) thread
+if (this.buffer.post(item)) {           // enqueues only — a worker thread may already
+                                         // be dequeuing concurrently at this point
+    this.postedManager.sendOnPostedNotification(item, true);  // fires HERE, on the
+                                                                // posting thread
+    return true;
+}
+```
+
+```java
+// AsyncBuffer.Worker.run() — runs continuously on its own dedicated thread
+while (null != (item = this.completableQueue.dequeue())) {
+    this.consumer.accept(item);   // may complete before the posting thread above
+                                   // ever gets scheduled to call sendOnPostedNotification
+}
+```
+
+Enqueue-then-notify on the posting thread and dequeue-then-process on the worker thread
+race each other with **no happens-before relationship** beyond the enqueue operation
+itself succeeding. Under light contention the posting thread usually wins — giving the
+*impression* that `itemPostedHandler` always fires before the item is fully processed
+downstream — but under load (a busy CI runner, a slow GC pause on the posting thread, a
+worker thread that happens to be idle and immediately available) the worker can win
+instead, completing the entire downstream chain — including a terminal `Action`'s
+consumer, and therefore anything that consumer itself signals (a latch, a counter, a
+callback) — **before** `itemPostedHandler` has fired at all.
+
+**Practical impact:** never write test or application code that treats
+`itemPostedHandler` firing as a "happens-before" signal relative to *anything* your
+downstream consumer does for that same item — including but not limited to your
+consumer counting down a `CountDownLatch`, incrementing a counter, or invoking its own
+callback. If you need to assert or react to "this item was accepted into the pipeline"
+independent of whether it has finished processing yet, synchronize on `itemPostedHandler`
+firing *itself* (e.g. count down your own dedicated latch from inside the handler), not
+on a signal raised later by the consumer that received the item. See the
+[anti-pattern](#-treating-itempostedhandler-as-happens-before-downstream-processing)
+below for the exact failure shape this produces.
+
+This is inherent to the async design — `itemPostedHandler` intentionally reports
+"accepted," not "consumed," so that a caller can observe backpressure/acceptance
+decisions without paying the cost of waiting for full delivery. It is not something a
+caller can request stronger ordering for, and it will not be changed; this section
+exists purely to make the actual (already-existing) contract explicit rather than
+letting it be inferred from usually-passing test behavior.
 
 ---
 
@@ -769,6 +831,49 @@ Pipeline<Message> p2 = Pipeline.<Message>builder().executor(executor).from(share
 // Correct — create a fresh fluent builder per pipeline
 Pipeline<Message> p1 = Pipeline.<Message>builder().executor(executor).from(Buffer.of(Message.class)).to(...);
 Pipeline<Message> p2 = Pipeline.<Message>builder().executor(executor).from(Buffer.of(Message.class)).to(...);
+```
+
+### ❌ Treating `itemPostedHandler` as happens-before downstream processing
+
+```java
+// Wrong — itemPostedHandler fires on the posting thread the moment an item is enqueued
+// into an async block; it does NOT wait for (or happen-before) that item's downstream
+// processing, which runs concurrently on a separate worker thread. Under load, the
+// consumer can finish — and count down this exact latch — before itemPostedHandler ever
+// fires, making this a genuine, order-dependent race, not a reliably-passing sequence.
+CountDownLatch delivered = new CountDownLatch(1);
+List<Order> received = new CopyOnWriteArrayList<>();
+
+Pipeline<Order> p = Pipeline.<Order>builder()
+        .executor(executor)
+        .from(Buffer.of(Order.class)
+                .itemPostedHandler((source, item, accepted) -> received.add(item)))
+        .to(order -> {
+            process(order);
+            delivered.countDown();   // can race ahead of itemPostedHandler above
+        });
+
+p.post(order);
+delivered.await();
+assertEquals(1, received.size());   // flaky — sometimes still empty here
+
+// Correct — synchronize on itemPostedHandler firing itself, with its own dedicated
+// latch, rather than inferring it from a signal raised later by the consumer.
+CountDownLatch posted = new CountDownLatch(1);
+List<Order> received = new CopyOnWriteArrayList<>();
+
+Pipeline<Order> p = Pipeline.<Order>builder()
+        .executor(executor)
+        .from(Buffer.of(Order.class)
+                .itemPostedHandler((source, item, accepted) -> {
+                    received.add(item);
+                    posted.countDown();
+                }))
+        .to(order -> process(order));
+
+p.post(order);
+posted.await();
+assertEquals(1, received.size());   // deterministic
 ```
 
 ### ❌ Deriving per-item latency from hook invocation timing

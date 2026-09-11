@@ -197,13 +197,13 @@ either overload.
 
 ### Backpressure, observability, reconnection, executor, shutdown
 
-| Method                                | Default                                                   | Notes                                                                                                                                 |
-|----------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| `onBufferFull(BufferFullPolicy)`      | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                                                                                          |
-| `observer(SseListenerObserver)`       | —                                                          | Single registration point for failures, drops, reconnects, and per-event telemetry. See [§9](#9-observability--sselistenerobserver). |
-| `reconnectDelay(RetryDelay strategy)` | Server `retry` field when present, else `exponential(3s)` | See [§11](#11-reconnection-and-last-event-id-replay).                                                                                 |
-| `executor(ExecutorService executor)`  | A dedicated `NamedExecutorService` per connection         | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                 |
-| `closeTimeout(Duration timeout)`      | 30 seconds                                                | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                 |
+| Method                                | Default                                                   | Notes                                                                                                                                |
+|---------------------------------------|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `onBufferFull(BufferFullPolicy)`      | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                                                                                         |
+| `observer(SseListenerObserver)`       | —                                                         | Single registration point for failures, drops, reconnects, and per-event telemetry. See [§9](#9-observability--sselistenerobserver). |
+| `reconnectDelay(RetryDelay strategy)` | Server `retry` field when present, else `exponential(3s)` | See [§11](#11-reconnection-and-last-event-id-replay).                                                                                |
+| `executor(ExecutorService executor)`  | A dedicated `NamedExecutorService` per connection         | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                |
+| `closeTimeout(Duration timeout)`      | 30 seconds                                                | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                |
 
 ### Terminal
 
@@ -482,12 +482,12 @@ public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventT
 public enum SseReconnectCause { FAILURE, BUFFER_FULL }
 ```
 
-| Field       | Meaning                                                                                                                                                                                                                        |
-|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Field       | Meaning                                                                                                                                                                                                                     |
+|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `DISCONNECT`; never paired with `onError`. |
-| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty for the catch-all pipeline.   |
-| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                       |
-| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                              |
+| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty for the catch-all pipeline.  |
+| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                     |
+| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                           |
 
 This is the programmatic way to detect a `DISCONNECT` reconnect storm forming (see the
 pitfall in [§8](#8-backpressure--bufferfullpolicy)) — wire `onReconnect` (with
@@ -523,11 +523,11 @@ public record SseEventProcessed(Optional<String> event,
   unhandled-event pipeline — present when a named `onEvent` handler matched; empty when
   routed to the catch-all pipeline, regardless of whether `event()` itself was present:
 
-  | Case                  | `event()`           | `registeredAs()`    |
-  |-----------------------|---------------------|----------------------|
-  | Handled               | `Some("foo")`       | `Some("foo")`        |
-  | Unhandled but named   | `Some("foo")`       | `Optional.empty()`   |
-  | Unhandled and unnamed | `Optional.empty()`  | `Optional.empty()`   |
+  | Case                  | `event()`          | `registeredAs()`   |
+  |-----------------------|--------------------|--------------------|
+  | Handled               | `Some("foo")`      | `Some("foo")`      |
+  | Unhandled but named   | `Some("foo")`      | `Optional.empty()` |
+  | Unhandled and unnamed | `Optional.empty()` | `Optional.empty()` |
 
 - **`onEventProcessed`** fires the moment a handler's callback returns or throws.
   `succeeded()` is `false` whenever the callback threw, rather than suppressing the

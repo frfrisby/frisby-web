@@ -24,6 +24,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -667,17 +668,28 @@ class ClientSseReconnectTest {
 
             releaseFirstEvent.countDown();
 
-            // 30 s, not the 120 s this test used before the reconnect-loop backoff fix:
-            // with a capped exponential reconnectDelay (cap 2 s) and every DISCONNECT now
-            // counting toward escalation, even a pathological worst case — a fresh
-            // disconnect on every single reconnect, netting forward progress of only
-            // capacity() == 2 events per cycle — needs at most 10 cycles to drain all 20
-            // events, which sums to roughly 11-13 s of accumulated delay (six escalating
-            // attempts plus four more capped at ~2 s, with jitter). 30 s leaves close to
-            // 2x margin over that estimate while still failing far faster than 120 s if a
-            // regression ever reintroduces the old unbounded-livelock behavior.
+            // 60 s. This test's own comment previously assumed a "pathological worst case"
+            // of monotonic backoff escalation with no resets — six escalating attempts plus
+            // four capped at ~2 s, netting ~11-13 s. That assumption is invalid: verified
+            // directly via bufferFullPolicyDisconnect_consecutiveSetbackCounter_
+            // escalatesMonotonicallyWithNoReset (below) that the consecutive-setback counter
+            // itself escalates correctly with no reset bug, so the actual culprit is the
+            // *intentional* design in DefaultSseListener.ReaderTask.run(): the counter
+            // resets to zero on any connection attempt that completes with no exception at
+            // all, not just a fully-clean end-of-stream. Under a CPU-contended CI runner
+            // (e.g. running alongside a Sonar analysis pass), the worker thread can
+            // repeatedly manage just enough scheduling to drain a couple of events —
+            // resetting the backoff to zero — before stalling and hitting DISCONNECT again,
+            // producing many more (but still forward-progressing, non-duplicating) low-delay
+            // reconnects than the monotonic-escalation estimate ever accounted for. A CI
+            // failure previously observed here (received=19/20, zero duplicates,
+            // securityInvocations=514) is consistent with exactly this: real, steady forward
+            // progress that simply needed more wall-clock time than budgeted, not a stalled
+            // or runaway reconnect loop. 60 s gives a substantially wider margin for that
+            // reset-driven worst case while still failing far faster than the original 120 s
+            // if a genuine regression ever reintroduces true non-convergence.
             assertTrue(
-                    latch.await(30, TimeUnit.SECONDS),
+                    latch.await(60, TimeUnit.SECONDS),
                     "Timed out waiting for full replay: received=" + received.size()
                             + ", unique=" + new HashSet<>(received).size()
                             + ", securityInvocations=" + securityInvocations.get()
@@ -691,6 +703,125 @@ class ClientSseReconnectTest {
             );
         } finally {
             releaseFirstEvent.countDown();
+            listener.close();
+        }
+    }
+
+    /**
+     * Isolates the reconnect loop's consecutive-setback bookkeeping ({@code
+     * DefaultSseListener.ReaderTask.run()}'s {@code consecutiveSetbacks} counter) from the
+     * ambient CI-timing noise that made
+     * {@link #bufferFullPolicyDisconnect_triggersMultipleReconnects_andDeliversAllEventsExactlyOnce}
+     * an unreliable way to catch a regression here — that test only asserts a wall-clock
+     * outcome (all events eventually delivered within a generous timeout), so a slow but
+     * still-escalating backoff and a backoff that never escalates at all are both
+     * indistinguishable failure modes from its perspective, and both can independently blow
+     * through even a generous timeout on a sufficiently loaded CI runner.
+     * <p>
+     * This test instead pins the handler's callback to permanently block after the very
+     * first event — capacity(1) is then permanently occupied for the rest of the test, so
+     * every single subsequent reconnect attempt's very first replayed event immediately
+     * re-triggers {@link BufferFullPolicy#DISCONNECT} again, forever. That gives a
+     * deterministic, unbounded stream of consecutive setbacks to inspect directly via
+     * {@link SseListenerObserver#onReconnect}, independent of real wall-clock delivery
+     * progress or CI scheduling — the assertions below are on the reported
+     * {@link SseReconnectEvent#attempt()} sequence and computed {@link SseReconnectEvent#delay()}
+     * values themselves, not on whether all events were ever delivered.
+     */
+    @Test
+    void bufferFullPolicyDisconnect_consecutiveSetbackCounter_escalatesMonotonicallyWithNoReset()
+            throws InterruptedException {
+        int reconnectsToObserve = 8;
+        Duration baseDelay = Duration.ofMillis(20);
+        Duration maxDelay = Duration.ofMillis(500);
+        List<SseReconnectEvent> reconnects = new CopyOnWriteArrayList<>();
+        CountDownLatch enoughReconnects = new CountDownLatch(reconnectsToObserve);
+        CountDownLatch firstEventDelivered = new CountDownLatch(1);
+        CountDownLatch blockForever = new CountDownLatch(1);
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/stream")
+                .parameter("channel", "buffer-full-policy-disconnect-backoff-counter")
+                .parameter("count", "5")
+                .onBufferFull(BufferFullPolicy.DISCONNECT)
+                .reconnectDelay(RetryDelay.exponential(baseDelay, maxDelay))
+                .onEvent("message", SseHandler.of(message -> {
+                    firstEventDelivered.countDown();
+
+                    try {
+                        // Deliberately never counted down until this test's own finally
+                        // block — see the class-level javadoc above for why a permanently
+                        // blocked callback is exactly what makes the resulting reconnect
+                        // sequence deterministic.
+                        blockForever.await(60, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }).capacity(1))
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onReconnect(SseReconnectEvent event) {
+                        reconnects.add(event);
+                        enoughReconnects.countDown();
+                    }
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(firstEventDelivered.await(10, TimeUnit.SECONDS), "Expected the first event to be delivered");
+            assertTrue(
+                    enoughReconnects.await(30, TimeUnit.SECONDS),
+                    "Expected at least " + reconnectsToObserve + " consecutive DISCONNECT-driven "
+                            + "reconnects; only saw " + reconnects.size()
+            );
+
+            List<Integer> attempts = reconnects.stream()
+                    .map(SseReconnectEvent::attempt)
+                    .limit(reconnectsToObserve)
+                    .toList();
+
+            List<Integer> expectedAttempts = IntStream.rangeClosed(1, reconnectsToObserve).boxed().toList();
+
+            assertEquals(
+                    expectedAttempts,
+                    attempts,
+                    "Expected the consecutive-setback counter to increment by exactly one on "
+                            + "every DISCONNECT-driven reconnect with no reset in between, but saw: "
+                            + attempts
+            );
+
+            assertTrue(
+                    reconnects.stream().limit(reconnectsToObserve)
+                            .allMatch(event -> SseReconnectCause.BUFFER_FULL == event.cause()),
+                    "Expected every reconnect in this scenario to be BUFFER_FULL-caused"
+            );
+            assertTrue(
+                    reconnects.stream().limit(reconnectsToObserve)
+                            .allMatch(event -> Optional.of("message").equals(event.eventType())),
+                    "Expected every reconnect to report the 'message' handler's pipeline as the trigger"
+            );
+
+            // Exponential(baseDelay, maxDelay) with up to 20% jitter, no reset: attempt N's
+            // reported delay must be no smaller than the uncapped, unjittered value for
+            // attempt N. A delay that small can only mean the escalation silently reset back
+            // toward the base delay somewhere in the sequence — the exact symptom this test
+            // exists to catch.
+            for (int i = 0; i < reconnectsToObserve; i++) {
+                int attempt = attempts.get(i);
+                int shift = Math.min(attempt - 1, 20);
+                long minExpectedMs = Math.min(baseDelay.toMillis() * (1L << shift), maxDelay.toMillis());
+                long actualMs = reconnects.get(i).delay().toMillis();
+
+                assertTrue(
+                        actualMs >= minExpectedMs,
+                        "Reconnect #" + (i + 1) + " (attempt " + attempt + ") computed a delay of "
+                                + actualMs + "ms, expected at least " + minExpectedMs + "ms"
+                );
+            }
+        } finally {
+            blockForever.countDown();
             listener.close();
         }
     }

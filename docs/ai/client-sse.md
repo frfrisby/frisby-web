@@ -191,7 +191,7 @@ available. Once connected, the connection tracks the most recently processed eve
 ### Dispatch registration
 
 | Method                                                   | Notes                                                                                                                                                                |
-|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|----------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `onEvent(String event, SseHandler<T> handler)`           | Registers a single-event handler for `event`.                                                                                                                        |
 | `onEvent(String event, SseBatchHandler<T> handler)`      | Registers a batch handler for `event`. Overload disambiguated by `handler`'s type.                                                                                   |
 | `onUnhandledEvent(Consumer<SseMessage<String>> handler)` | Catch-all shorthand for `onUnhandledEvent(SseHandler.of(handler))` — a real dispatch pipeline with default tuning, not a degraded path.                              |
@@ -389,13 +389,13 @@ default void onEventReceived(SseEventReceived event)
 default void onEventProcessed(SseEventProcessed event)
 ```
 
-| Method             | Fires                                                                                                                                                                                                     |
-|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `onError`          | Every failed connect/reconnect attempt, deserialization failure, or handler callback exception. See [Error handling](#error-handling--sselistenerobserveronerror).                                       |
-| `onDropped`        | Once per event discarded under `BufferFullPolicy.DROP`. Never fires for `BLOCK`/`DISCONNECT`. See [`BufferFullPolicy`](#bufferfullpolicy-module-client-sse).                                             |
+| Method             | Fires                                                                                                                                                                                                                                                  |
+|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `onError`          | Every failed connect/reconnect attempt, deserialization failure, or handler callback exception. See [Error handling](#error-handling--sselistenerobserveronerror).                                                                                     |
+| `onDropped`        | Once per event discarded under `BufferFullPolicy.DROP`. Never fires for `BLOCK`/`DISCONNECT`. See [`BufferFullPolicy`](#bufferfullpolicy-module-client-sse).                                                                                           |
 | `onReconnect`      | Immediately before every reconnect attempt that follows a setback (a genuine failure or a policy-driven `DISCONNECT`) — never for a clean end-of-stream reconnect. See [`SseReconnectEvent`](#ssereconnectevent--ssereconnectcause-module-client-sse). |
-| `onEventReceived`  | The moment a raw event is accepted into a dispatch pipeline, before deserialization. See [`SseEventReceived`](#sseeventreceived--sseeventprocessed-module-client-sse).                                   |
-| `onEventProcessed` | The moment a handler's callback returns or throws for a given event. See [`SseEventProcessed`](#sseeventreceived--sseeventprocessed-module-client-sse).                                                  |
+| `onEventReceived`  | The moment a raw event is accepted into a dispatch pipeline, before deserialization. See [`SseEventReceived`](#sseeventreceived--sseeventprocessed-module-client-sse).                                                                                 |
+| `onEventProcessed` | The moment a handler's callback returns or throws for a given event. See [`SseEventProcessed`](#sseeventreceived--sseeventprocessed-module-client-sse).                                                                                                |
 
 ```java
 SseListener.builder().client(client)
@@ -448,12 +448,12 @@ public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventT
 public enum SseReconnectCause { FAILURE, BUFFER_FULL }
 ```
 
-| Field       | Meaning                                                                                                                                                                                                                      |
-|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `BufferFullPolicy.DISCONNECT`; never paired with `onError`. |
+| Field       | Meaning                                                                                                                                                                                                                                                            |
+|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `BufferFullPolicy.DISCONNECT`; never paired with `onError`.                       |
 | `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty when the buffer belonged to the catch-all unhandled-event pipeline. |
-| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                       |
-| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                              |
+| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                                                            |
+| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                                                                  |
 
 ---
 
@@ -488,11 +488,11 @@ public record SseEventProcessed(Optional<String> event,
   unhandled-event pipeline — present when a named `onEvent` handler matched; empty when
   routed to the catch-all pipeline, regardless of whether `event()` itself was present:
 
-  | Case                  | `event()`           | `registeredAs()`    |
-  |-----------------------|---------------------|----------------------|
-  | Handled               | `Some("foo")`       | `Some("foo")`        |
-  | Unhandled but named   | `Some("foo")`       | `Optional.empty()`   |
-  | Unhandled and unnamed | `Optional.empty()`  | `Optional.empty()`   |
+  | Case                  | `event()`          | `registeredAs()`   |
+  |-----------------------|--------------------|--------------------|
+  | Handled               | `Some("foo")`      | `Some("foo")`      |
+  | Unhandled but named   | `Some("foo")`      | `Optional.empty()` |
+  | Unhandled and unnamed | `Optional.empty()` | `Optional.empty()` |
 
 - **`onEventProcessed`** fires the moment a handler's callback returns or throws.
   `succeeded()` is `false` whenever the callback threw, rather than suppressing the
