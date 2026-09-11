@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.1](https://github.com/frfrisby/frisby-web/compare/v1.5.0...v1.5.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **client-sse:** Add SSE observability - pipeline stats, reconnect/metrics events via SseListenerObserver. ([#64](https://github.com/frfrisby/frisby-web/issues/64)) ([e42369b](https://github.com/frfrisby/frisby-web/commit/e42369ba6977b53237b120546d56a43065f52597))
+* **client:** Complete retry context redesign and align docs/tests. ([#63](https://github.com/frfrisby/frisby-web/issues/63)) ([bbcfcf2](https://github.com/frfrisby/frisby-web/commit/bbcfcf266d052e37893ed794f0521d992d6c525b))
+
+
+### Documentation
+
+* **readme:** Add high-level SSE module and documentation coverage. ([#61](https://github.com/frfrisby/frisby-web/issues/61)) ([2cdedba](https://github.com/frfrisby/frisby-web/commit/2cdedba67e844c5d4328a7f6b8ef0ce2c1b4dfc7))
+
 ## [1.5.0](https://github.com/frfrisby/frisby-web/compare/v1.4.0...v1.5.0) (2026-09-08)
 
 
