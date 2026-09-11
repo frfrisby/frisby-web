@@ -394,6 +394,3 @@ class ServerHealthCheckTest {
         }
     }
 }
-
-
-

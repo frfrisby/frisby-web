@@ -323,9 +323,12 @@ class ClientSseSingleEventTest {
                         throw new IllegalStateException("Simulated handler failure.");
                     }
                 }))
-                .onError(error -> {
-                    capturedError.set(error);
-                    errorLatch.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        capturedError.set(error);
+                        errorLatch.countDown();
+                    }
                 })
                 .build();
 
@@ -402,7 +405,7 @@ class ClientSseSingleEventTest {
                         .logger(DefaultSseListener.class)
                         .level(System.Logger.Level.WARNING)
                         .predicate(e -> e.message()
-                                .contains("The SSE onError handler threw an unexpected exception."))
+                                .contains("The SSE onError observer threw an unexpected exception."))
                         .build()
                 )
                 .build()) {
@@ -417,9 +420,12 @@ class ClientSseSingleEventTest {
                             throw new IllegalStateException("Simulated handler failure.");
                         }
                     }))
-                    .onError(error -> {
-                        errorHandlerCallCount.incrementAndGet();
-                        throw new IllegalStateException("Simulated onError handler failure.");
+                    .observer(new SseListenerObserver() {
+                        @Override
+                        public void onError(SseErrorEvent error) {
+                            errorHandlerCallCount.incrementAndGet();
+                            throw new IllegalStateException("Simulated onError handler failure.");
+                        }
                     })
                     .build();
 
@@ -455,9 +461,12 @@ class ClientSseSingleEventTest {
                         throw new IllegalStateException("Simulated unhandled-event handler failure.");
                     }
                 })
-                .onError(error -> {
-                    capturedError.set(error);
-                    errorLatch.countDown();
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        capturedError.set(error);
+                        errorLatch.countDown();
+                    }
                 })
                 .build();
 

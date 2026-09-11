@@ -11,8 +11,10 @@ import software.frisby.web.serial.jackson.JacksonSerializer;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -182,6 +184,23 @@ class DefaultSseListenerBuilderTest {
             } finally {
                 executor.shutdown();
             }
+        }
+    }
+
+    @Nested
+    class Observer {
+        @Test
+        void nullObserver_throwsNullValueException() {
+            assertThrows(NullValueException.class, () -> SseListener.builder().client(client).observer(null));
+        }
+
+        @Test
+        void validObserver_returnsBuilder() {
+            assertNotNull(
+                    SseListener.builder().client(client)
+                            .observer(new SseListenerObserver() {
+                            })
+            );
         }
     }
 
@@ -362,7 +381,15 @@ class DefaultSseListenerBuilderTest {
 
         @Test
         void build_startsNoThreadsAndPerformsNoIo() {
-            int threadCountBefore = Thread.activeCount();
+            // Thread.activeCount() alone is too racy to assert equality on here — other
+            // tests' background threads (HttpClient selector threads, executors, etc.)
+            // can finish mid-test and shrink the JVM-wide count regardless of what
+            // build() itself does. Snapshotting thread ids before/after and asserting no
+            // *new* id appears verifies the same intent (build() starts no threads)
+            // without being sensitive to unrelated threads winding down concurrently.
+            Set<Long> threadIdsBefore = Thread.getAllStackTraces().keySet().stream()
+                    .map(Thread::getId)
+                    .collect(Collectors.toSet());
 
             try (SseListener listener = SseListener.builder().client(client)
                     .path("/sse/stream")
@@ -370,7 +397,11 @@ class DefaultSseListenerBuilderTest {
                     }))
                     .build()
             ) {
-                assertEquals(threadCountBefore, Thread.activeCount());
+                Set<Long> threadIdsAfter = Thread.getAllStackTraces().keySet().stream()
+                        .map(Thread::getId)
+                        .collect(Collectors.toSet());
+
+                assertTrue(threadIdsBefore.containsAll(threadIdsAfter));
                 assertFalse(listener.isOpen());
             }
         }
@@ -474,5 +505,3 @@ class DefaultSseListenerBuilderTest {
         }
     }
 }
-
-

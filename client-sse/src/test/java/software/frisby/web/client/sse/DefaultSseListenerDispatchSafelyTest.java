@@ -46,7 +46,7 @@ class DefaultSseListenerDispatchSafelyTest {
                 .onEvent("message", handler)
                 .build()
         ) {
-            assertDoesNotThrow(() -> listener.dispatchSafely(handler, null));
+            assertDoesNotThrow(() -> listener.dispatchSafely(handler, null, null));
             assertFalse(callbackInvoked.get(), "Expected a null delivery to never invoke the handler's callback");
         }
     }

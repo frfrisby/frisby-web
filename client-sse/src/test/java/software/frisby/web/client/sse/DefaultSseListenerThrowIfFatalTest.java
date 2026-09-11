@@ -93,6 +93,3 @@ class DefaultSseListenerThrowIfFatalTest {
         assertDoesNotThrow(() -> DefaultSseListener.throwIfFatal(new Exception("boom")));
     }
 }
-
-
-

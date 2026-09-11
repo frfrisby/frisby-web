@@ -27,8 +27,8 @@ import java.util.function.Consumer;
  * reconnect failure — there is no configurable retry limit and no way to disable
  * reconnection. The only way a connection ever stops is an explicit
  * {@link SseListener#close()} call, whether invoked directly by application code or
- * from within an {@link #onError} handler once the caller decides a failure is
- * unrecoverable. See {@link #onError} for details.
+ * from within a registered {@link SseListenerObserver#onError} once the caller decides a
+ * failure is unrecoverable. See {@link #observer} for details.
  * <p>
  * {@link #build()} is the terminal method — it assembles an {@link SseListener} but
  * opens no connection itself. Call {@link SseListener#connectAsync()} to open one.
@@ -202,34 +202,24 @@ public interface SseListenerBuilder {
     SseListenerBuilder onBufferFull(BufferFullPolicy policy);
 
     /**
-     * Registers a handler invoked once for every event discarded under
-     * {@link BufferFullPolicy#DROP}, receiving the untouched wire-format
-     * {@code SseMessage<String>} that was dropped.
+     * Registers an observer for this connection's failures, backpressure, and
+     * dispatch-rate telemetry.
      * <p>
-     * This connection always logs a {@code WARNING} when a run of drops begins and
-     * another when the buffer recovers (summarizing how many events were dropped and
-     * over what duration), regardless of whether this handler is registered. The
-     * default, out-of-the-box behavior therefore already surfaces "backpressure is
-     * occurring and roughly how much impact it's having" without per-event log volume.
-     * This handler
-     * exists for callers who want per-item granularity instead — e.g. incrementing a
-     * metrics counter once per drop, or implementing their own custom
-     * summarization/sampling strategy — and fires for every dropped event, unsummarized,
-     * regardless of the built-in logging above.
+     * A single registration point covering every observability concern this module
+     * reports — see {@link SseListenerObserver} for the full set of methods (all
+     * {@code default} no-ops; implement only the ones you care about) and the exact
+     * conditions under which each fires.
      * <p>
-     * Only relevant when {@link #onBufferFull} is set to {@link BufferFullPolicy#DROP};
-     * never invoked for {@link BufferFullPolicy#BLOCK} or {@link BufferFullPolicy#DISCONNECT}
-     * — {@code DISCONNECT} never actually discards an event (it reconnects and relies on
-     * {@code Last-Event-ID} replay instead), so there is nothing to report here for it.
-     * <p>
-     * Optional; if not set, dropped events are only visible via the built-in logging
-     * described above.
+     * Optional; if not set, this connection's failures are still logged at {@code Error}
+     * (see {@link SseListenerObserver#onError}'s documentation) and drop-episode summaries
+     * are still logged at {@code WARNING} (see {@link SseListenerObserver#onDropped}'s
+     * documentation) — only the programmatic callbacks themselves are skipped.
      *
-     * @param handler The callback invoked with each dropped event.
+     * @param observer The observer to register.
      * @return This builder instance.
-     * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
+     * @throws software.frisby.core.validation.NullValueException if {@code observer} is null.
      */
-    SseListenerBuilder onDropped(Consumer<SseMessage<String>> handler);
+    SseListenerBuilder observer(SseListenerObserver observer);
 
     /**
      * Sets a custom {@link ExecutorService} backing the reader task and every registered
@@ -301,7 +291,7 @@ public interface SseListenerBuilder {
      * <p>
      * An event within the batch whose data fails to deserialize into {@code handler}'s
      * type is omitted from the delivered batch individually — logged and routed to
-     * {@link #onError} with that event's own raw context — rather than discarding the
+     * {@link SseListenerObserver#onError} with that event's own raw context — rather than discarding the
      * batch entirely. This means a delivered batch can be smaller than the number of
      * events actually collected into it, independent of the {@code batchSize}/
      * {@code batchTimeout} ceiling above.
@@ -384,40 +374,6 @@ public interface SseListenerBuilder {
      */
     SseListenerBuilder onUnhandledEvent(SseBatchHandler<String> handler);
 
-    /**
-     * Registers a handler invoked when a callback exception, deserialization failure,
-     * or connect/reconnect failure occurs.
-     * <p>
-     * {@code handler} receives an {@link SseErrorEvent} pairing the failure with
-     * whatever raw event context was available. {@link SseErrorEvent#message()} is
-     * present for a deserialization failure or a handler callback exception — always
-     * the untouched wire-format {@code data} string, never a typed payload, since that
-     * is the one representation guaranteed to survive a deserialization failure. It is
-     * empty for a connect/reconnect failure or a whole-batch {@code onEvent(String,
-     * SseBatchHandler)} callback exception, neither of which is attributable to a
-     * single event.
-     * <p>
-     * Does not stop the pipeline or close the connection — this connection retries
-     * every connect/reconnect failure unconditionally and indefinitely (subject to
-     * {@link #reconnectDelay}'s backoff), including failures that can never succeed on
-     * their own (e.g. a {@code 404}, a {@code 401}/{@code 403}, or an unresolvable
-     * host). There is no built-in retry limit or give-up policy — {@code handler} is
-     * the <strong>only</strong> mechanism for terminating a broken connection.
-     * Every invocation is also logged at {@code Error} level regardless of whether a
-     * handler is registered.
-     * <p>
-     * A caller that wants to give up after some condition (e.g. a fixed number of
-     * consecutive failures, or a specific unrecoverable status code) should track that
-     * state itself within {@code handler} and call {@link SseListener#close()} on the
-     * listener once that condition is met. Omitting this handler entirely for a
-     * connection prone to permanent failure will result in a silent, indefinitely
-     * reconnecting connection.
-     *
-     * @param handler The callback invoked with the failure and its available context.
-     * @return This builder instance.
-     * @throws software.frisby.core.validation.NullValueException if {@code handler} is null.
-     */
-    SseListenerBuilder onError(Consumer<SseErrorEvent> handler);
 
     /**
      * Sets the strategy used to compute the delay before each reconnect attempt.
@@ -486,7 +442,3 @@ public interface SseListenerBuilder {
      */
     SseListener build();
 }
-
-
-
-

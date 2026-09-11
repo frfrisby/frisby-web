@@ -242,7 +242,3 @@ class DefaultBasicAuthAuthenticationProviderTest {
         );
     }
 }
-
-
-
-

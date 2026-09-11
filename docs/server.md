@@ -1359,6 +1359,3 @@ public void stream(@Context SseEventSink sink, @Context Sse sse) {
     }
 }
 ```
-
-
-

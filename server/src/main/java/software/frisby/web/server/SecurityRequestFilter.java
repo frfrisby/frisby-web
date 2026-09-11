@@ -92,7 +92,3 @@ final class SecurityRequestFilter implements ContainerRequestFilter {
         );
     }
 }
-
-
-
-

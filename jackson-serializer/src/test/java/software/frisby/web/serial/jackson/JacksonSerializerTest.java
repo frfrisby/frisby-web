@@ -434,10 +434,3 @@ class JacksonSerializerTest {
         }
     }
 }
-
-
-
-
-
-
-

@@ -61,6 +61,3 @@ record RawSseEvent(Optional<String> id,
         retry.ifPresent(duration -> Durations.notNegative("retry", duration));
     }
 }
-
-
-

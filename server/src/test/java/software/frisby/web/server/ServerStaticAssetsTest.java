@@ -1822,7 +1822,3 @@ class ServerStaticAssetsTest {
         }
     }
 }
-
-
-
-
