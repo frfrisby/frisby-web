@@ -93,12 +93,20 @@ public enum RetryOn {
      */
     TRANSPORT_FAILURE;
 
+    /**
+     * Convenience group covering gateway/proxy-layer HTTP errors: {@link #BAD_GATEWAY},
+     * {@link #SERVICE_UNAVAILABLE}, and {@link #GATEWAY_TIMEOUT}.
+     */
     public static final Set<RetryOn> GATEWAY_ERRORS = Set.of(
             BAD_GATEWAY,
             SERVICE_UNAVAILABLE,
             GATEWAY_TIMEOUT
     );
 
+    /**
+     * Convenience group covering transport-layer failures: {@link #CONNECT_FAILURE},
+     * {@link #CONNECT_TIMEOUT}, and {@link #READ_TIMEOUT}.
+     */
     public static final Set<RetryOn> TRANSPORT_ERRORS = Set.of(
             CONNECT_FAILURE,
             CONNECT_TIMEOUT,
