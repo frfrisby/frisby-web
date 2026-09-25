@@ -22,12 +22,13 @@ import java.util.function.Consumer;
 /**
  * Package-private implementation of {@link SseListenerBuilder}.
  * <p>
- * Navigation calls (path/parameter/header/cookie/security) are recorded as replayable
- * operations in {@link #navigationOps} <em>and</em>, once {@link #client(Client)} has
- * been called, immediately applied to {@link #navigationTemplate} — a throwaway
- * {@code SseSpec} obtained from the client solely so every navigation method can reuse
- * {@code SseSpec}'s own validation (including client-managed-header rejection and path
- * placeholder checks) rather than duplicating it here. Because {@link #client(Client)}
+ * Navigation calls (path/parameter/header/cookie/security/firstByteTimeout) are recorded
+ * as replayable operations in {@link #navigationOps} <em>and</em>, once
+ * {@link #client(Client)} has been called, immediately applied to
+ * {@link #navigationTemplate} — a throwaway {@code SseSpec} obtained from the client
+ * solely so every navigation method can reuse {@code SseSpec}'s own validation (including
+ * client-managed-header rejection and path placeholder checks) rather than duplicating it
+ * here. Because {@link #client(Client)}
  * may be called at any point in the fluent chain, navigation calls made before it are
  * simply queued; {@link #client(Client)} replays them all against the newly created
  * template the moment it is called, so validation still happens exactly once per
@@ -172,6 +173,11 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     @Override
     public SseListenerBuilder security(SecurityProvider provider) {
         return applyNavigation(spec -> spec.security(provider));
+    }
+
+    @Override
+    public SseListenerBuilder firstByteTimeout(Duration timeout) {
+        return applyNavigation(spec -> spec.firstByteTimeout(timeout));
     }
 
     @Override

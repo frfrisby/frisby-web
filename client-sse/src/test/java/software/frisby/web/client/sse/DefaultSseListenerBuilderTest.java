@@ -234,6 +234,50 @@ class DefaultSseListenerBuilderTest {
     }
 
     @Nested
+    class FirstByteTimeout {
+        @Test
+        void nullTimeout_throwsNullValueException() {
+            assertThrows(
+                    NullValueException.class,
+                    () -> SseListener.builder().client(client).firstByteTimeout(null)
+            );
+        }
+
+        @Test
+        void zeroTimeout_throwsDurationOutsideRangeException() {
+            assertThrows(
+                    DurationOutsideRangeException.class,
+                    () -> SseListener.builder().client(client).firstByteTimeout(Duration.ZERO)
+            );
+        }
+
+        @Test
+        void negativeTimeout_throwsDurationOutsideRangeException() {
+            assertThrows(
+                    DurationOutsideRangeException.class,
+                    () -> SseListener.builder().client(client).firstByteTimeout(Duration.ofSeconds(-1))
+            );
+        }
+
+        @Test
+        void validTimeout_returnsBuilder() {
+            assertNotNull(SseListener.builder().client(client).firstByteTimeout(Duration.ofSeconds(5)));
+        }
+
+        @Test
+        void calledBeforeClient_stillValidatesOnceClientIsCalled() {
+            // Mirrors clientCalledAfterNavigation_stillValidatesNavigation above —
+            // firstByteTimeout is applied via the same queued-navigation-op mechanism as
+            // path/parameter/header/cookie/security, so an invalid value queued before
+            // client(...) must still surface once client(...) replays it.
+            assertThrows(
+                    DurationOutsideRangeException.class,
+                    () -> SseListener.builder().firstByteTimeout(Duration.ZERO).client(client)
+            );
+        }
+    }
+
+    @Nested
     class OnEvent {
         @Test
         void blankEvent_throwsBlankValueException() {

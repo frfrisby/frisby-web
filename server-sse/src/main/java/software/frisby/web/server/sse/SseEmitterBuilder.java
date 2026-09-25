@@ -37,10 +37,11 @@ public interface SseEmitterBuilder {
     /**
      * Configures an optional heartbeat comment interval.
      * <p>
-     * If this method is not called, heartbeat emission remains disabled.
-     * Heartbeats are emitted as SSE comment frames (for example, {@code : keep-alive}),
-     * not as named events, so no {@code id}, {@code event}, {@code data}, or
-     * {@code retry} fields are included.
+     * If this method is not called, no <em>recurring</em> heartbeat is scheduled — but the
+     * built {@link SseEmitter} still writes a single leading comment frame immediately on
+     * construction regardless (see {@link SseEmitter} for why). Heartbeats are emitted as
+     * SSE comment frames (for example, {@code : keep-alive}), not as named events, so no
+     * {@code id}, {@code event}, {@code data}, or {@code retry} fields are included.
      * <p>
      * Heartbeats are best-effort keep-alive events. If the sink is already closed, a heartbeat
      * is skipped. If a heartbeat send races with a close and fails, the failure is logged
@@ -56,6 +57,15 @@ public interface SseEmitterBuilder {
 
     /**
      * Creates a new emitter.
+     * <p>
+     * The returned {@link SseEmitter} writes one leading comment frame immediately, before
+     * this method returns, whether {@link #heartbeat(Duration)} was ever called —
+     * a per-request client read timeout typically bounds only time-to-first-byte, not an
+     * already-established stream, so a resource method that doesn't write its own first
+     * event right away (e.g. it is waiting on a slow upstream call) can otherwise cause the
+     * client to see the connection fail before anything was ever wrong. When
+     * {@link #heartbeat(Duration)} is configured, this frame doubles as that heartbeat's
+     * own first tick, so no duplicate frame is written.
      *
      * @return A new {@link SseEmitter}.
      * @throws software.frisby.core.validation.NullValueException if required fields were not set.

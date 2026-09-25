@@ -320,9 +320,13 @@ class DefaultSseEmitterTest {
                 CompletableFuture<Void> future = emitter.send(event);
 
                 assertDoesNotThrow(future::join);
-                assertEquals(1, sink.sentEvents.size());
 
-                OutboundSseEvent sent = sink.sentEvents.get(0);
+                // Index 0 is the unconditional leading comment frame the constructor
+                // always writes (see DefaultSseEmitter's no-heartbeat-configured branch);
+                // this test's own event is the second entry.
+                assertEquals(2, sink.sentEvents.size());
+
+                OutboundSseEvent sent = sink.sentEvents.get(1);
 
                 assertEquals("id-1", sent.getId());
                 assertEquals("type-1", sent.getName());
@@ -514,6 +518,35 @@ class DefaultSseEmitterTest {
             }
         }
 
+        /**
+         * Regression test for the reconnect-storm investigation
+         * (see {@code temp/frisby-web-sse-reconnect-storm-investigation.md} §6.1): the very
+         * first heartbeat must not wait a full {@code heartbeatInterval} before firing.  A
+         * client whose {@code readTimeout} equals the heartbeat interval races the first
+         * heartbeat's arrival against its own timeout on every single connect/reconnect —
+         * this test asserts the first heartbeat arrives well inside a fraction of the
+         * configured interval, not after a full interval has elapsed.
+         */
+        @Test
+        void heartbeatEnabled_firstHeartbeatFiresWellBeforeFullInterval() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            sink.awaitedSends = new CountDownLatch(1);
+
+            Duration heartbeatInterval = Duration.ofMillis(300);
+
+            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+                    sink,
+                    new CapturingSse(),
+                    heartbeatInterval
+            )) {
+                // Full heartbeatInterval would be 300ms; the first heartbeat must arrive in
+                // well under half of that if initialDelay is not tied to the configured period.
+                assertTrue(sink.awaitSend(Duration.ofMillis(120)));
+            } finally {
+                sink.awaitedSends = null;
+            }
+        }
+
         @Test
         void heartbeatEnabledAndSinkClosed_doesNotSendHeartbeat() throws InterruptedException {
             CapturingSink sink = new CapturingSink();
@@ -527,6 +560,71 @@ class DefaultSseEmitterTest {
             )) {
                 assertFalse(sink.awaitSend(Duration.ofMillis(150)));
                 assertTrue(sink.sentEvents.isEmpty());
+            } finally {
+                sink.awaitedSends = null;
+            }
+        }
+
+        /**
+         * Regression test for the client-side "totally silent" read-timeout gap discussed
+         * alongside the reconnect-storm investigation: a client's read timeout typically
+         * bounds only time-to-first-byte, not an already-open stream, so a resource method
+         * that never configures {@code heartbeat(...)} and doesn't write its own first
+         * event immediately can otherwise leave the client waiting on literally nothing.
+         * The emitter must write one leading comment frame immediately on construction,
+         * synchronously, even when no heartbeat interval was ever configured.
+         */
+        @Test
+        void noHeartbeatConfigured_sendsOneLeadingCommentImmediately() {
+            CapturingSink sink = new CapturingSink();
+
+            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null
+            )) {
+                assertEquals(1, sink.sentEvents.size());
+                assertEquals(HEARTBEAT_COMMENT, sink.sentEvents.get(0).getComment());
+            }
+        }
+
+        @Test
+        void noHeartbeatConfiguredAndSinkAlreadyClosed_doesNotSendLeadingComment() {
+            CapturingSink sink = new CapturingSink();
+            sink.closed = true;
+
+            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null
+            )) {
+                assertTrue(sink.sentEvents.isEmpty());
+            }
+        }
+
+        /**
+         * When a recurring heartbeat {@code is} configured, its own first tick (already
+         * scheduled with {@code initialDelay == 0}, see
+         * {@code heartbeatEnabled_firstHeartbeatFiresWellBeforeFullInterval} above) must
+         * serve as the one leading frame — the constructor must not additionally write a
+         * second, separate frame of its own in that case.
+         */
+        @Test
+        void heartbeatConfigured_doesNotDoubleSendLeadingComment() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            sink.awaitedSends = new CountDownLatch(1);
+
+            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+                    sink,
+                    new CapturingSse(),
+                    Duration.ofMillis(300)
+            )) {
+                assertTrue(sink.awaitSend(Duration.ofMillis(150)));
+
+                // Give a hypothetical duplicate immediate send a chance to have landed too.
+                Thread.sleep(50);
+
+                assertEquals(1, sink.sentEvents.size());
             } finally {
                 sink.awaitedSends = null;
             }

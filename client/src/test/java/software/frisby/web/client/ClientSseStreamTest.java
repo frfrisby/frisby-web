@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import software.frisby.web.client.exception.NotFoundException;
+import software.frisby.web.client.exception.ReadTimeoutException;
 import software.frisby.web.serial.jackson.JacksonSerializer;
 import software.frisby.web.server.Server;
 import software.frisby.web.server.ServerConfiguration;
@@ -12,14 +13,12 @@ import software.frisby.web.test.TestLogging;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpCookie;
+import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Chunk 2 integration tests — {@link SseSpec#stream()} / {@link SseSpec#streamAsync()}
@@ -115,6 +114,117 @@ class ClientSseStreamTest {
             assertTrue(body.contains("event: first"));
             assertTrue(body.contains("event: second"));
         }
+    }
+
+    /**
+     * The server writes <strong>nothing at all</strong> — not even a partial frame — for
+     * 2 seconds, well past the client's 500 ms {@code readTimeout()}, before writing its
+     * first (and only) byte.  This is the empirical test for whether {@code readTimeout}
+     * bounds "time to headers" or "time to first byte": {@code stream_longHeldConnectionPastReadTimeout_isNotPrematurelyClosed}
+     * above proves reads are unbounded <em>after</em> a first byte has already arrived, but
+     * says nothing about what happens when the server is silent from the very start of the
+     * connection — see {@code temp/frisby-web-sse-reconnect-storm-investigation.md} §6.2.
+     */
+    @Test
+    void stream_totallySilentPastReadTimeout_throwsReadTimeoutException() {
+        assertThrows(
+                ReadTimeoutException.class,
+                () -> client.sse()
+                        .path("/sse-stream-test/totally-silent")
+                        .parameter("delayMs", "2000")
+                        .stream()
+        );
+    }
+
+    /**
+     * Same scenario as above, over HTTP/2 — the JDK's internal exchange/timer plumbing
+     * differs between HTTP/1.1 (chunked transfer) and HTTP/2 (headers + data frames), so
+     * this confirms the "time to first byte" behavior is not an HTTP/1.1-only artifact.
+     */
+    @Test
+    void stream_totallySilentPastReadTimeout_http2_throwsReadTimeoutException() {
+        Client http2Client = Client.builder()
+                .configuration(c -> c
+                        .uri(server.uri())
+                        .connectTimeout(Duration.ofSeconds(5))
+                        .readTimeout(Duration.ofMillis(500))
+                        .httpVersion(HttpClient.Version.HTTP_2)
+                        .serializer(JacksonSerializer.builder().build())
+                )
+                .build();
+
+        assertThrows(
+                ReadTimeoutException.class,
+                () -> http2Client.sse()
+                        .path("/sse-stream-test/totally-silent")
+                        .parameter("delayMs", "2000")
+                        .stream()
+        );
+    }
+
+    /**
+     * {@link SseSpec#firstByteTimeout(Duration)} overrides the client's globally
+     * configured {@code readTimeout()} for this call only — proves a stream that would
+     * otherwise throw per {@code stream_totallySilentPastReadTimeout_throwsReadTimeoutException}
+     * above succeeds once a longer, call-specific timeout is supplied, without touching
+     * the shared {@code client}'s configuration used by every other test in this class.
+     */
+    @Test
+    void stream_firstByteTimeoutOverride_survivesSilencePastGlobalReadTimeout() throws IOException {
+        HttpResponse<InputStream> response = client.sse()
+                .path("/sse-stream-test/totally-silent")
+                .parameter("delayMs", "2000")
+                .firstByteTimeout(Duration.ofSeconds(5))
+                .stream();
+
+        assertEquals(200, response.statusCode());
+
+        try (InputStream stream = response.body()) {
+            String body = new String(stream.readAllBytes());
+            assertTrue(body.contains("event: first"));
+        }
+    }
+
+    @Test
+    void streamAsync_firstByteTimeoutOverride_survivesSilencePastGlobalReadTimeout()
+            throws ExecutionException, InterruptedException, IOException {
+        HttpResponse<InputStream> response = client.sse()
+                .path("/sse-stream-test/totally-silent")
+                .parameter("delayMs", "2000")
+                .firstByteTimeout(Duration.ofSeconds(5))
+                .streamAsync()
+                .get();
+
+        assertEquals(200, response.statusCode());
+
+        try (InputStream stream = response.body()) {
+            String body = new String(stream.readAllBytes());
+            assertTrue(body.contains("event: first"));
+        }
+    }
+
+    @Test
+    void stream_nullFirstByteTimeout_throwsNullValueException() {
+        assertThrows(
+                software.frisby.core.validation.NullValueException.class,
+                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(null)
+        );
+    }
+
+    @Test
+    void stream_zeroFirstByteTimeout_throwsDurationOutsideRangeException() {
+        assertThrows(
+                software.frisby.core.validation.DurationOutsideRangeException.class,
+                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(Duration.ZERO)
+        );
+    }
+
+    @Test
+    void stream_negativeFirstByteTimeout_throwsDurationOutsideRangeException() {
+        assertThrows(
+                software.frisby.core.validation.DurationOutsideRangeException.class,
+                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(Duration.ofSeconds(-1))
+        );
     }
 
     @Test

@@ -101,6 +101,7 @@ SseSpec header(String name, String value)
 SseSpec header(String name, String... values)
 SseSpec cookie(HttpCookie cookie)
 SseSpec security(SecurityProvider provider)
+SseSpec firstByteTimeout(Duration timeout)
 
 HttpResponse<InputStream>                    stream()
 CompletableFuture<HttpResponse<InputStream>> streamAsync()
@@ -123,6 +124,14 @@ CompletableFuture<HttpResponse<InputStream>> streamAsync()
 - `readTimeout` (from `ClientConfiguration`) bounds only time-to-headers, not the full
   body read — a long-held SSE connection is never prematurely closed by it, exactly
   like `GetSpec.download()`.
+- `firstByteTimeout(Duration)` overrides `readTimeout` for this call only, with the same
+  time-to-first-byte-only semantics. Use it when a particular SSE endpoint may
+  legitimately take longer than the client's globally configured `readTimeout` to write
+  anything at all — e.g. a third-party service not built on this library's `server-sse`
+  module, or one of our own services whose resource method has no heartbeat configured
+  and doesn't write its first event immediately — without loosening `readTimeout` for
+  every other call made through the same `Client`. Must be positive; throws
+  `NullValueException`/`DurationOutsideRangeException` otherwise.
 
 ---
 
@@ -180,6 +189,7 @@ SseListenerBuilder header(String name, String value)
 SseListenerBuilder header(String name, String... values)
 SseListenerBuilder cookie(HttpCookie cookie)
 SseListenerBuilder security(SecurityProvider provider)                           // re-invoked on every reconnect
+SseListenerBuilder firstByteTimeout(Duration timeout)                            // time-to-first-byte only; see below
 SseListenerBuilder lastEventId(String id)                                        // initial value only; see below
 ```
 
@@ -187,6 +197,14 @@ Use `lastEventId(String)` — not `header(Headers.LAST_EVENT_ID, ...)` — to re
 stream after a process restart, when no in-memory record of the last received id is
 available. Once connected, the connection tracks the most recently processed event's
 `id` itself and applies it automatically to every subsequent reconnect attempt.
+
+`firstByteTimeout(Duration)` overrides `Client`'s configured `readTimeout()` for the
+initial connection attempt and every reconnect, with the same time-to-first-byte-only
+semantics as `SseSpec.firstByteTimeout(Duration)` — applied via the same replayed
+navigation template as `path`/`header`/etc. Useful when the endpoint may legitimately
+take longer than the client's globally configured `readTimeout` to write anything at
+all (a slow-starting third-party service, or one of our own services whose resource
+method has no heartbeat configured and doesn't write its first event immediately).
 
 ### Dispatch registration
 

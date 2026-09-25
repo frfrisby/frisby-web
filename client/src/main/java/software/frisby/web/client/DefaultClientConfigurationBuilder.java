@@ -1,5 +1,6 @@
 package software.frisby.web.client;
 
+import software.frisby.core.validation.Durations;
 import software.frisby.core.validation.Values;
 import software.frisby.web.serial.JsonSerializer;
 
@@ -58,13 +59,13 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
 
     @Override
     public ClientConfigurationBuilder connectTimeout(Duration timeout) {
-        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT_ARGUMENT_NAME, timeout);
+        this.connectTimeout = Durations.positive(CONNECT_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
     @Override
     public ClientConfigurationBuilder readTimeout(Duration timeout) {
-        this.readTimeout = Values.notNull(READ_TIMEOUT_ARGUMENT_NAME, timeout);
+        this.readTimeout = Durations.positive(READ_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
