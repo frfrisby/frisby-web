@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.2](https://github.com/frfrisby/frisby-web/compare/v1.5.1...v1.5.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **sse:** Prevent premature SSE stream timeouts and reconnect storms. ([#69](https://github.com/frfrisby/frisby-web/issues/69)) ([dd5f241](https://github.com/frfrisby/frisby-web/commit/dd5f241af8e09bdd4d3705254aa13c577a357e91))
+
+
+### Documentation
+
+* **poms:** Add descriptive names and descriptions to all published module POMs. ([#67](https://github.com/frfrisby/frisby-web/issues/67)) ([c7d7b92](https://github.com/frfrisby/frisby-web/commit/c7d7b92e58e8f174fe031a57d1dd74e6ae57c408))
+
 ## [1.5.1](https://github.com/frfrisby/frisby-web/compare/v1.5.0...v1.5.1) (2026-09-11)
 
 
