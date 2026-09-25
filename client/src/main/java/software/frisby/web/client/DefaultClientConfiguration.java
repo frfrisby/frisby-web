@@ -1,5 +1,6 @@
 package software.frisby.web.client;
 
+import software.frisby.core.validation.Durations;
 import software.frisby.core.validation.Sequences;
 import software.frisby.core.validation.Values;
 import software.frisby.web.serial.JsonSerializer;
@@ -47,8 +48,8 @@ final class DefaultClientConfiguration implements ClientConfiguration {
                                Executor executor,
                                ClientLoggingConfiguration logging) {
         this.uri = Values.notNull(URI_ARGUMENT_NAME, uri);
-        this.connectTimeout = Values.notNull(CONNECT_TIMEOUT_ARGUMENT_NAME, connectTimeout);
-        this.readTimeout = Values.notNull(READ_TIMEOUT_ARGUMENT_NAME, readTimeout);
+        this.connectTimeout = Durations.positive(CONNECT_TIMEOUT_ARGUMENT_NAME, connectTimeout);
+        this.readTimeout = Durations.positive(READ_TIMEOUT_ARGUMENT_NAME, readTimeout);
         this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         this.sslContext = sslContext;
         this.redirectPolicy = Values.notNull(REDIRECT_POLICY_ARGUMENT_NAME, redirectPolicy);

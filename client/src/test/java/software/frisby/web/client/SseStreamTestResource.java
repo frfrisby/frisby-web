@@ -3,13 +3,9 @@ package software.frisby.web.client;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.Cookie;
-import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.*;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.StreamingOutput;
-import jakarta.ws.rs.core.UriInfo;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -68,8 +64,8 @@ public final class SseStreamTestResource {
     @GET
     @Path("/{id}/echo-all")
     public Response echoAll(@PathParam("id") String id,
-                             @Context UriInfo uriInfo,
-                             @Context HttpHeaders headers) {
+                            @Context UriInfo uriInfo,
+                            @Context HttpHeaders headers) {
         List<String> tags = uriInfo.getQueryParameters().getOrDefault(TAG_PARAMETER, List.of());
         List<String> testHeaderValues = headers.getRequestHeader(X_TEST_HEADER);
         Map<String, Cookie> cookies = headers.getCookies();
@@ -112,6 +108,40 @@ public final class SseStreamTestResource {
             }
 
             out.write("id: 2\nevent: second\ndata: world\n\n".getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        };
+
+        return Response.ok(output).type(TEXT_EVENT_STREAM).build();
+    }
+
+    /**
+     * Writes <strong>nothing at all</strong> — not even response bytes beyond whatever the
+     * container sends on its own — for {@code delayMs} milliseconds, then writes a single
+     * event and flushes.  Unlike {@link #slow()}, which writes its first byte immediately
+     * and only delays the <em>second</em> event, this endpoint is silent from the moment the
+     * connection opens.
+     * <p>
+     * Used to determine empirically whether {@code ClientConfiguration.readTimeout()} bounds
+     * only time-to-first-byte (in which case a delay here longer than {@code readTimeout}
+     * throws {@code ReadTimeoutException}) or genuinely nothing once the stream is
+     * established (in which case it does not) — see
+     * {@code temp/frisby-web-sse-reconnect-storm-investigation.md} §6.2.
+     *
+     * @param delayMs The number of milliseconds to remain completely silent before writing
+     *                the first (and only) event.
+     * @return A one-event SSE response with a leading silent delay.
+     */
+    @GET
+    @Path("/totally-silent")
+    public Response totallySilent(@QueryParam("delayMs") long delayMs) {
+        StreamingOutput output = out -> {
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            out.write("id: 1\nevent: first\ndata: hello\n\n".getBytes(StandardCharsets.UTF_8));
             out.flush();
         };
 

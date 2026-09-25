@@ -6,6 +6,7 @@ import software.frisby.web.client.security.SecurityProvider;
 import java.io.InputStream;
 import java.net.HttpCookie;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -174,6 +175,33 @@ public interface SseSpec {
      * @throws software.frisby.core.validation.NullValueException if {@code provider} is null.
      */
     SseSpec security(SecurityProvider provider);
+
+    /**
+     * Overrides, for this call only, how long {@link #stream()}/{@link #streamAsync()}
+     * will wait to receive the very first byte of the response before giving up.
+     * <p>
+     * This bounds <strong>time-to-first-byte only</strong> — the same semantics as
+     * {@link ClientConfiguration#readTimeout()}, whose value is used when this method is
+     * never called.  Once at least one byte has arrived, this timeout no longer applies;
+     * a stream held open indefinitely afterward is never prematurely closed by it,
+     * exactly like {@link GetSpec#download()}.
+     * <p>
+     * Useful when the client's globally configured {@code readTimeout()} is tuned for
+     * ordinary request/response calls but is too short for a particular SSE endpoint that
+     * may legitimately take longer to write anything at all. For example, a third-party
+     * service not built on this library's {@code server-sse} module, or one of our own
+     * services whose resource method has no heartbeat configured and does not write its
+     * first event immediately.  Rather than loosening {@code readTimeout()} for every
+     * other call made through the same {@link Client}, override it here for just this
+     * stream.
+     *
+     * @param timeout The maximum time to wait for the first byte of the response; must be
+     *                positive.
+     * @return This spec instance.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
+     */
+    SseSpec firstByteTimeout(Duration timeout);
 
     /**
      * Sends the request and returns the response body as a raw {@link InputStream} of

@@ -13,6 +13,17 @@ import java.util.concurrent.CompletableFuture;
  * between those two operations, callers should still handle exceptional completion from
  * {@code send(...)} (or a {@link java.util.concurrent.CompletionException} from
  * {@code join()}) and terminate the stream cleanly when a send fails.
+ * <p>
+ * A newly built emitter always writes one leading SSE comment frame immediately —
+ * unconditionally, whether or not {@link SseEmitterBuilder#heartbeat(java.time.Duration)}
+ * was configured. A per-request client read timeout typically bounds only
+ * time-to-first-byte, not an already-established stream; without this, a resource method
+ * that legitimately takes a while to produce its own first event (e.g. it is waiting on a
+ * slow upstream call) could see the client give up and disconnect before anything was ever
+ * actually wrong. This is a single, one-time frame, not a substitute for a recurring
+ * heartbeat — a stream that stays genuinely idle afterward still needs
+ * {@link SseEmitterBuilder#heartbeat(java.time.Duration)} configured to stay alive through
+ * intermediary proxies/load balancers.
  */
 public interface SseEmitter extends AutoCloseable {
     /**

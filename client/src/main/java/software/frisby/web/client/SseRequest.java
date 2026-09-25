@@ -1,5 +1,6 @@
 package software.frisby.web.client;
 
+import software.frisby.core.validation.Durations;
 import software.frisby.web.client.security.SecurityProvider;
 
 import java.io.InputStream;
@@ -8,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
@@ -22,13 +24,16 @@ import java.util.function.Function;
 final class SseRequest implements SseSpec {
     private static final String GET = "GET";
     private static final String TEXT_EVENT_STREAM = "text/event-stream";
+    private static final String TIMEOUT_ARGUMENT_NAME = "timeout";
 
     private final HttpEngine engine;
     private final RequestState state;
+    private Duration firstByteTimeout;
 
     SseRequest(HttpEngine engine, SecurityProvider defaultSecurity) {
         this.engine = engine;
         this.state = new RequestState(defaultSecurity);
+        this.firstByteTimeout = null;
     }
 
     @Override
@@ -86,6 +91,12 @@ final class SseRequest implements SseSpec {
     }
 
     @Override
+    public SseSpec firstByteTimeout(Duration timeout) {
+        this.firstByteTimeout = Durations.positive(TIMEOUT_ARGUMENT_NAME, timeout);
+        return this;
+    }
+
+    @Override
     public HttpResponse<InputStream> stream() {
         URI uri = state.resolveUri(engine.configuration().uri());
 
@@ -110,9 +121,13 @@ final class SseRequest implements SseSpec {
     }
 
     private HttpRequest buildStreamRequest(URI uri) {
+        Duration effectiveReadTimeout = null != firstByteTimeout
+                ? firstByteTimeout
+                : engine.configuration().readTimeout();
+
         HttpRequest.Builder builder = state.prepareBuilder(
                 uri, GET, HttpRequest.BodyPublishers.noBody(),
-                false, null, engine.configuration().readTimeout()
+                false, null, effectiveReadTimeout
         );
 
         if (!state.hasHeader(Headers.ACCEPT)) {

@@ -169,6 +169,32 @@ public interface SseListenerBuilder {
     SseListenerBuilder security(SecurityProvider provider);
 
     /**
+     * Overrides how long the initial connection attempt and every reconnect attempt
+     * will wait to receive the very first byte of the response before giving up.
+     * <p>
+     * This bounds <strong>time-to-first-byte only</strong> — see
+     * {@link software.frisby.web.client.SseSpec#firstByteTimeout(Duration)} for the exact
+     * semantics; the {@code client}'s configured {@code readTimeout()} is used when this
+     * method is never called. Applied as part of the same replayed navigation template as
+     * {@link #path}/{@link #header}/etc., so it takes effect on the initial connection and
+     * every subsequent reconnect alike.
+     * <p>
+     * Useful when the {@link Client}'s globally configured {@code readTimeout()} is tuned
+     * for ordinary request/response calls but is too short for a particular SSE endpoint
+     * that may legitimately take longer to write anything at all. For example, a
+     * third-party service not built on this library's {@code server-sse} module, or one of
+     * our own services whose resource method has no heartbeat configured and does not
+     * write its first event immediately.
+     *
+     * @param timeout The maximum time to wait for the first byte of the response; must be
+     *                positive.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
+     */
+    SseListenerBuilder firstByteTimeout(Duration timeout);
+
+    /**
      * Sets the initial {@code Last-Event-ID} to send on the first connection attempt.
      * <p>
      * Used to resume a stream after a process restart, when no in-memory record of the

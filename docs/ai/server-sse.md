@@ -30,6 +30,8 @@ Maven:
 - `SseEvent.data()` is `String` and is required.
 - `SseEvent.id()`, `event()`, and `retry()` are optional.
 - Heartbeats are SSE comments (`: keep-alive`), not named events.
+- A newly built emitter always writes one leading comment frame immediately, whether or
+  not `heartbeat(...)` was ever configured — see `heartbeat(Duration)` below.
 
 ---
 
@@ -113,7 +115,8 @@ Optional:
 
 - `heartbeat(Duration heartbeatInterval)`
   - positive duration required when set
-  - if not called, heartbeat disabled
+  - if not called, no *recurring* heartbeat is scheduled — but the emitter still writes
+    a single leading comment frame immediately on `build()` regardless (see below)
   - emits comment frames (for example `: keep-alive`)
   - does not emit `id`/`event`/`data`/`retry`
   - heartbeat send is best-effort: closed sinks are skipped; heartbeat send failures are logged internally and not thrown to callers
@@ -198,6 +201,24 @@ public final class NotificationResource {
 - Client reconnect replay uses `Last-Event-ID`; server should replay events newer than that id.
 - Server `retry` hints are consumed by client reconnect delay logic.
 - Heartbeat comments are ignored by the client parser and are not dispatched to handlers.
+
+---
+
+## Why `SseEmitter` always writes an immediate leading comment
+
+A client-side per-request read timeout (e.g. `Client`'s `readTimeout()`, or
+`SseSpec`/`SseListenerBuilder`'s `firstByteTimeout(Duration)`) typically bounds only
+time-to-first-byte, not an already-open stream. If a resource method builds an
+`SseEmitter` but doesn't write its own first event right away (e.g. it's waiting on a
+slow upstream call), a client could otherwise see the connection fail before anything
+was ever actually wrong — indistinguishable from a genuinely dead service. `SseEmitter`
+closes this gap unconditionally: `build()` writes one leading comment frame
+synchronously, whether or not `heartbeat(Duration)` was configured. When a heartbeat
+interval *is* configured, that interval's own first tick (already scheduled with
+`initialDelay == 0`) serves as this same leading frame — no duplicate frame is written.
+This is a one-time frame, not a substitute for a recurring heartbeat; a stream that
+stays genuinely idle afterward still needs `heartbeat(Duration)` configured to survive
+intermediary proxies/load balancers.
 
 ---
 

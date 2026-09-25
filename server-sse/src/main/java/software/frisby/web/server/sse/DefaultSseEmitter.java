@@ -39,12 +39,29 @@ final class DefaultSseEmitter implements SseEmitter {
                 return thread;
             });
 
+            // initialDelay is deliberately 0, not heartbeatInterval: a client whose
+            // readTimeout equals heartbeatInterval races the first heartbeat's arrival
+            // against its own timeout on every connect/reconnect if the first heartbeat
+            // (or any other data) doesn't arrive until a full interval has elapsed.
+            // Sending immediately on open removes that race entirely; the period still
+            // settles into heartbeatInterval for every subsequent heartbeat.
             future = executor.scheduleAtFixedRate(
                     this::sendHeartbeatSafely,
-                    heartbeatInterval.toMillis(),
+                    0,
                     heartbeatInterval.toMillis(),
                     TimeUnit.MILLISECONDS
             );
+        } else {
+            // No recurring heartbeat is configured, but a client's readTimeout still only
+            // bounds time-to-first-byte, not the ongoing stream — if the resource method
+            // doesn't write its own first event immediately (e.g. it's waiting on a slow
+            // upstream call), a client with a comparatively short readTimeout would see the
+            // stream fail before ever getting a byte, indistinguishable from a genuinely
+            // dead connection. Writing one leading comment frame immediately closes that
+            // gap unconditionally, independent of whether heartbeat(...) was ever called.
+            // This is a single, one-time frame, not a keep-alive loop — sustained silence
+            // later in the stream still requires an explicit heartbeat(...) call.
+            sendHeartbeatSafely();
         }
 
         this.heartbeatExecutor = executor;

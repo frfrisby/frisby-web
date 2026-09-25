@@ -35,6 +35,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param uri The base URI; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code uri} is null.
      */
     ClientConfigurationBuilder uri(URI uri);
 
@@ -43,6 +44,8 @@ public interface ClientConfigurationBuilder {
      *
      * @param timeout The connect timeout; must not be {@code null} or negative.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
     ClientConfigurationBuilder connectTimeout(Duration timeout);
 
@@ -52,6 +55,8 @@ public interface ClientConfigurationBuilder {
      *
      * @param timeout The read timeout; must not be {@code null} or negative.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
     ClientConfigurationBuilder readTimeout(Duration timeout);
 
@@ -63,6 +68,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param serializer The serializer to use; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code serializer} is null.
      */
     ClientConfigurationBuilder serializer(JsonSerializer serializer);
 
@@ -74,6 +80,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param sslContext The SSL context to use; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code sslContext} is null.
      */
     ClientConfigurationBuilder sslContext(SSLContext sslContext);
 
@@ -97,6 +104,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param policy The redirect policy; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code policy} is null.
      */
     ClientConfigurationBuilder redirectPolicy(HttpClient.Redirect policy);
 
@@ -107,6 +115,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param version The HTTP version; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code version} is null.
      */
     ClientConfigurationBuilder httpVersion(HttpClient.Version version);
 
@@ -166,6 +175,7 @@ public interface ClientConfigurationBuilder {
      *
      * @param executor The executor to use; must not be {@code null}.
      * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException if {@code executor} is null.
      */
     ClientConfigurationBuilder executor(Executor executor);
 
