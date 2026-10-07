@@ -56,7 +56,7 @@ final class MultipartBodyBuilder {
      *
      * @param parts      The ordered list of form parts to include.
      * @param boundary   The boundary string for this multipart body.
-     * @param serializer The JSON serializer used to serialize {@link FormPart.JsonPart} bodies.
+     * @param serializer The JSON serializer used to serialize {@link FormJsonPart} bodies.
      * @return A body publisher that streams the assembled multipart body.
      */
     static HttpRequest.BodyPublisher build(List<FormPart> parts,
@@ -103,7 +103,7 @@ final class MultipartBodyBuilder {
 
         sb.append(DASHES).append(boundary).append(CRLF);
 
-        if (part instanceof FormPart.FilePart filePart) {
+        if (part instanceof FormFilePart filePart) {
             String contentType = filePart.contentType()
                     .map(MediaType::value)
                     .orElseGet(() -> guessContentType(filePart.fileName()));
@@ -114,13 +114,13 @@ final class MultipartBodyBuilder {
                     .append("\"; filename=\"")
                     .append(filePart.fileName())
                     .append("\"").append(CRLF);
-        } else if (part instanceof FormPart.JsonPart jsonPart) {
+        } else if (part instanceof FormJsonPart jsonPart) {
             sb.append("Content-Type: application/json").append(CRLF);
             sb.append(CONTENT_DISPOSITION_FORM_DATA_NAME)
                     .append(jsonPart.name())
                     .append("\"").append(CRLF);
         } else {
-            FormPart.ContentPart contentPart = (FormPart.ContentPart) part;
+            FormContentPart contentPart = (FormContentPart) part;
             sb.append("Content-Type: ").append(contentPart.mediaType().value()).append(CRLF);
             sb.append(CONTENT_DISPOSITION_FORM_DATA_NAME)
                     .append(contentPart.name())
@@ -132,15 +132,15 @@ final class MultipartBodyBuilder {
     }
 
     private static InputStream bodyStreamOf(FormPart part, JsonSerializer serializer) {
-        if (part instanceof FormPart.FilePart filePart) {
+        if (part instanceof FormFilePart filePart) {
             return filePart.stream();
         }
 
-        if (part instanceof FormPart.JsonPart jsonPart) {
+        if (part instanceof FormJsonPart jsonPart) {
             return new ByteArrayInputStream(RequestBodyEncoder.serializeBody(jsonPart.body(), serializer));
         }
 
-        FormPart.ContentPart contentPart = (FormPart.ContentPart) part;
+        FormContentPart contentPart = (FormContentPart) part;
         return new ByteArrayInputStream(
                 contentPart.content().getBytes(StandardCharsets.UTF_8)
         );

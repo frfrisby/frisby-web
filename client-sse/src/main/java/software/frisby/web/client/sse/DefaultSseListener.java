@@ -707,7 +707,7 @@ final class DefaultSseListener implements SseListener {
      * the callback returns normally or throws — see
      * {@link #dispatchSafely(SseHandler, Delivery, String)} for the same rationale.
      */
-    @SuppressWarnings("java:S1181")
+    @SuppressWarnings({"java:S1181", "java:S9391"})
     void dispatchBatchSafely(SseBatchHandler<?> handler, List<Delivery> deliveries, String registeredAs) {
         if (null == deliveries || deliveries.isEmpty()) {
             return;

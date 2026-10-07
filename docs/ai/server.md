@@ -209,8 +209,8 @@ Pass to `ServerConfigurationBuilder.cors(cors)`.
 | `build()`                           | —        | Throws if no origins or no methods.  Throws `IllegalStateException` if wildcard + credentials.                                |
 
 ### `AllowedHeaders` variants
-- `AllowedHeaders.Echo` — server echoes whatever headers the browser requests (default when `allowedHeaders` never called).
-- `AllowedHeaders.Explicit` — server advertises only the declared header names.
+- `AllowedHeaders.echo()` — server echoes whatever headers the browser requests (default when `allowedHeaders` never called).
+- `AllowedHeaders.explicit(List)` — server advertises only the declared header names.
 
 ---
 

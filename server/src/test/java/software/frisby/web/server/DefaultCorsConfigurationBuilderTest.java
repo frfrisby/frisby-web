@@ -182,7 +182,7 @@ class DefaultCorsConfigurationBuilderTest {
                     .allowedMethods(HttpVerb.GET)
                     .build();
 
-            assertInstanceOf(AllowedHeaders.Echo.class, config.allowedHeaders());
+            assertInstanceOf(EchoAllowedHeaders.class, config.allowedHeaders());
         }
 
         @Test
@@ -209,7 +209,7 @@ class DefaultCorsConfigurationBuilderTest {
                     .allowedHeaders("Authorization", "Content-Type")
                     .build();
 
-            AllowedHeaders.Explicit explicit = assertInstanceOf(AllowedHeaders.Explicit.class, config.allowedHeaders());
+            ExplicitAllowedHeaders explicit = assertInstanceOf(ExplicitAllowedHeaders.class, config.allowedHeaders());
             assertTrue(explicit.headers().contains("Authorization"));
             assertTrue(explicit.headers().contains("Content-Type"));
         }
@@ -223,7 +223,7 @@ class DefaultCorsConfigurationBuilderTest {
                     .allowedHeaders("Content-Type")
                     .build();
 
-            AllowedHeaders.Explicit explicit = assertInstanceOf(AllowedHeaders.Explicit.class, config.allowedHeaders());
+            ExplicitAllowedHeaders explicit = assertInstanceOf(ExplicitAllowedHeaders.class, config.allowedHeaders());
             assertEquals(2, explicit.headers().size());
         }
     }

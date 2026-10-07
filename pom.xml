@@ -50,7 +50,7 @@
 
         <!-- Jersey + Jetty (server module) -->
         <jersey.version>3.1.12</jersey.version>
-        <jetty.version>12.0.38</jetty.version>
+        <jetty.version>12.0.40</jetty.version>
 
         <!-- jakarta.activation-api — Jersey registers a DataSource MessageBodyWriter that
              requires this class at startup.  Jersey marks it optional so it is never pulled
@@ -118,9 +118,16 @@
              → ClientException/ServerException → specific exception) is exactly the right
              depth for a typed HTTP exception hierarchy — it enables catch (ClientException),
              catch (HttpResponseException), etc.  Flattening it would remove that capability. -->
-        <sonar.issue.ignore.multicriteria>e1</sonar.issue.ignore.multicriteria>
+        <!-- S2143 — "java.time" classes should be used.
+             Reported against SpaFallbackInflector at file level (line 0), which
+             @SuppressWarnings cannot reach.  JAX-RS's Request.evaluatePreconditions(Date,
+             EntityTag) and ResponseBuilder.lastModified(Date) only accept java.util.Date,
+             so it is unavoidable there. -->
+        <sonar.issue.ignore.multicriteria>e1,e2</sonar.issue.ignore.multicriteria>
         <sonar.issue.ignore.multicriteria.e1.ruleKey>java:S110</sonar.issue.ignore.multicriteria.e1.ruleKey>
         <sonar.issue.ignore.multicriteria.e1.resourceKey>**/exception/**</sonar.issue.ignore.multicriteria.e1.resourceKey>
+        <sonar.issue.ignore.multicriteria.e2.ruleKey>java:S2143</sonar.issue.ignore.multicriteria.e2.ruleKey>
+        <sonar.issue.ignore.multicriteria.e2.resourceKey>**/SpaFallbackInflector.java</sonar.issue.ignore.multicriteria.e2.resourceKey>
     </properties>
 
     <modules>

@@ -63,11 +63,11 @@ public interface CorsConfiguration {
     /**
      * Returns the headers policy for cross-origin requests.
      * <p>
-     * When {@link AllowedHeaders.Echo}, the server echoes the client's
+     * When built via {@code AllowedHeaders.echo()}, the server echoes the client's
      * {@code Access-Control-Request-Headers} value in preflight responses — any header
      * the browser requests is permitted.
      * <p>
-     * When {@link AllowedHeaders.Explicit}, the server sends only the declared headers
+     * When built via {@code AllowedHeaders.explicit(List)}, the server sends only the declared headers
      * as the {@code Access-Control-Allow-Headers} preflight response header.
      *
      * @return The configured {@link AllowedHeaders} policy; never {@code null}.
