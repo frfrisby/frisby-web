@@ -359,10 +359,10 @@ relief. Two settings determine how bad it gets:
  of retrying at a constant rate.
 
 If a handler is fundamentally too slow for the stream's volume, no `reconnectDelay`
-tuning fixes that on its own — consider `BLOCK` (bounded, no data loss, but may
+tuning fixes that on its own. Consider `BLOCK` (bounded, no data loss, but may
 propagate backpressure to the server) or `DROP` (bounded, lossy, keeps the connection
-healthy) instead, or increase `concurrency` on the handler to actually raise its
-drain rate.
+healthy) instead. Alternatively, increase `concurrency` on the handler to actually
+raise its drain rate.
 
 ---
 
@@ -384,11 +384,11 @@ default void onEventReceived(SseEventReceived event)
 default void onEventProcessed(SseEventProcessed event)
 ```
 
-Every method is invoked from whichever internal thread produced the event (typically
-the reader thread for `onError`/`onReconnect`/`onDropped`/`onEventReceived`, or a
-handler's own dispatch-pipeline worker thread for `onEventProcessed`) and is isolated
-from any exception it throws — a misbehaving observer is logged at `WARNING` and cannot
-take down a reader or worker thread. Optional overall; if never registered, failures
+Every method is invoked from whichever internal thread produced the event. That is
+typically the reader thread for `onError`/`onReconnect`/`onDropped`/`onEventReceived`,
+or a handler's own dispatch-pipeline worker thread for `onEventProcessed`. Each call is
+isolated from any exception it throws — a misbehaving observer is logged at `WARNING`
+and cannot take down a reader or worker thread. Optional overall; if never registered, failures
 are still logged at `Error` and drop-episode summaries at `WARNING` internally, but no
 programmatic callback fires.
 

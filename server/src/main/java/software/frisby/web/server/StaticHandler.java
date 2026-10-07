@@ -7,16 +7,12 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.resource.Resource;
-import org.eclipse.jetty.util.resource.ResourceFactory;
 import org.eclipse.jetty.util.resource.Resources;
 import software.frisby.core.util.StopWatch;
-import software.frisby.core.validation.FieldGroup;
-import software.frisby.core.validation.FieldGroups;
 import software.frisby.web.server.event.RequestCompletedEvent;
 import software.frisby.web.server.event.ServerEventListener;
 
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -24,20 +20,33 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Jetty handler that serves static files from a classpath resource path or
- * filesystem directory, with dotfile protection, optional SPA fallback,
- * custom error pages, auth filtering, and configurable response headers.
+ * filesystem directory, with dotfile protection, custom error pages, auth
+ * filtering, and configurable response headers.
  *
  * <p>One {@code StaticHandler} instance is created per
  * {@link StaticAssetsConfiguration} registered on the server. Each instance
  * handles only requests whose path starts with its configured URL prefix;
  * all other requests are passed to the next handler (typically the JAX-RS
  * servlet) by returning {@code false}.
+ *
+ * <p><strong>SPA fallback is deliberately not implemented here.</strong> This handler
+ * runs in a {@code Handler.Sequence} <em>ahead of</em> the JAX-RS servlet (see
+ * {@code DefaultServer.buildJettyServer}), so it has no way to first ask "would some
+ * JAX-RS resource actually match this path?" before deciding to substitute
+ * {@code index.html} for a 404 — claiming the request here would silently shadow any
+ * real, extensionless JAX-RS endpoint (e.g. {@code GET /api/widgets}) with the SPA
+ * shell instead of the real response. When {@link StaticAssetsConfiguration#spaFallback()}
+ * is enabled, this handler instead returns {@code false} for extensionless misses — see
+ * {@link #serveMatchedRequest} — and lets the request fall through to the JAX-RS servlet,
+ * where {@code DefaultServer.buildResourceConfig()} has registered a low-priority
+ * catch-all resource to serve {@code index.html}. Because that resource participates in
+ * Jersey's own resource-matching algorithm (which always prefers a literal path segment
+ * over a {@code {var}} template), a real endpoint registered under this configuration's
+ * URL prefix can never be shadowed, no matter how the two are registered.
  */
 final class StaticHandler extends Handler.Wrapper {
     private static final System.Logger LOGGER = System.getLogger(StaticHandler.class.getName());
 
-    private static final FieldGroup SOURCE_FIELDS =
-            FieldGroup.of("classpathResourcePath", "filesystemDirectory");
 
     private final StaticAssetsConfiguration configuration;
     private final ServerEventListener eventListener;
@@ -213,20 +222,7 @@ final class StaticHandler extends Handler.Wrapper {
     // -------------------------------------------------------------------------
 
     private Resource createBaseResource() {
-        String classpathPath = configuration.classpathResourcePath().orElse(null);
-        Path filesystemPath = configuration.filesystemDirectory().orElse(null);
-
-        FieldGroups.onlyOne(
-                SOURCE_FIELDS,
-                classpathPath,
-                filesystemPath
-        );
-
-        if (null != classpathPath) {
-            return ResourceFactory.of(this).newClassLoaderResource(classpathPath);
-        }
-
-        return ResourceFactory.of(this).newResource(filesystemPath);
+        return StaticAssetsResourceResolver.resolveBaseResource(configuration);
     }
 
     private String describeSource() {
@@ -345,15 +341,20 @@ final class StaticHandler extends Handler.Wrapper {
         String strippedPath = strippedRequest.getHttpURI().getPath();
 
         boolean resourceExists = resourceExists(strippedPath);
-        boolean willUseSpaFallback = !resourceExists
-                && configuration.spaFallback()
-                && !hasFileExtension(path);
-        boolean willUseErrorPage = !resourceExists
-                && !willUseSpaFallback
-                && configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404);
 
-        if (!resourceExists && !willUseSpaFallback && !willUseErrorPage) {
-            return false;
+        if (!resourceExists) {
+            // Extensionless miss with SPA fallback enabled: do NOT claim the request here.
+            // Let it fall through to the JAX-RS servlet, where DefaultServer.buildResourceConfig()
+            // has registered a low-priority catch-all resource that serves index.html only if no
+            // more specific JAX-RS resource matches first -- see this class's Javadoc for why
+            // spaFallback can't be served correctly at this (pre-Jersey) layer.
+            if (configuration.spaFallback() && !hasFileExtension(path)) {
+                return false;
+            }
+
+            if (!configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404)) {
+                return false;
+            }
         }
 
         for (Map.Entry<String, String> entry : configuration.responseHeaders().entrySet()) {
@@ -364,21 +365,6 @@ final class StaticHandler extends Handler.Wrapper {
             boolean served = resourceHandler().handle(strippedRequest, response, eventCallback);
             writeErrorIfNotServed(served, request, response, eventCallback);
             return true;
-        }
-
-        if (willUseSpaFallback) {
-            HttpURI indexUri = HttpURI.build(strippedRequest.getHttpURI()).pathQuery("/index.html");
-            Request indexRequest = Request.serveAs(strippedRequest, indexUri);
-            boolean served = resourceHandler().handle(indexRequest, response, eventCallback);
-
-            if (served) {
-                return true;
-            }
-
-            if (!configuration.errorPages().containsKey(HttpStatus.NOT_FOUND_404)) {
-                Response.writeError(request, response, eventCallback, HttpStatus.NOT_FOUND_404);
-                return true;
-            }
         }
 
         serveErrorPage(HttpStatus.NOT_FOUND_404, request, response, eventCallback);
@@ -409,7 +395,7 @@ final class StaticHandler extends Handler.Wrapper {
         }
 
         if (resource.isDirectory()) {
-            Resource welcomeFile = resource.resolve("index.html");
+            Resource welcomeFile = resource.resolve(StaticAssetsResourceResolver.INDEX_HTML);
 
             return Resources.isReadableFile(welcomeFile);
         }

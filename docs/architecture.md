@@ -125,8 +125,8 @@ instead.
 A dispatch pipeline that can't keep up with the incoming event rate has exactly three
 honest outcomes: stall the reader (propagating backpressure to the server via TCP flow
 control), drop events, or disconnect and let `Last-Event-ID` replay cover the gap. There
-is no universally "correct" choice — it depends on whether the caller can tolerate
-connection churn, event loss, or increased server-side resource usage — so
+is no universally "correct" choice. It depends on whether the caller can tolerate
+connection churn, event loss, or increased server-side resource usage. So
 `BufferFullPolicy` makes the tradeoff an explicit, per-connection setting (default
 `BLOCK`, the safest default against unbounded memory growth) rather than picking one
 behavior silently.
