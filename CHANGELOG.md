@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.3](https://github.com/frfrisby/frisby-web/compare/v1.5.2...v1.5.3) (2026-10-07)
+
+
+### Bug Fixes
+
+* **server:** Harden SPA fallback and align it with static asset behavior. ([#74](https://github.com/frfrisby/frisby-web/issues/74)) ([b78496b](https://github.com/frfrisby/frisby-web/commit/b78496b5a6d6b8fa2a20be6d9da3c9b24bf8c859))
+* Updated Jackson dependency to the latest version to address recent vulnerabilities. ([#72](https://github.com/frfrisby/frisby-web/issues/72)) ([ea75c76](https://github.com/frfrisby/frisby-web/commit/ea75c76c072b2c16b4b670b232ee77117c066640))
+
 ## [1.5.2](https://github.com/frfrisby/frisby-web/compare/v1.5.1...v1.5.2) (2026-09-25)
 
 
