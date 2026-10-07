@@ -45,10 +45,6 @@ import java.util.Optional;
  * {@code DefaultServer.buildResourceConfig()}, as the handler for a low-priority catch-all
  * {@code "{path:.*}"} JAX-RS resource.
  */
-// java:S2143 — jakarta.ws.rs.core.Request.evaluatePreconditions(Date, EntityTag) and
-// Response.ResponseBuilder.lastModified(Date) only accept java.util.Date; there is no
-// java.time overload, so Date cannot be avoided here.
-@SuppressWarnings("java:S2143")
 final class SpaFallbackInflector implements Inflector<ContainerRequestContext, Response> {
     private static final String PATH_SEPARATOR = "/";
     private static final String ACCEPT_ENCODING = "Accept-Encoding";

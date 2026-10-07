@@ -10,23 +10,13 @@ import java.util.List;
  * <p>
  * Any header not in this list will be rejected by the browser during preflight.
  *
+ * @param headers The allowed header names; an unmodifiable copy is kept.  May be empty
+ *                if {@link AllowedHeaders#explicit(List)} was called with an empty list.
  * @see AllowedHeaders#explicit(List)
  */
-final class ExplicitAllowedHeaders implements AllowedHeaders {
-    private final List<String> headers;
-
-    ExplicitAllowedHeaders(List<String> headers) {
-        this.headers = List.copyOf(StringSequences.noBlankElements("headers", headers));
-    }
-
-    /**
-     * Returns the configured allowed header names.
-     *
-     * @return An unmodifiable list; never {@code null}.  May be empty if
-     * {@link AllowedHeaders#explicit(List)} was called with an empty list.
-     */
-    List<String> headers() {
-        return headers;
+record ExplicitAllowedHeaders(List<String> headers) implements AllowedHeaders {
+    ExplicitAllowedHeaders {
+        headers = List.copyOf(StringSequences.noBlankElements("headers", headers));
     }
 }
 
