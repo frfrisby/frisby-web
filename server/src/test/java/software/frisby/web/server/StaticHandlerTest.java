@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for package-private static helper methods on {@link StaticHandler} that cannot
  * be exercised through the full integration test stack without unrealistic infrastructure.
  */
-class StaticHandlerUnitTest {
+class StaticHandlerTest {
 
     // -------------------------------------------------------------------------
     // writeErrorIfNotServed
@@ -638,7 +638,7 @@ class StaticHandlerUnitTest {
      * async response writing fails (e.g. client disconnect mid-response) and cannot
      * be triggered reliably from an integration test without flaky timing-dependent
      * setup.  The callback class is accessed via reflection — the same approach used
-     * in {@link DefaultServerUnitTest} for {@code ConcurrencyLimitHandler}.
+     * in {@link DefaultServerTest} for {@code ConcurrencyLimitHandler}.
      */
     @Nested
     class EventFiringCallbackFailed {

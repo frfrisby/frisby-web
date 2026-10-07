@@ -28,18 +28,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * terms (they are purely internal utilities), but Java visibility prevents direct access
  * from the test class without this indirection.
  */
-class DefaultServerUnitTest {
+class DefaultServerTest {
 
     // -------------------------------------------------------------------------
-    // serializeEntityForLog
-    // -------------------------------------------------------------------------
-
-    private static Method resolveMethod(String name, Class<?>... paramTypes) {
-        return resolveMethod(DefaultServer.class, name, paramTypes);
-    }
-
-    // -------------------------------------------------------------------------
-    // unwrapJerseyException
+    // Helpers
     // -------------------------------------------------------------------------
 
     private static Method resolveMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
@@ -51,21 +43,6 @@ class DefaultServerUnitTest {
             throw new RuntimeException("Could not find " + clazz.getSimpleName() + "." + name, e);
         }
     }
-
-    // -------------------------------------------------------------------------
-    // isTextBody
-    // -------------------------------------------------------------------------
-
-    private static Class<?> resolveNestedClass(String simpleName) {
-        return Arrays.stream(DefaultServer.class.getDeclaredClasses())
-                .filter(c -> c.getSimpleName().equals(simpleName))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Could not find nested class: " + simpleName));
-    }
-
-    // -------------------------------------------------------------------------
-    // ConcurrencyLimitHandler — handle() edge paths
-    // -------------------------------------------------------------------------
 
     /**
      * A {@link JsonSerializer} whose {@code serialize()} always throws.
@@ -88,7 +65,7 @@ class DefaultServerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // ConcurrencyLimitHandler — 503-write Callback.failed() path
+    // serializeEntityForLog
     // -------------------------------------------------------------------------
 
     /**
@@ -137,7 +114,7 @@ class DefaultServerUnitTest {
     }
 
     // -------------------------------------------------------------------------
-    // Helpers
+    // unwrapJerseyException
     // -------------------------------------------------------------------------
 
     /**
@@ -173,12 +150,16 @@ class DefaultServerUnitTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // isTextBody
+    // -------------------------------------------------------------------------
+
     /**
      * Unit tests for the {@code isTextBody} private static utility.
      * <p>
      * The {@code application/json} and {@code application/x-www-form-urlencoded} branches
      * are exercised by the existing integration test suite (every JSON POST and form POST
-     * goes through {@link DefaultServer.RequestBodyBufferingFilter}).  The missed branches
+     * goes through {@code DefaultServer.RequestBodyBufferingFilter}).  The missed branches
      * are the remaining {@code text/*} family and the less-common {@code application/*}
      * subtypes ({@code +json}, {@code xml}, {@code +xml}, {@code graphql}).
      */
@@ -227,6 +208,10 @@ class DefaultServerUnitTest {
             assertTrue(invoke(MediaType.valueOf("application/graphql")));
         }
     }
+
+    // -------------------------------------------------------------------------
+    // ConcurrencyLimitHandler — handle() edge paths
+    // -------------------------------------------------------------------------
 
     /**
      * Unit tests for {@code ConcurrencyLimitHandler.handle()} paths that require
@@ -532,4 +517,8 @@ class DefaultServerUnitTest {
                     "write Callback.failed() must forward the throwable to the original callback");
         }
     }
+
+    // SpaFallbackInflector's hasFileExtension / readResourceBytes / cacheControlValue unit
+    // tests moved to SpaFallbackInflectorTest, now that it is a standalone top-level
+    // class rather than nested within DefaultServer.
 }

@@ -514,6 +514,72 @@ final class DefaultServer implements Server {
             rc.registerResources(healthResource.build());
         }
 
+        // SPA fallback — mounted once per StaticAssetsConfiguration with spaFallback() enabled.
+        //
+        // Deliberately registered as a JAX-RS resource, not served directly by StaticHandler
+        // (see that class's Javadoc for the full rationale): StaticHandler runs in a
+        // Handler.Sequence *ahead of* this ResourceConfig's servlet, so a Jetty-level fallback
+        // would have to unconditionally claim every extensionless miss, silently shadowing any
+        // real, extensionless JAX-RS endpoint under the same URL prefix (e.g. GET /api/widgets)
+        // with the SPA shell instead of the real response.
+        //
+        // A JAX-RS resource with a "{var:.*}" template path has none of that problem: Jersey's
+        // own resource-matching algorithm (JAX-RS 2.1 §3.7.2) always prefers a literal path
+        // segment over a template variable, regardless of registration order. A resource
+        // registered at the literal "/api/widgets" always wins over this catch-all, which is
+        // only ever invoked for a path nothing more specific claimed.
+        for (StaticAssetsConfiguration staticAssetsConfig : staticAssetsConfigurations) {
+            if (!staticAssetsConfig.spaFallback()) {
+                continue;
+            }
+
+            org.eclipse.jetty.util.resource.Resource baseResource =
+                    StaticAssetsResourceResolver.resolveBaseResource(staticAssetsConfig);
+
+            if (null == baseResource || !baseResource.isDirectory()) {
+                // Same invalid-configuration contract as StaticHandler.doStart() — mirrored here
+                // so the failure surfaces the same way (an IllegalStateException out of start())
+                // regardless of which half of spaFallback's implementation noticed it first.
+                String sourceArgumentName = staticAssetsConfig.classpathResourcePath().isPresent()
+                        ? "resourcePath"
+                        : "directory";
+
+                throw new IllegalStateException(
+                        "The '" + sourceArgumentName + "' value of '" + staticAssetsConfig.describeSource()
+                                + "' is invalid.  The resource does not exist or is not a directory."
+                );
+            }
+
+            // Fail fast at startup, the same way errorPage() paths are validated above — a
+            // missing index.html is a deployment/packaging defect (e.g. the SPA build output
+            // wasn't bundled into the asset root), not a condition that should only surface
+            // lazily, silently, as a 404 on the very first real deep-link request.
+            org.eclipse.jetty.util.resource.Resource indexResource =
+                    baseResource.resolve(StaticAssetsResourceResolver.INDEX_HTML);
+
+            if (!org.eclipse.jetty.util.resource.Resources.isReadableFile(indexResource)) {
+                throw new IllegalStateException(
+                        "The 'spaFallback' configuration for '" + staticAssetsConfig.describeSource()
+                                + "' is invalid.  The asset root does not contain a readable '"
+                                + StaticAssetsResourceResolver.INDEX_HTML + "' file."
+                );
+            }
+
+            String urlPrefix = staticAssetsConfig.urlPrefix();
+            String fallbackPath = urlPrefix.equals(PATH_SEPARATOR)
+                    ? "{path:.*}"
+                    : urlPrefix.substring(1) + "/{path:.*}";
+
+            Resource.Builder spaFallbackResource = Resource.builder(fallbackPath);
+
+            spaFallbackResource
+                    .addMethod("GET")
+                    .produces(MediaType.TEXT_HTML)
+                    .handledBy(new SpaFallbackInflector(staticAssetsConfig, baseResource));
+
+            rc.registerResources(spaFallbackResource.build());
+        }
+
         return rc;
     }
 

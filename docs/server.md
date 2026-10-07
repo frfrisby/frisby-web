@@ -1017,6 +1017,35 @@ path in the browser.
 Paths with a file extension (e.g. `GET /logo.png`) that are missing still return `404` —
 this prevents silently serving HTML in place of a genuinely missing image or script.
 
+**This can never shadow a real JAX-RS endpoint, even at the default `"/"` `urlPrefix`.**
+`spaFallback()` is implemented as a low-priority JAX-RS resource registered alongside your
+application's own resources — not as a Jetty `Handler` that runs ahead of JAX-RS routing —
+so it participates in Jersey's own resource-matching algorithm, which always prefers a
+literal path segment (e.g. a resource at `/api/widgets`) over this fallback's `{var}`
+template path. The fallback is only ever invoked for a path that no more specific resource,
+and no real static file, claims. (Versions prior to this always served the fallback at the
+Jetty-handler level, which *did* shadow real extensionless JAX-RS endpoints under the same
+URL prefix — if you previously worked around that by hand-rolling your own `@Path("{path:.*}")`
+catch-all resource, you can now remove it and use `spaFallback()` directly.)
+
+Note that `authFilter()` does not apply to fallback responses, since they no longer pass
+through this handler at all — use a normal `AuthenticationProvider` via
+`ServerBuilder.authentication(...)` if the SPA shell itself requires authentication.
+
+**The fallback response behaves like any other static asset response.** `cacheMaxAge()`
+controls `Cache-Control`; conditional requests are honored via a weak `ETag` and
+`Last-Modified` (answered with `304 Not Modified` when unchanged); `preCompressed()` serves an
+`index.html.br` or `index.html.gz` sibling when the client advertises support (Brotli
+preferred), with `Vary: Accept-Encoding`; and `responseHeaders()` (CSP, etc.) is applied to
+every fallback response.
+
+**`index.html` is required and validated at startup.** The asset root must contain a readable
+`index.html` (the only supported name — `index.htm` is not recognized).  If it is missing, the
+server refuses to start with an `IllegalStateException`, the same way it does for a missing
+asset root or a missing `errorPage()` file, rather than failing on the first deep-link request.
+If `index.html` exists but fails to read at request time, the response is a `500` (logged), not
+a `404`.
+
 ### Error pages
 
 Map HTTP error status codes to custom HTML files in the asset root:
@@ -1101,16 +1130,16 @@ JAX-RS `ContainerRequestContext`.
 
 ### Builder reference
 
-| Method                                | Default | Description                                                                          |
-|---------------------------------------|---------|--------------------------------------------------------------------------------------|
-| `urlPrefix(String)`                   | `"/"`   | URL prefix for this handler. Must start with `/`.                                    |
-| `cacheMaxAge(Duration)`               | none    | `Cache-Control` header value. Not negative.                                          |
-| `responseHeaders(Map<String,String>)` | empty   | Response headers added to every asset response.                                      |
-| `spaFallback(boolean)`                | `false` | Serve `index.html` for extensionless missing paths.                                  |
-| `preCompressed()`                     | `false` | Serve pre-compressed `.br` / `.gz` siblings when the client accepts them. See below. |
-| `errorPage(int, String)`              | none    | Custom response body for a given HTTP error status (400–599).                        |
-| `authFilter(StaticAssetsAuthFilter)`  | none    | Pre-request authorization hook.                                                      |
-| `build()`                             | —       | Returns the `StaticAssetsConfiguration`.                                             |
+| Method                                | Default | Description                                                                           |
+|---------------------------------------|---------|---------------------------------------------------------------------------------------|
+| `urlPrefix(String)`                   | `"/"`   | URL prefix for this handler. Must start with `/`.                                     |
+| `cacheMaxAge(Duration)`               | none    | `Cache-Control` header value. Not negative.                                           |
+| `responseHeaders(Map<String,String>)` | empty   | Response headers added to every asset response.                                       |
+| `spaFallback(boolean)`                | `false` | Serve `index.html` for extensionless missing paths; `index.html` required at startup. |
+| `preCompressed()`                     | `false` | Serve pre-compressed `.br` / `.gz` siblings when the client accepts them. See below.  |
+| `errorPage(int, String)`              | none    | Custom response body for a given HTTP error status (400–599).                         |
+| `authFilter(StaticAssetsAuthFilter)`  | none    | Pre-request authorization hook.                                                       |
+| `build()`                             | —       | Returns the `StaticAssetsConfiguration`.                                              |
 
 ### Pre-compressed serving
 

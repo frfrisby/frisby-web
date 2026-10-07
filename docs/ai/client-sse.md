@@ -393,11 +393,11 @@ via [`SseListenerBuilder#observer`](#observability). Every method is a `default`
 other (e.g. `onEventReceived` always fires before `onEventProcessed` for a dispatched
 event, and `onReconnect` fires alongside `onError` for the same transport failure).
 
-Every method is invoked from whichever internal thread produced the event (typically
-the reader thread for `onError`/`onReconnect`/`onDropped`/`onEventReceived`, or a
-handler's own dispatch-pipeline worker thread for `onEventProcessed`) and is isolated
-from any exception it throws — a misbehaving observer is logged at `WARNING` and
-cannot take down a reader or worker thread.
+Every method is invoked from whichever internal thread produced the event. Typically
+that is the reader thread for `onError`/`onReconnect`/`onDropped`/`onEventReceived`,
+or a handler's own dispatch-pipeline worker thread for `onEventProcessed`. Exceptions
+thrown by an observer are isolated: they are logged at `WARNING` and cannot take down
+a reader or worker thread.
 
 ```java
 default void onError(SseErrorEvent event)

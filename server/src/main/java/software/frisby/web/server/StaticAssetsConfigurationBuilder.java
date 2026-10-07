@@ -96,15 +96,37 @@ public interface StaticAssetsConfigurationBuilder {
     /**
      * Enables the SPA index fallback.
      *
-     * <p>When enabled, a {@code 404} response from the static handler for a path
-     * with no file extension is replaced by a {@code 200} response serving
-     * {@code index.html} from the asset root.  This enables single-page application
+     * <p>When enabled, a {@code 404} response for a path with no file extension that doesn't
+     * resolve to a real static file is replaced by a {@code 200} response serving
+     * {@code index.html} from the asset root. This enables single-page application
      * client-side routing (React Router, Vue Router, etc.) so that deep links and
      * browser refreshes work correctly.
      *
      * <p>Paths with a file extension (e.g. {@code /logo.png}) that resolve to a
      * missing file still return {@code 404} — the extension guard prevents silently
      * serving HTML in place of a missing image, script, or stylesheet.
+     *
+     * <p><strong>This can never shadow a real JAX-RS endpoint, even at the default
+     * {@code "/"} {@link #urlPrefix}.</strong> The fallback is implemented as a low-priority
+     * JAX-RS resource registered alongside your application's own resources — not as a Jetty
+     * {@link org.eclipse.jetty.server.Handler} that runs ahead of JAX-RS routing — so it
+     * participates in Jersey's own resource-matching algorithm, which always prefers a literal
+     * path segment (e.g. a {@code @Path("/api/widgets")} resource) over this fallback's
+     * {@code {var}} template path, regardless of registration order. The fallback is only ever
+     * invoked for a path that no more specific resource — and no real static file — claims.
+     *
+     * <p>The fallback response behaves the same as a direct request for a real static file
+     * with respect to every other option on this builder: {@link #cacheMaxAge(Duration)}
+     * controls {@code Cache-Control}; conditional requests are honored via a weak {@code ETag}
+     * and {@code Last-Modified} (answered with {@code 304} when unchanged); {@link #preCompressed()}
+     * serves a {@code .br} or {@code .gz} sibling of {@code index.html} when the client advertises
+     * support; and {@link #responseHeaders(Map)} is applied to every fallback response. The one
+     * exception is {@link #authFilter}, which does not apply here — see its own Javadoc.
+     *
+     * <p>The asset root must contain a readable {@code index.html} — this is validated eagerly
+     * at server startup (alongside the asset root itself and any configured
+     * {@link #errorPage(int, String)} files), not lazily on the first deep-link request. If
+     * {@code index.html} is missing the server will refuse to start with a clear error message.
      *
      * <p>Defaults to {@code false} when not called.
      *
@@ -182,6 +204,14 @@ public interface StaticAssetsConfigurationBuilder {
      *
      * <p>Use this to add authentication or authorization to static asset serving
      * without coupling the configuration to a specific security module.
+     *
+     * <p><strong>Does not apply to {@link #spaFallback()} responses.</strong> {@code spaFallback()}
+     * is implemented as a JAX-RS resource rather than at this handler's level (see its Javadoc).
+     * A request this filter would otherwise have seen — an extensionless path that resolves to
+     * neither a real static file nor a more specific JAX-RS resource — instead reaches the SPA
+     * fallback resource directly. If the SPA shell itself requires authentication, register a
+     * normal {@code AuthenticationProvider} via {@link ServerBuilder#authentication} instead;
+     * that chain applies uniformly to every JAX-RS resource, fallback included.
      *
      * @param filter the auth filter to register; must not be {@code null}
      * @return this builder
