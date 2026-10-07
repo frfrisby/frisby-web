@@ -50,7 +50,7 @@
 
         <!-- Jersey + Jetty (server module) -->
         <jersey.version>3.1.12</jersey.version>
-        <jetty.version>12.0.38</jetty.version>
+        <jetty.version>12.0.40</jetty.version>
 
         <!-- jakarta.activation-api — Jersey registers a DataSource MessageBodyWriter that
              requires this class at startup.  Jersey marks it optional so it is never pulled
