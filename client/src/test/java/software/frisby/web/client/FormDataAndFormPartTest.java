@@ -114,7 +114,7 @@ class FormDataAndFormPartTest {
             var stream = new ByteArrayInputStream(new byte[]{1, 2, 3});
             FormPart part = FormPart.file("upload", stream, "report.pdf");
 
-            assertInstanceOf(FormPart.FilePart.class, part);
+            assertInstanceOf(FormFilePart.class, part);
             assertEquals("upload", part.name());
         }
 
@@ -123,9 +123,9 @@ class FormDataAndFormPartTest {
             var stream = new ByteArrayInputStream(new byte[]{1});
             FormPart part = FormPart.file("upload", stream, "data.json", MediaType.APPLICATION_JSON);
 
-            assertInstanceOf(FormPart.FilePart.class, part);
-            assertTrue(((FormPart.FilePart) part).contentType().isPresent());
-            assertEquals(MediaType.APPLICATION_JSON, ((FormPart.FilePart) part).contentType().get());
+            assertInstanceOf(FormFilePart.class, part);
+            assertTrue(((FormFilePart) part).contentType().isPresent());
+            assertEquals(MediaType.APPLICATION_JSON, ((FormFilePart) part).contentType().get());
         }
 
         @Test
@@ -133,7 +133,7 @@ class FormDataAndFormPartTest {
             var stream = new ByteArrayInputStream(new byte[]{1});
             FormPart part = FormPart.file("upload", stream, "file.bin");
 
-            assertFalse(((FormPart.FilePart) part).contentType().isPresent());
+            assertFalse(((FormFilePart) part).contentType().isPresent());
         }
 
         @Test
@@ -178,9 +178,9 @@ class FormDataAndFormPartTest {
             Object body = new Object();
             FormPart part = FormPart.json("metadata", body);
 
-            assertInstanceOf(FormPart.JsonPart.class, part);
+            assertInstanceOf(FormJsonPart.class, part);
             assertEquals("metadata", part.name());
-            assertEquals(body, ((FormPart.JsonPart) part).body());
+            assertEquals(body, ((FormJsonPart) part).body());
         }
 
         @Test
@@ -204,10 +204,10 @@ class FormDataAndFormPartTest {
         void text_createsContentPartWithTextPlainMediaType() {
             FormPart part = FormPart.text("category", "invoices");
 
-            assertInstanceOf(FormPart.ContentPart.class, part);
+            assertInstanceOf(FormContentPart.class, part);
             assertEquals("category", part.name());
-            assertEquals("invoices", ((FormPart.ContentPart) part).content());
-            assertEquals(MediaType.TEXT_PLAIN, ((FormPart.ContentPart) part).mediaType());
+            assertEquals("invoices", ((FormContentPart) part).content());
+            assertEquals(MediaType.TEXT_PLAIN, ((FormContentPart) part).mediaType());
         }
 
         @Test
@@ -231,10 +231,10 @@ class FormDataAndFormPartTest {
         void entity_createsContentPartWithGivenMediaType() {
             FormPart part = FormPart.entity("data", "<root/>", MediaType.of("application/xml"));
 
-            assertInstanceOf(FormPart.ContentPart.class, part);
+            assertInstanceOf(FormContentPart.class, part);
             assertEquals("data", part.name());
-            assertEquals("<root/>", ((FormPart.ContentPart) part).content());
-            assertEquals(MediaType.of("application/xml"), ((FormPart.ContentPart) part).mediaType());
+            assertEquals("<root/>", ((FormContentPart) part).content());
+            assertEquals(MediaType.of("application/xml"), ((FormContentPart) part).mediaType());
         }
 
         @Test
