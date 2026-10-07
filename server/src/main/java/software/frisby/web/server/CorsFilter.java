@@ -86,7 +86,7 @@ final class CorsFilter implements ContainerRequestFilter, ContainerResponseFilte
         builder.header(HEADER_ALLOW_METHODS, String.join(", ", corsConfig.allowedMethods()));
 
         // Allowed headers — use the configured list, or echo what the client requested.
-        if (corsConfig.allowedHeaders() instanceof AllowedHeaders.Explicit explicit) {
+        if (corsConfig.allowedHeaders() instanceof ExplicitAllowedHeaders explicit) {
             builder.header(
                     HEADER_ALLOW_HEADERS,
                     String.join(", ", explicit.headers())

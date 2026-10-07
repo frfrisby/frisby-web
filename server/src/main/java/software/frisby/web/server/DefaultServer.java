@@ -528,6 +528,22 @@ final class DefaultServer implements Server {
         // segment over a template variable, regardless of registration order. A resource
         // registered at the literal "/api/widgets" always wins over this catch-all, which is
         // only ever invoked for a path nothing more specific claimed.
+        registerSpaFallbackResources(rc);
+
+        return rc;
+    }
+
+    /**
+     * Mounts one SPA-fallback JAX-RS resource per {@link StaticAssetsConfiguration} with
+     * {@code spaFallback()} enabled, validating each asset root and its {@code index.html}
+     * up front.  See the comment block at this method's call site in
+     * {@link #buildResourceConfig()} for why this is a JAX-RS resource rather than a
+     * {@link StaticHandler} behavior.
+     *
+     * @throws IllegalStateException if an asset root is missing, is not a directory, or
+     *                               does not contain a readable {@code index.html}.
+     */
+    private void registerSpaFallbackResources(ResourceConfig rc) {
         for (StaticAssetsConfiguration staticAssetsConfig : staticAssetsConfigurations) {
             if (!staticAssetsConfig.spaFallback()) {
                 continue;
@@ -579,8 +595,6 @@ final class DefaultServer implements Server {
 
             rc.registerResources(spaFallbackResource.build());
         }
-
-        return rc;
     }
 
     /**
