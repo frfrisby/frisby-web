@@ -182,14 +182,6 @@ class ClientServerSseCapstoneTest {
             return PRETTY_JSON_CONTAINED_LINE_FEEDS.get();
         }
 
-        private static void sleepForHeartbeat() {
-            try {
-                Thread.sleep(70L);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         @GET
         @Path("/stream")
         @Produces(MediaType.SERVER_SENT_EVENTS)
@@ -211,8 +203,6 @@ class ClientServerSseCapstoneTest {
                     .sse(sse)
                     .heartbeat(Duration.ofMillis(20))
                     .build()) {
-                // Ensure at least one heartbeat comment has time to emit before business events.
-                sleepForHeartbeat();
 
                 for (OutboundRecord record : pending) {
                     emitter.send(toEvent(record)).join();

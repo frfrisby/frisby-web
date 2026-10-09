@@ -798,6 +798,13 @@ SseEvent event = SseEvents.of(serializer)
 - Heartbeat send is best-effort: if the sink is already closed, the heartbeat is skipped;
   if a heartbeat send races with close and fails, the failure is logged internally and
   is not propagated to resource code.
+- Concurrent sends are safe without any caller-side synchronization or settling delay: a
+  resource method may call `emitter.send(...)` immediately after `build()` returns and
+  repeatedly thereafter, racing freely against the independently-scheduled heartbeat
+  tick, with no risk of a corrupted, lost, or duplicated frame on either side. The
+  underlying JAX-RS transport (Jersey's `ChunkedOutput`) serializes all writes to a
+  given sink through its own internal queue/lock, regardless of which thread calls
+  `send()`.
 
 ### Handling disconnect races in resource methods
 

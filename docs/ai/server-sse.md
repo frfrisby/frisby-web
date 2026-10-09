@@ -120,6 +120,7 @@ Optional:
   - emits comment frames (for example `: keep-alive`)
   - does not emit `id`/`event`/`data`/`retry`
   - heartbeat send is best-effort: closed sinks are skipped; heartbeat send failures are logged internally and not thrown to callers
+  - safe to race: a resource method's own `send()` calls and the recurring heartbeat tick may hit the same sink concurrently with no caller-side synchronization or settling delay needed; the underlying transport (Jersey's `ChunkedOutput`) serializes writes internally
 
 Terminal:
 
