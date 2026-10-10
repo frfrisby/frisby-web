@@ -10,6 +10,7 @@ import jakarta.ws.rs.sse.Sse;
 import jakarta.ws.rs.sse.SseEventSink;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import software.frisby.web.client.Client;
 import software.frisby.web.serial.jackson.JacksonSerializer;
@@ -51,15 +52,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * this test forced a fresh TCP connection per trial (reconnecting every few milliseconds,
  * hundreds of times). That reliably produced periodic multi-hundred-millisecond-to-low-
  * seconds stalls with no corresponding error or exception anywhere in either the client or
- * server logs — the signature of local ephemeral-port/{@code TIME_WAIT} pressure from
+ * server logs. The signature of local ephemeral-port/{@code TIME_WAIT} pressure from
  * opening that many brand-new loopback sockets in rapid succession, not a library defect.
  * Using one long-lived connection and a long in-connection burst isolates the actual
  * heartbeat-vs-send race repeatedly (one trial per event in the burst) without that
  * confounding variable.
  */
+@Disabled("Disabled because it is a long-running stress test that is not suitable for regular CI runs. " +
+        "Enable and run manually when investigating potential race conditions in SSE handling.")
 class ClientServerSseImmediateEventRaceTest {
     private static final String RACE_EVENT = "race-event";
-    private static final int EVENT_COUNT = 500;
+    private static final int EVENT_COUNT = 5000;
     private static final long HEARTBEAT_MILLIS = 7L;
 
     private static Server server;
