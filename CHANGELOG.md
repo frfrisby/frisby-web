@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.4](https://github.com/frfrisby/frisby-web/compare/v1.5.3...v1.5.4) (2026-10-10)
+
+
+### Documentation
+
+* **sse:** Document heartbeat/event-send concurrency safety guarantee. ([#79](https://github.com/frfrisby/frisby-web/issues/79)) ([83c5105](https://github.com/frfrisby/frisby-web/commit/83c51052b2d7862b632f56f45c20e1445b78a298))
+
 ## [1.5.3](https://github.com/frfrisby/frisby-web/compare/v1.5.2...v1.5.3) (2026-10-07)
 
 
