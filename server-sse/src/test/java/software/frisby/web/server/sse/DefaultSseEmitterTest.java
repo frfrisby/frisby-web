@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DefaultSseEmitterTest {
     private static final String NULL_EVENT_MESSAGE = "The 'event' value is invalid. The value must not be null.";
     private static final String HEARTBEAT_COMMENT = "keep-alive";
-    private static final String HEARTBEAT_FAILURE_MESSAGE = "Heartbeat send failed.";
+    private static final String HEARTBEAT_FAILURE_MESSAGE = "Heartbeat send failed";
 
     private static final class CapturingSink implements SseEventSink {
         private final List<OutboundSseEvent> sentEvents;
@@ -631,16 +631,16 @@ class DefaultSseEmitterTest {
         }
 
         @Test
-        void heartbeatSendThrows_logsDebugMessageWithCause() throws InterruptedException {
+        void heartbeatSendThrows_logsInfoMessageWithCause() throws InterruptedException {
             RuntimeException cause = new RuntimeException("Simulated heartbeat send failure.");
             CapturingSink sink = new CapturingSink();
             sink.sendException = cause;
 
             try (SystemLogVerifier verifier = SystemLogVerifier.builder()
-                    .configure(DefaultSseEmitter.class, System.Logger.Level.DEBUG)
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.INFO)
                     .expect(LogExpectation.builder()
                             .logger(DefaultSseEmitter.class)
-                            .level(System.Logger.Level.DEBUG)
+                            .level(System.Logger.Level.INFO)
                             .predicate(e -> e.message().contains(HEARTBEAT_FAILURE_MESSAGE) && cause == e.thrown())
                             .build()
                     )

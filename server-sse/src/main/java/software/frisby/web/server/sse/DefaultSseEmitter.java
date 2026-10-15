@@ -182,11 +182,19 @@ final class DefaultSseEmitter implements SseEmitter {
                             .build()
             );
         } catch (Exception ex) {
-            LOGGER.log(
-                    System.Logger.Level.DEBUG,
-                    "Heartbeat send failed.",
-                    ex
-            );
+            // INFO, not DEBUG: this is the first (and, because of the isClosed() short-circuit
+            // above, the only) point where the server observes that a write to this sink failed.
+            // That's the same operational significance as "SSE stream opened"/"SSE stream closed"
+            // below, which are already INFO — a client silently going away is a routine, expected
+            // event for any SSE server, so this intentionally stops short of WARN to avoid alarm
+            // fatigue, but it must not be invisible at a log level production typically runs at.
+            if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
+                LOGGER.log(
+                        System.Logger.Level.INFO,
+                        "Heartbeat send failed; sink is presumed closed.",
+                        ex
+                );
+            }
         }
     }
 }
