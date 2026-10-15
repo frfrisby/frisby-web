@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A transparent TCP byte-pump proxy that sits between a test's {@code Client} and a real
@@ -46,6 +47,7 @@ final class BlackHoleTcpProxy implements AutoCloseable {
     private final ExecutorService executor;
     private final List<Connection> connections;
     private final AtomicInteger acceptedConnectionCount;
+    private final AtomicLong relayedToClientByteCount;
     private final AtomicBoolean closed;
 
     BlackHoleTcpProxy(String upstreamHost, int upstreamPort) throws IOException {
@@ -59,6 +61,7 @@ final class BlackHoleTcpProxy implements AutoCloseable {
         });
         this.connections = new CopyOnWriteArrayList<>();
         this.acceptedConnectionCount = new AtomicInteger(0);
+        this.relayedToClientByteCount = new AtomicLong(0);
         this.closed = new AtomicBoolean(false);
 
         executor.submit(this::acceptLoop);
@@ -70,6 +73,25 @@ final class BlackHoleTcpProxy implements AutoCloseable {
 
     int acceptedConnectionCount() {
         return acceptedConnectionCount.get();
+    }
+
+    /**
+     * Total bytes actually relayed from upstream to a client so far, across every
+     * connection — i.e. bytes the client has genuinely received, as opposed to bytes
+     * merely accepted at the TCP layer. {@link #acceptedConnectionCount()} only reflects
+     * {@link ServerSocket#accept()} completing, which happens the instant the TCP
+     * handshake finishes and says nothing about whether the upstream server has produced
+     * (or this proxy has relayed) a single byte of the actual HTTP response yet — calling
+     * {@link #goSilent()} before this counter has advanced past its pre-call value would
+     * silence the connection before the client ever receives a response at all, which is
+     * indistinguishable, from the client's perspective, from the upstream server itself
+     * never responding — a completely different failure mode (a pre-first-byte timeout)
+     * than the post-first-byte staleness {@link #goSilent()} exists to simulate. Tests
+     * must poll this counter (not {@link #acceptedConnectionCount()}) to confirm the
+     * client has actually received its first byte before silencing.
+     */
+    long relayedToClientByteCount() {
+        return relayedToClientByteCount.get();
     }
 
     /**
@@ -140,6 +162,10 @@ final class BlackHoleTcpProxy implements AutoCloseable {
 
                 out.write(buffer, 0, read);
                 out.flush();
+
+                if (checkSilenced) {
+                    relayedToClientByteCount.addAndGet(read);
+                }
             }
         } catch (IOException | InterruptedException e) {
             // Expected once either socket is closed (proxy shutdown, or the client/server

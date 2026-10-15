@@ -135,8 +135,22 @@ class ClientServerSseBlackHoleConnectionTest {
                     "Expected the first connection to establish normally"
             );
 
-            // Silence only after the first connection is actually established -- confirmed
-            // by the proxy itself having accepted it, not just a fixed sleep.
+            // Silencing as soon as the proxy has merely accepted the TCP connection is
+            // too early -- acceptedConnectionCount() only reflects ServerSocket#accept()
+            // completing, well before the upstream server's response (not even headers)
+            // has actually been relayed back. goSilent() stops the upstream-to-client
+            // relay direction outright, including bytes not yet relayed -- silencing
+            // before any byte has reached the client would permanently strand that very
+            // first response, turning this into a pre-first-byte HttpTimeoutException
+            // (reported as SseReconnectCause.FAILURE) instead of the post-first-byte
+            // staleness this test exists to exercise. Waiting for at least one relayed
+            // byte first guarantees the client has genuinely received (part of) its
+            // response before the connection goes silent.
+            assertTrue(
+                    awaitRelayedBytes(1, Duration.ofSeconds(10)),
+                    "Expected at least one byte to actually reach the client before silencing the connection"
+            );
+
             proxy.goSilent();
 
             assertTrue(
@@ -193,6 +207,13 @@ class ClientServerSseBlackHoleConnectionTest {
                     "Expected the first connection to establish normally"
             );
 
+            // See the identical wait in idleTimeoutEnabled_recoversFromASilentBlackhole
+            // above for why acceptedConnectionCount() alone is too early a signal here.
+            assertTrue(
+                    awaitRelayedBytes(1, Duration.ofSeconds(10)),
+                    "Expected at least one byte to actually reach the client before silencing the connection"
+            );
+
             proxy.goSilent();
 
             // Comfortably shorter than the Client's own 5s idleTimeout default (fed by
@@ -230,6 +251,20 @@ class ClientServerSseBlackHoleConnectionTest {
         }
 
         return proxy.acceptedConnectionCount() >= expectedCount;
+    }
+
+    private boolean awaitRelayedBytes(long expectedCount, Duration timeout) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
+
+        while (System.currentTimeMillis() < deadline) {
+            if (proxy.relayedToClientByteCount() >= expectedCount) {
+                return true;
+            }
+
+            Thread.sleep(20L);
+        }
+
+        return proxy.relayedToClientByteCount() >= expectedCount;
     }
 
     @Path("/blackhole")
