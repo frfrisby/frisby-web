@@ -17,7 +17,7 @@ import java.util.concurrent.CompletableFuture;
  * {@link #streamAsync()}) is called.
  * <p>
  * {@code SseSpec} is deliberately minimal — it returns the raw response stream, exactly
- * like {@link GetSpec#download()}, with no dependency beyond the core {@code client}
+ * like {@link DownloadSpec#stream()}, with no dependency beyond the core {@code client}
  * module.  Callers who want typed per-event-type callback dispatch, automatic
  * reconnection, and backpressure handling should use the {@code software.frisby.web:client-sse}
  * module instead.  Callers who want to write their own SSE reader can use this type
@@ -177,31 +177,29 @@ public interface SseSpec {
     SseSpec security(SecurityProvider provider);
 
     /**
-     * Overrides, for this call only, how long {@link #stream()}/{@link #streamAsync()}
-     * will wait to receive the very first byte of the response before giving up.
+     * Overrides, for this call only, the idle timeout used to bound both the
+     * time-to-first-byte wait and any subsequent post-first-byte stall on the stream.
      * <p>
-     * This bounds <strong>time-to-first-byte only</strong> — the same semantics as
-     * {@link ClientConfiguration#readTimeout()}, whose value is used when this method is
-     * never called.  Once at least one byte has arrived, this timeout no longer applies;
-     * a stream held open indefinitely afterward is never prematurely closed by it,
-     * exactly like {@link GetSpec#download()}.
+     * See {@link ClientConfiguration#idleTimeout()} for the full explanation of what
+     * {@code idleTimeout} bounds. When this method is never called, the connection-wide
+     * {@link ClientConfiguration#idleTimeout()} default applies instead.
      * <p>
-     * Useful when the client's globally configured {@code readTimeout()} is tuned for
+     * Useful when the client's globally configured {@code idleTimeout} is tuned for
      * ordinary request/response calls but is too short for a particular SSE endpoint that
-     * may legitimately take longer to write anything at all. For example, a third-party
-     * service not built on this library's {@code server-sse} module, or one of our own
-     * services whose resource method has no heartbeat configured and does not write its
-     * first event immediately.  Rather than loosening {@code readTimeout()} for every
-     * other call made through the same {@link Client}, override it here for just this
-     * stream.
+     * may legitimately take longer to write anything at all, or one that sends events only
+     * sporadically enough that the gap between them could otherwise exceed the default.
+     * For example, a third-party service not built on this library's {@code server-sse}
+     * module, or one of our own services whose resource method has no heartbeat
+     * configured. Rather than loosening {@code idleTimeout} for every other call made
+     * through the same {@link Client}, override it here for just this stream.
      *
-     * @param timeout The maximum time to wait for the first byte of the response; must be
-     *                positive.
+     * @param timeout The idle timeout to apply to this stream; must not be {@code null}
+     *                or negative.
      * @return This spec instance.
      * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
-    SseSpec firstByteTimeout(Duration timeout);
+    SseSpec idleTimeout(Duration timeout);
 
     /**
      * Sends the request and returns the response body as a raw {@link InputStream} of
@@ -225,4 +223,3 @@ public interface SseSpec {
      */
     CompletableFuture<HttpResponse<InputStream>> streamAsync();
 }
-

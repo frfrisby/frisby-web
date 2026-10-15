@@ -7,9 +7,11 @@ import software.frisby.web.client.Client;
 import software.frisby.web.client.Headers;
 import software.frisby.web.client.RetryDelay;
 import software.frisby.web.client.SseSpec;
+import software.frisby.web.client.exception.IdleTimeoutException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -27,27 +29,28 @@ import java.util.function.Function;
  * Package-private implementation of {@link SseListener}.
  * <p>
  * Owns the reader thread, one dispatch pipeline per registered {@code onEvent(String,
- * SseHandler)}/{@code onEvent(String, SseBatchHandler)} handler (built once in
- * {@link #connectAsync()}, torn down only in {@link #close()}), and the listener's
- * owned executor, if one was created because the caller did not supply their own via
- * {@link SseListenerBuilder#executor}.
+ * SseHandler)}/{@code onEvent(String, SseBatchHandler)} handler, and the listener's
+ * owned executor. Each handler's pipeline is built once in {@link #connectAsync()} and
+ * torn down only in {@link #close()}. The owned executor only exists if one was created
+ * because the caller did not supply their own via {@link SseListenerBuilder#executor}.
  * <p>
- * Every handler's pipeline starts the same way — {@code Buffer<RawSseEvent> →
- * Transform<RawSseEvent, Delivery>} (deserializing, or passing the raw {@code data}
- * string through unchanged for a {@code String}-body handler; {@link Delivery} pairs the resulting
- * {@link SseMessage} with the {@link RawSseEvent} it came from, so a handler callback
- * exception can still report the untouched wire-format {@code data} string as
- * {@link SseErrorEvent} context) — a failed deserialization is caught inside the
+ * Every handler's pipeline starts the same way: {@code Buffer<RawSseEvent> →
+ * Transform<RawSseEvent, Delivery>}, deserializing, or passing the raw {@code data}
+ * string through unchanged for a {@code String}-body handler. {@link Delivery} pairs the
+ * resulting {@link SseMessage} with the {@link RawSseEvent} it came from, so a handler
+ * callback exception can still report the untouched wire-format {@code data} string as
+ * {@link SseErrorEvent} context. A failed deserialization is caught inside the
  * {@code Transform} step, logged at {@code WARNING}, routed to {@code onError} with that
- * same raw context, and dropped ({@code null} result) rather than propagated. An
- * {@code onEvent(String, SseHandler)} handler's pipeline ends there with a terminal
- * {@code Action}; an {@code onEvent(String, SseBatchHandler)} handler's pipeline uses
- * {@code Batch<RawSseEvent>} as its own head stage instead of {@code Buffer<RawSseEvent>}
- * — {@code Batch} already has its own internal queue/{@code capacity} and dedicated
+ * same raw context, and dropped ({@code null} result) rather than propagated.
+ * <p>
+ * An {@code onEvent(String, SseHandler)} handler's pipeline ends there with a terminal
+ * {@code Action}. An {@code onEvent(String, SseBatchHandler)} handler's pipeline uses
+ * {@code Batch<RawSseEvent>} as its own head stage instead of {@code Buffer<RawSseEvent>}.
+ * {@code Batch} already has its own internal queue/{@code capacity} and dedicated
  * worker thread (see {@code concurrency.md}), so chaining a separate {@code Buffer} in
- * front of it would cost a second thread per batch handler for no benefit — followed by a
- * {@code Transform<List<RawSseEvent>, List<Delivery>>} that deserializes each item in the
- * batch individually via {@link #deserializeBatchSafely}: a single item's failure is
+ * front of it would cost a second thread per batch handler for no benefit. It is followed
+ * by a {@code Transform<List<RawSseEvent>, List<Delivery>>} that deserializes each item in
+ * the batch individually via {@link #deserializeBatchSafely}. A single item's failure is
  * caught and that item alone is filtered out of the resulting list, never the whole
  * batch (see {@link #deserializeSafely}, reused per-item here). {@code concurrency > 1}
  * wraps either shape in a {@code Router} with that many arms (see
@@ -57,50 +60,59 @@ import java.util.function.Function;
  * present is looked up in the per-event-type handler map by that exact value — including
  * the literal string {@code "message"}, if a handler happens to be registered for it. An
  * event with <em>no</em> {@code event} field at all is never looked up in that map; it is
- * always routed straight to the unhandled-event pipeline. This keeps "the producer didn't
- * set an event type" distinct from "the producer explicitly chose the name message" —
- * conflating the two would let an untyped event be silently deserialized against whatever
- * type a caller happened to register under {@code "message"}. See {@link ReaderTask#dispatch}.
+ * always routed straight to the unhandled-event pipeline. This distinguishes "the
+ * producer didn't set an event type" from "the producer explicitly chose the name
+ * message". Conflating the two would let an untyped event be silently deserialized
+ * against whatever type a caller happened to register under {@code "message"}. See
+ * {@link ReaderTask#dispatch}.
  * <p>
  * <strong>Reconnect loop.</strong> On any stream close — a clean end-of-stream from the
  * server, an I/O failure, or a policy-driven {@link BufferFullPolicy#DISCONNECT} — the
- * reader thread reconnects unconditionally and indefinitely, re-invoking
+ * reader thread reconnects unconditionally and indefinitely. It re-invokes
  * {@code client.sse()...stream()} (replaying the stored navigation template) with
  * {@code header(Headers.LAST_EVENT_ID, ...)} set to the most recently parsed event's
- * {@code id}, if any. Only an actual failure (an {@link IOException} or unexpected
- * {@link RuntimeException} — not a clean end-of-stream, and not a policy-driven
- * disconnect) is logged at {@code Error} and routed to the registered {@code onError}
- * handler; a clean close or a deliberate {@code DISCONNECT} reconnects silently. The
- * delay before each reconnect attempt is the server's most recently received
+ * {@code id}, if any.
+ * <p>
+ * Only an actual failure (an {@link IOException} or unexpected {@link RuntimeException}
+ * — not a clean end-of-stream, and not a policy-driven disconnect) is logged at
+ * {@code Error} and routed to the registered {@code onError} handler. A clean close or a
+ * deliberate {@code DISCONNECT} reconnects silently.
+ * <p>
+ * The delay before each reconnect attempt is the server's most recently received
  * {@code retry} field, if any (consumed for one attempt only), otherwise the configured
- * {@link SseListenerBuilder#reconnectDelay(RetryDelay) reconnectDelay} strategy, whose
- * attempt counter increments after either an actual failure or a policy-driven
- * {@code DISCONNECT} — both represent a reconnect cycle that did not complete
- * cleanly, and a caller-configured backoff strategy (e.g. exponential) needs to
+ * {@link SseListenerBuilder#reconnectDelay(RetryDelay) reconnectDelay} strategy. That
+ * strategy's attempt counter increments after either an actual failure or a
+ * policy-driven {@code DISCONNECT} — both represent a reconnect cycle that did not
+ * complete cleanly. A caller-configured backoff strategy (e.g. exponential) needs to
  * escalate across repeated cycles of either kind to give a persistently overwhelmed
- * downstream consumer room to catch up; only the logging/{@code onError} notification
+ * downstream consumer room to catch up. Only the logging/{@code onError} notification
  * above distinguishes the two. The counter resets to zero only once a connection
  * attempt completes with no exception at all — a clean end-of-stream or
  * {@link #close()}. The only way this loop ever stops is {@link #close()}.
  * <p>
  * <strong>{@link BufferFullPolicy}.</strong> {@code BLOCK} posts unconditionally via the
  * pipeline's ordinary blocking {@code post(T)}, relying on {@code Buffer}/{@code Batch}'s
- * natural blocking behavior. {@code DROP}/{@code DISCONNECT} instead call the pipeline's
- * bounded-wait {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s "Bounded-Wait
- * Posting" section) — an atomic, non-blocking accept-or-reject against the pipeline's own
- * real capacity gate, with no separate pre-check step and therefore no race window, unlike
- * an approach that inspects {@code inFlight()} and posts as two separate calls. {@code DROP}
- * silently discards the event once the threshold is reached — logging a {@code WARNING}
- * when a run of drops begins and another when the buffer recovers (with a summary count
- * and duration), rather than one {@code WARNING} per dropped event, which would flood
- * logs under the exact sustained-high-volume conditions {@code DROP} is meant for; if
- * the connection itself ends (clean EOF, an error, or {@link #close()}) while a drop
- * episode is still in progress, the same summary is logged at that point instead, since
- * a recovery may never otherwise occur. The caller's
- * registered {@link SseListenerObserver#onDropped onDropped} observer method, if any, still fires
- * once per dropped event for callers who want per-item granularity (e.g. a metrics
- * counter). {@code DISCONNECT} closes the current stream instead of posting, triggering
- * the reconnect loop above with the last successfully parsed {@code id} already recorded
+ * natural blocking behavior.
+ * <p>
+ * {@code DROP}/{@code DISCONNECT} instead call the pipeline's bounded-wait
+ * {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s "Bounded-Wait Posting"
+ * section): an atomic, non-blocking accept-or-reject against the pipeline's own real
+ * capacity gate, with no separate pre-check step and therefore no race window. This is
+ * unlike an approach that inspects {@code inFlight()} and posts as two separate calls.
+ * <p>
+ * {@code DROP} silently discards the event once the threshold is reached, logging a
+ * {@code WARNING} when a run of drops begins and another when the buffer recovers (with
+ * a summary count and duration). This is instead of one {@code WARNING} per dropped
+ * event, which would flood logs under the exact sustained-high-volume conditions
+ * {@code DROP} is meant for. If the connection itself ends (clean EOF, an error, or
+ * {@link #close()}) while a drop episode is still in progress, the same summary is
+ * logged at that point instead, since a recovery may never otherwise occur. The
+ * caller's registered {@link SseListenerObserver#onDropped onDropped} observer method,
+ * if any, still fires once per dropped event for callers who want per-item granularity
+ * (e.g. a metrics counter).
+ * <p>
+ * {@code DISCONNECT} closes the current stream instead of posting, triggering the
+ * reconnect loop above with the last successfully parsed {@code id} already recorded
  * for {@code Last-Event-ID} replay.
  */
 final class DefaultSseListener implements SseListener {
@@ -123,6 +135,7 @@ final class DefaultSseListener implements SseListener {
     private final AtomicBoolean started;
     private final AtomicBoolean closed;
     private final AtomicReference<InputStream> currentStream;
+    private final AtomicReference<URI> currentUri;
 
     private ExecutorService pipelineExecutor;
     private NamedExecutorService ownedExecutor;
@@ -160,6 +173,13 @@ final class DefaultSseListener implements SseListener {
         this.started = new AtomicBoolean(false);
         this.closed = new AtomicBoolean(false);
         this.currentStream = new AtomicReference<>();
+        // Seeded with the Client's own configured base URI rather than left null, so even
+        // a listener whose very first connection attempt ever fails -- before any
+        // HttpResponse has come back to resolve the full per-stream URI from -- still logs
+        // something more useful than nothing. Overwritten with the fully resolved
+        // per-stream URI (path, parameters, everything) the moment the first successful
+        // connection actually returns a response -- see ReaderTask#openStream.
+        this.currentUri = new AtomicReference<>(client.configuration().uri());
         this.pipelineExecutor = null;
         this.ownedExecutor = null;
         this.handlerPipelines = null;
@@ -179,14 +199,14 @@ final class DefaultSseListener implements SseListener {
      * <p>
      * Shared by {@link #close()} (the same failure message every time) and
      * {@link ReaderTask#postWithPolicy} (a distinct message specific to a policy-driven
-     * {@link BufferFullPolicy#DISCONNECT}) — extracted here specifically so this
+     * {@link BufferFullPolicy#DISCONNECT}). Extracted here specifically so this
      * catch-and-log behavior is defined, and unit tested, exactly once rather than
      * duplicated at each call site.
      * <p>
      * Package-private rather than {@code private}, matching {@link #throwIfFatal}'s own
      * rationale: this is trivial to unit test directly with an ordinary throwing
      * {@link InputStream} test double, but has no practical way to be exercised through
-     * either real call site — neither a normal JDK {@code HttpClient} response stream nor
+     * either real call site. Neither a normal JDK {@code HttpClient} response stream nor
      * a test server can be coaxed into making {@code close()} itself throw on demand.
      *
      * @param stream         The stream to close; a no-op if {@code null}.
@@ -205,18 +225,37 @@ final class DefaultSseListener implements SseListener {
     }
 
     /**
+     * Prefixes {@code message} with {@code uri} in this module's established
+     * {@code "{method} {uri} → {outcome}"} log-message convention (see
+     * {@code RequestLogger}/{@code RequestCompletedEvent}/{@code RequestFailedEvent} in
+     * the {@code client} module, and {@code WatchdogEntry}'s own close-failure log,
+     * for the same shape). Every SSE request this module ever issues is a {@code GET},
+     * so that method name is hardcoded here rather than threaded through as a parameter.
+     * <p>
+     * {@code uri} is never actually {@code null} at any real call site — {@link #currentUri}
+     * is seeded with the {@code Client}'s own configured base URI at construction and is
+     * only ever overwritten with a more specific, fully resolved per-stream URI once a
+     * connection actually succeeds (see {@link ReaderTask#openStream}), never cleared back
+     * to {@code null}. A listener whose very first connection attempt ever fails still logs
+     * that base URI, rather than nothing at all.
+     */
+    private static String withUri(URI uri, String message) {
+        return "GET " + uri + " → " + message;
+    }
+
+    /**
      * Rethrows {@code t} unchanged if it is fatal to the JVM — {@link VirtualMachineError}
      * (covering {@link OutOfMemoryError}, {@link StackOverflowError}, {@link InternalError},
-     * and {@link UnknownError}) or {@link LinkageError} — otherwise returns normally. As
-     * opposed to a merely unwelcome throwable (a handler's {@link RuntimeException}, or an
-     * {@code AssertionError} escaping a test's callback), which this listener's
-     * callback-safety net ({@link #dispatchSafely}/{@link #dispatchBatchSafely}/
-     * {@link #notify}/{@link ReaderTask#notifyError}/{@link ReaderTask#notifyDropped}) is
-     * designed to swallow and report via {@code onError} rather than let kill a worker
-     * thread, a fatal error is deliberately excluded from that net.
+     * and {@link UnknownError}) or {@link LinkageError} — otherwise returns normally. A
+     * fatal error is deliberately excluded from this listener's callback-safety net
+     * ({@link #dispatchSafely}/{@link #dispatchBatchSafely}/{@link #notify}/
+     * {@link ReaderTask#notifyError}/{@link ReaderTask#notifyDropped}). That net is designed
+     * to swallow and report a merely unwelcome throwable (a handler's
+     * {@link RuntimeException}, or an {@code AssertionError} escaping a test's callback)
+     * via {@code onError} rather than let it kill a worker thread.
      * <p>
      * Package-private rather than {@code private} specifically so it can be unit tested
-     * directly — forcing an actual {@link VirtualMachineError}/{@link LinkageError} to
+     * directly. Forcing an actual {@link VirtualMachineError}/{@link LinkageError} to
      * occur inside a test's callback is impractical, but this method's own branching is
      * trivial to exercise in isolation with ordinary test doubles of each declared
      * subtype.
@@ -235,17 +274,17 @@ final class DefaultSseListener implements SseListener {
      * Computes how long a drop episode lasted, for {@link ReaderTask#flushDropEpisode}'s
      * summary log message.
      * <p>
-     * {@code start} is {@code null} only if a drop episode was never actually begun —
-     * structurally unreachable from {@code flushDropEpisode}'s only call sites, since
+     * {@code start} is {@code null} only if a drop episode was never actually begun.
+     * That is structurally unreachable from {@code flushDropEpisode}'s only call sites.
      * {@code ReaderTask.recordDrop} always sets {@code dropEpisodeStart} in the same
      * (single, reader) thread and in the same method call that first increments
-     * {@code droppedCount} from {@code 0}, and {@code flushDropEpisode} itself already
+     * {@code droppedCount} from {@code 0}. {@code flushDropEpisode} itself already
      * returns early whenever {@code droppedCount} reads as {@code 0}. So by the time this
      * method is ever called with a genuinely {@code null} {@code start}, {@code count}
      * would also have to be {@code 0} — the exact case already filtered out one line
      * earlier. Kept as honest defensive programming (a caller can't structurally prove a
-     * {@code null} will never be passed) rather than assuming the invariant always holds;
-     * package-private specifically so this branch is directly unit testable, since driving
+     * {@code null} will never be passed) rather than assuming the invariant always holds.
+     * Package-private specifically so this branch is directly unit testable, since driving
      * a real reader thread into this state is not practically achievable.
      *
      * @param start The instant the current drop episode began, or {@code null} if none is
@@ -260,15 +299,16 @@ final class DefaultSseListener implements SseListener {
     /**
      * Reports whether the reader loop should continue after {@code ReaderTask
      * .awaitReconnectDelay}'s {@code Thread.sleep} returns normally (i.e. was
-     * <em>not</em> interrupted) — {@code true} unless {@link #close()} concurrently set
-     * {@code closed} in the narrow window between the sleep completing and this check
-     * running, without its accompanying {@code readerFuture.cancel(true)} arriving in
-     * time to be observed as an {@link InterruptedException} instead. That race window
-     * is real but timing-dependent enough that no realistic integration test can force
-     * it on demand — extracted to a plain, directly testable static method (both a
-     * {@code true} and a {@code false} {@code closed} value are trivial to supply
-     * directly) rather than left as an unreachable-in-practice branch inline, per the
-     * same reasoning documented on {@link #computeDropEpisodeDuration}.
+     * <em>not</em> interrupted). Returns {@code true} unless {@link #close()}
+     * concurrently set {@code closed} in the narrow window between the sleep completing
+     * and this check running, without its accompanying {@code readerFuture.cancel(true)}
+     * arriving in time to be observed as an {@link InterruptedException} instead.
+     * <p>
+     * That race window is real but timing-dependent enough that no realistic integration
+     * test can force it on demand. Extracted to a plain, directly testable static method
+     * (both a {@code true} and a {@code false} {@code closed} value are trivial to supply
+     * directly). This is preferred over leaving it as an unreachable-in-practice branch
+     * inline, per the same reasoning documented on {@link #computeDropEpisodeDuration}.
      *
      * @param closed The listener's shared closed flag.
      * @return {@code true} if the reader loop should continue, {@code false} if
@@ -277,6 +317,7 @@ final class DefaultSseListener implements SseListener {
     static boolean isStillRunningAfterDelay(AtomicBoolean closed) {
         return !closed.get();
     }
+
 
     private static SsePipelineStats toStats(PipelineHandle handle) {
         return new SsePipelineStats(handle.capacity(), handle.concurrency(), handle.pipeline().inFlight());
@@ -316,6 +357,7 @@ final class DefaultSseListener implements SseListener {
                         unhandledPipeline,
                         observer,
                         currentStream,
+                        currentUri,
                         bufferFullPolicy,
                         this::toRawMessage,
                         reconnectDelay,
@@ -352,11 +394,12 @@ final class DefaultSseListener implements SseListener {
         }
 
         InputStream stream = currentStream.getAndSet(null);
-        closeStreamSafely(stream, "Failed to close the SSE input stream.");
+        closeStreamSafely(stream, withUri(currentUri.get(), "Failed to close the SSE input stream."));
 
         if (null != readerFuture) {
             readerFuture.cancel(true);
         }
+
 
         if (null != handlerPipelines) {
             handlerPipelines.values().forEach(Pipeline::complete);
@@ -381,7 +424,7 @@ final class DefaultSseListener implements SseListener {
 
     /**
      * Bounds {@code pipeline}'s drain wait to {@link #closeTimeout} instead of the
-     * unbounded no-arg {@code awaitCompletion()} — required specifically because a
+     * unbounded no-arg {@code awaitCompletion()}. This is required specifically because a
      * pipeline worker thread killed by an external {@code ExecutorService} shutdown
      * (rather than this listener's own graceful {@code complete()}) never resolves its
      * {@code completion()} future, per {@code frisby-core}'s own documented behavior. A
@@ -394,8 +437,11 @@ final class DefaultSseListener implements SseListener {
         if (!pipeline.awaitCompletion(closeTimeout)) {
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "A dispatch pipeline did not finish draining within the configured "
-                            + "closeTimeout of " + closeTimeout + "; close() is proceeding anyway."
+                    withUri(
+                            currentUri.get(),
+                            "A dispatch pipeline did not finish draining within the configured "
+                                    + "closeTimeout of " + closeTimeout + "; close() is proceeding anyway."
+                    )
             );
         }
     }
@@ -507,11 +553,12 @@ final class DefaultSseListener implements SseListener {
      * registration. A registered {@link #unhandledBatchHandler} takes the batch shape
      * ({@link #buildBatchHandlerPipeline}); a registered {@link #unhandledHandler} (or
      * neither being registered) takes the single-event shape
-     * ({@link #buildHandlerPipeline(SseHandler, String)}) — {@link SseListenerBuilder}
-     * guarantees at most one of the two is ever set, and both are always {@code String}-body handlers. Falls back
-     * to a no-op raw {@code String} handler when neither an {@code onUnhandledEvent} handler nor an
-     * {@code onUnhandledEvent} batch handler was registered, so {@code #dispatch} always
-     * has a pipeline to fall back to. Always registered with an empty {@code registeredAs}
+     * ({@link #buildHandlerPipeline(SseHandler, String)}). {@link SseListenerBuilder}
+     * guarantees at most one of the two is ever set, and both are always
+     * {@code String}-body handlers. Falls back to a no-op raw {@code String} handler
+     * when neither an {@code onUnhandledEvent} handler nor an {@code onUnhandledEvent}
+     * batch handler was registered, so {@code #dispatch} always has a pipeline to fall
+     * back to. Always registered with an empty {@code registeredAs}
      * — see {@link SseEventReceived#registeredAs()}.
      */
     private PipelineHandle buildUnhandledPipelineHandle() {
@@ -540,7 +587,7 @@ final class DefaultSseListener implements SseListener {
         try {
             return new Delivery(raw, toMessage(raw, handler));
         } catch (RuntimeException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "SSE event deserialization failed.", e);
+            LOGGER.log(System.Logger.Level.WARNING, withUri(currentUri.get(), "SSE event deserialization failed."), e);
             notifyError(toRawMessage(raw), e);
             return null;
         }
@@ -550,7 +597,7 @@ final class DefaultSseListener implements SseListener {
         try {
             return new Delivery(raw, toMessage(raw, handler));
         } catch (RuntimeException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "SSE event deserialization failed.", e);
+            LOGGER.log(System.Logger.Level.WARNING, withUri(currentUri.get(), "SSE event deserialization failed."), e);
             notifyError(toRawMessage(raw), e);
             return null;
         }
@@ -559,7 +606,7 @@ final class DefaultSseListener implements SseListener {
     /**
      * Deserializes each item in a batch individually, filtering out any item whose
      * deserialization fails ({@link #deserializeSafely(RawSseEvent, SseBatchHandler)})
-     * rather than discarding the whole batch — a single malformed event should never
+     * rather than discarding the whole batch. A single malformed event should never
      * take an entire batch's worth of good events down with it.
      */
     private List<Delivery> deserializeBatchSafely(List<RawSseEvent> raws, SseBatchHandler<?> handler) {
@@ -624,9 +671,10 @@ final class DefaultSseListener implements SseListener {
      * Invokes {@code handler}'s callback, isolating the pipeline's dedicated worker
      * thread from any non-fatal failure the callback raises — including an
      * {@link Error} subtype such as {@code AssertionError}/{@code AssertionFailedError}
-     * escaping a test's handler callback, not just {@link RuntimeException}. Each
-     * registered handler owns exactly one worker per
-     * {@link SseHandler#concurrency(int) concurrency} arm; letting a non-fatal
+     * escaping a test's handler callback, not just {@link RuntimeException}.
+     * <p>
+     * Each registered handler owns exactly one worker per
+     * {@link SseHandler#concurrency(int) concurrency} arm. Letting a non-fatal
      * {@code Error} propagate out of this method would kill that worker permanently
      * (nothing replaces it), which would in turn hang {@link #close()} forever inside
      * {@code pipeline().awaitCompletion()} waiting for a worker that no longer exists.
@@ -635,24 +683,25 @@ final class DefaultSseListener implements SseListener {
      * A truly fatal JVM-level error ({@link VirtualMachineError} — covering
      * {@link OutOfMemoryError}, {@link StackOverflowError}, and the like — or
      * {@link LinkageError}) is deliberately <em>not</em> swallowed here and is instead
-     * rethrown ({@link #throwIfFatal}): the JVM may already be in a corrupted or
-     * unrecoverable state at that point, and silently continuing to process further
+     * rethrown ({@link #throwIfFatal}). The JVM may already be in a corrupted or
+     * unrecoverable state at that point. Silently continuing to process further
      * events on this worker thread risks worse outcomes (e.g. quietly-wrong behavior)
      * than letting the thread die — the same trade-off made by
      * {@code Exceptions.throwIfFatal} in RxJava/Reactor.
      * <p>
      * The {@code null == delivery} guard is structurally unreachable through the real
-     * {@code Buffer → Transform → Action} pipeline — {@code concurrency}'s own
+     * {@code Buffer → Transform → Action} pipeline. {@code concurrency}'s own
      * {@code TargetManager.postToTarget} never forwards a {@code null} item to a linked
-     * target at all (verified directly against its source), so {@link #deserializeSafely}
+     * target at all (verified directly against its source). So {@link #deserializeSafely}
      * returning {@code null} on a failed deserialization already stops that item from
-     * ever reaching this method, let alone with a null {@code delivery} argument. The
-     * guard is kept anyway as honest defensive programming against a direct call (this
-     * method is package-private specifically so a test can make one), rather than
+     * ever reaching this method, let alone with a null {@code delivery} argument.
+     * <p>
+     * The guard is kept anyway as honest defensive programming against a direct call
+     * (this method is package-private specifically so a test can make one), rather than
      * assuming a caller can never violate the assumption.
      * <p>
      * Publishes {@link SseEventProcessed} to {@link SseListenerObserver#onEventProcessed}
-     * unconditionally, whether the callback returns normally or throws — a thrown
+     * unconditionally, whether the callback returns normally or throws. A thrown
      * callback exception still fully reports via {@link SseListenerObserver#onError} as
      * before, and is additionally tagged {@link SseEventProcessed#succeeded()
      * succeeded() == false} here so telemetry built purely on {@code onEventProcessed}
@@ -673,7 +722,7 @@ final class DefaultSseListener implements SseListener {
             throwIfFatal(e);
 
             succeeded = false;
-            LOGGER.log(System.Logger.Level.WARNING, "SSE handler callback failed.", e);
+            LOGGER.log(System.Logger.Level.WARNING, withUri(currentUri.get(), "SSE handler callback failed."), e);
             notifyError(toRawMessage(delivery.raw()), e);
         }
 
@@ -687,21 +736,22 @@ final class DefaultSseListener implements SseListener {
      * <p>
      * Unlike {@link #dispatchSafely}'s {@code null == delivery} guard, this method's
      * {@code deliveries.isEmpty()} half is genuinely reachable through the real
-     * {@code Batch → Transform → Action} pipeline: {@link #deserializeBatchSafely} filters
-     * a failed item out of the batch individually rather than failing the whole batch, so
-     * a batch whose <em>every</em> item fails to deserialize produces a non-null, empty
-     * list — nothing to deliver, but not an unreachable state. {@code null == deliveries},
-     * on the other hand, is unreachable for the same reason documented on
-     * {@link #dispatchSafely}: {@code deserializeBatchSafely} always returns a list, never
-     * {@code null}, and {@code concurrency}'s {@code TargetManager.postToTarget} would not
-     * forward a null item downstream even if it somehow did. Kept for the same
-     * defensive-programming reason, and this method is package-private for the same
-     * direct-testability reason.
+     * {@code Batch → Transform → Action} pipeline. {@link #deserializeBatchSafely} filters
+     * a failed item out of the batch individually rather than failing the whole batch.
+     * A batch whose <em>every</em> item fails to deserialize produces a non-null, empty
+     * list — nothing to deliver, but not an unreachable state.
      * <p>
-     * Publishes one {@link SseEventProcessed} per item in {@code deliveries} — mirroring
-     * one {@link SseEventReceived} per raw item — each with its own accurate
+     * {@code null == deliveries}, on the other hand, is unreachable for the same reason
+     * documented on {@link #dispatchSafely}: {@code deserializeBatchSafely} always
+     * returns a list, never {@code null}, and {@code concurrency}'s
+     * {@code TargetManager.postToTarget} would not forward a null item downstream even
+     * if it somehow did. Kept for the same defensive-programming reason, and this method
+     * is package-private for the same direct-testability reason.
+     * <p>
+     * Publishes one {@link SseEventProcessed} per item in {@code deliveries} —
+     * mirroring one {@link SseEventReceived} per raw item. Each has its own accurate
      * {@link SseEventProcessed#totalLatency()} measured against its own
-     * {@link RawSseEvent#receivedAt()}, but all sharing the same
+     * {@link RawSseEvent#receivedAt()}, but all share the same
      * {@link SseEventProcessed#processingDuration()} and {@link SseEventProcessed#succeeded()},
      * since the callback ran once for the whole batch. Published unconditionally, whether
      * the callback returns normally or throws — see
@@ -727,7 +777,7 @@ final class DefaultSseListener implements SseListener {
             throwIfFatal(e);
 
             succeeded = false;
-            LOGGER.log(System.Logger.Level.WARNING, "SSE batch handler callback failed.", e);
+            LOGGER.log(System.Logger.Level.WARNING, withUri(currentUri.get(), "SSE batch handler callback failed."), e);
             notifyError(e);
         }
 
@@ -760,12 +810,12 @@ final class DefaultSseListener implements SseListener {
     /**
      * Invokes the registered {@link SseListenerObserver#onError}, isolating the calling
      * thread from any non-fatal failure it raises — same rationale and
-     * {@link #throwIfFatal} carve-out as {@link #dispatchSafely}. This matters just as much
-     * here: this method runs on the same pipeline worker thread as
+     * {@link #throwIfFatal} carve-out as {@link #dispatchSafely}. This matters just as
+     * much here: this method runs on the same pipeline worker thread as
      * {@link #dispatchSafely}/{@link #dispatchBatchSafely} when invoked from their
-     * {@code catch} blocks, so a narrower catch here would silently reopen the exact
-     * worker-thread-death/{@code close()}-hang problem those methods exist to prevent, just
-     * one call frame removed.
+     * {@code catch} blocks. A narrower catch here would silently reopen the exact
+     * worker-thread-death/{@code close()}-hang problem those methods exist to prevent,
+     * just one call frame removed.
      */
     @SuppressWarnings("java:S1181")
     private void notify(SseErrorEvent event) {
@@ -776,7 +826,7 @@ final class DefaultSseListener implements SseListener {
 
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "The SSE onError observer threw an unexpected exception.",
+                    withUri(currentUri.get(), "The SSE onError observer threw an unexpected exception."),
                     ex
             );
         }
@@ -784,8 +834,8 @@ final class DefaultSseListener implements SseListener {
 
     /**
      * Invokes {@link SseListenerObserver#onEventReceived}, isolating the pipeline's head
-     * block from any non-fatal failure it raises — same rationale as {@link #notify}. A
-     * no-op when {@code accepted} is {@code false}: an event rejected under
+     * block from any non-fatal failure it raises — same rationale as {@link #notify}.
+     * A no-op when {@code accepted} is {@code false}: an event rejected under
      * {@link BufferFullPolicy#DROP} or one that triggers {@link BufferFullPolicy#DISCONNECT}
      * is already reported via {@link SseListenerObserver#onDropped}/
      * {@link SseListenerObserver#onReconnect} respectively, and is deliberately not
@@ -794,9 +844,9 @@ final class DefaultSseListener implements SseListener {
      * Package-private rather than {@code private}, matching {@link #dispatchSafely}'s own
      * rationale: both the {@code accepted == false} no-op branch and the
      * defensive-catch-and-log branch are difficult to reliably provoke through a live
-     * connection on demand (the former needs a precisely timed {@link BufferFullPolicy}
+     * connection on demand. The former needs a precisely timed {@link BufferFullPolicy}
      * rejection or reader-shutdown race; the latter needs a throwing observer at exactly
-     * the right pipeline stage), but both are trivial to exercise directly with an ordinary
+     * the right pipeline stage. Both are trivial to exercise directly with an ordinary
      * {@link RawSseEvent} test double and a throwing {@link SseListenerObserver}.
      */
     @SuppressWarnings("java:S1181")
@@ -816,7 +866,7 @@ final class DefaultSseListener implements SseListener {
 
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "The SSE onEventReceived observer threw an unexpected exception.",
+                    withUri(currentUri.get(), "The SSE onEventReceived observer threw an unexpected exception."),
                     ex
             );
         }
@@ -834,7 +884,7 @@ final class DefaultSseListener implements SseListener {
      * Package-private rather than {@code private}, matching {@link #notifyReceived}'s own
      * rationale: the defensive-catch-and-log branch is difficult to reliably provoke
      * through a live connection on demand (it needs a throwing observer at exactly the
-     * right pipeline stage), but is trivial to exercise directly with an ordinary
+     * right pipeline stage). It is trivial to exercise directly with an ordinary
      * {@link RawSseEvent} test double and a throwing {@link SseListenerObserver}.
      */
     @SuppressWarnings("java:S1181")
@@ -860,7 +910,7 @@ final class DefaultSseListener implements SseListener {
 
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "The SSE onEventProcessed observer threw an unexpected exception.",
+                    withUri(currentUri.get(), "The SSE onEventProcessed observer threw an unexpected exception."),
                     ex
             );
         }
@@ -870,9 +920,9 @@ final class DefaultSseListener implements SseListener {
      * Pairs a handler's deserialized {@link SseMessage} with the {@link RawSseEvent} it
      * was produced from, so a handler callback exception ({@link #dispatchSafely}) can
      * still report the untouched wire-format {@code data} string as {@link SseErrorEvent}
-     * context — {@code message.body()} may already be a typed payload by the time the
-     * callback runs, but the raw string is always available and is what {@link SseErrorEvent}
-     * documents it will surface.
+     * context. {@code message.body()} may already be a typed payload by the time the
+     * callback runs, but the raw string is always available and is what
+     * {@link SseErrorEvent} documents it will surface.
      */
     private record Delivery(RawSseEvent raw, SseMessage<?> message) {
     }
@@ -880,7 +930,7 @@ final class DefaultSseListener implements SseListener {
     /**
      * Pairs a dispatch pipeline with the effective total capacity ({@code capacity ×
      * concurrency}) and concurrency it was built with, so {@link #pipelineStats()} can
-     * report both without needing any new {@code frisby-core} API — {@link #capacity()}
+     * report both without needing any new {@code frisby-core} API. {@link #capacity()}
      * and {@link #concurrency()} come straight from the {@link SseHandler}/
      * {@link SseBatchHandler} configuration that built {@link #pipeline()}, and
      * {@link Pipeline#inFlight()} is already the correct total across every worker arm
@@ -904,6 +954,7 @@ final class DefaultSseListener implements SseListener {
         private final Pipeline<RawSseEvent> unhandledPipeline;
         private final SseListenerObserver observer;
         private final AtomicReference<InputStream> currentStream;
+        private final AtomicReference<URI> currentUri;
         private final BufferFullPolicy bufferFullPolicy;
         private final Function<RawSseEvent, SseMessage<String>> rawMessageFactory;
         private final RetryDelay reconnectDelay;
@@ -922,6 +973,7 @@ final class DefaultSseListener implements SseListener {
                            Pipeline<RawSseEvent> unhandledPipeline,
                            SseListenerObserver observer,
                            AtomicReference<InputStream> currentStream,
+                           AtomicReference<URI> currentUri,
                            BufferFullPolicy bufferFullPolicy,
                            Function<RawSseEvent, SseMessage<String>> rawMessageFactory,
                            RetryDelay reconnectDelay,
@@ -932,6 +984,7 @@ final class DefaultSseListener implements SseListener {
             this.unhandledPipeline = unhandledPipeline;
             this.observer = observer;
             this.currentStream = currentStream;
+            this.currentUri = currentUri;
             this.bufferFullPolicy = bufferFullPolicy;
             this.rawMessageFactory = rawMessageFactory;
             this.reconnectDelay = reconnectDelay;
@@ -958,7 +1011,7 @@ final class DefaultSseListener implements SseListener {
 
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "The SSE onError observer threw an unexpected exception.",
+                        withUri(currentUri.get(), "The SSE onError observer threw an unexpected exception."),
                         ex
                 );
             }
@@ -973,9 +1026,11 @@ final class DefaultSseListener implements SseListener {
          */
         @SuppressWarnings("java:S1181")
         private void notifyReconnect(SseReconnectCause cause, String eventType, int attempt, Duration delay) {
-            SseReconnectEvent event = SseReconnectCause.BUFFER_FULL == cause
-                    ? SseReconnectEvent.bufferFull(eventType, attempt, delay)
-                    : SseReconnectEvent.failure(attempt, delay);
+            SseReconnectEvent event = switch (cause) {
+                case BUFFER_FULL -> SseReconnectEvent.bufferFull(eventType, attempt, delay);
+                case STALE_CONNECTION -> SseReconnectEvent.staleConnection(attempt, delay);
+                case FAILURE -> SseReconnectEvent.failure(attempt, delay);
+            };
 
             try {
                 observer.onReconnect(event);
@@ -984,7 +1039,7 @@ final class DefaultSseListener implements SseListener {
 
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "The SSE onReconnect observer threw an unexpected exception.",
+                        withUri(currentUri.get(), "The SSE onReconnect observer threw an unexpected exception."),
                         ex
                 );
             }
@@ -1001,10 +1056,10 @@ final class DefaultSseListener implements SseListener {
             // check, or awaitReconnectDelay returning false). A "while (!closed.get())"
             // condition here would only ever evaluate false inside the narrow,
             // non-deterministic race between this loop's own top-of-loop check and the
-            // post-attempt check just a few lines below it — structurally unreachable
-            // through any normal (or realistically test-driven) call path, and therefore
-            // permanently uncoverable branch coverage if left in. See SseEventParser's
-            // analogous cleanup from Chunk 5 for the same reasoning.
+            // post-attempt check just a few lines below it. That race is structurally
+            // unreachable through any normal (or realistically test-driven) call path,
+            // and therefore permanently uncoverable branch coverage if left in. See
+            // SseEventParser's analogous cleanup from Chunk 5 for the same reasoning.
             while (true) {
                 boolean setbackThisAttempt = false;
                 SseReconnectCause setbackCause = null;
@@ -1028,12 +1083,28 @@ final class DefaultSseListener implements SseListener {
                     if (!closed.get()) {
                         setbackThisAttempt = true;
 
-                        if (e instanceof DisconnectSignal disconnectSignal) {
+                        if (e instanceof IdleTimeoutException) {
+                            setbackCause = SseReconnectCause.STALE_CONNECTION;
+                            LOGGER.log(
+                                    System.Logger.Level.WARNING,
+                                    withUri(
+                                            currentUri.get(),
+                                            "The SSE connection appeared stale — no data (not even a heartbeat) was "
+                                                    + "received within the configured idleTimeout — and was "
+                                                    + "forcibly closed to trigger a reconnect."
+                                    ),
+                                    e
+                            );
+                        } else if (e instanceof DisconnectSignal disconnectSignal) {
                             setbackCause = SseReconnectCause.BUFFER_FULL;
                             setbackEventType = disconnectSignal.eventType();
                         } else {
                             setbackCause = SseReconnectCause.FAILURE;
-                            LOGGER.log(System.Logger.Level.ERROR, "The SSE connection failed.", e);
+                            LOGGER.log(
+                                    System.Logger.Level.ERROR,
+                                    withUri(currentUri.get(), "The SSE connection failed."),
+                                    e
+                            );
                             notifyError(e);
                         }
                     }
@@ -1043,12 +1114,12 @@ final class DefaultSseListener implements SseListener {
                 }
 
                 // Escalates on EITHER a real transport failure OR a policy-driven
-                // BufferFullPolicy.DISCONNECT — both represent "this reconnect cycle did
+                // BufferFullPolicy.DISCONNECT — both represent "this 'reconnect' cycle did
                 // not complete cleanly" and both should count toward a caller-configured
                 // backoff strategy (linear/exponential). Only the logging/onError
                 // notification above distinguishes the two; the backoff bookkeeping does
                 // not. Resets to zero only when an attempt falls out of the inner loop
-                // with no exception at all — a clean end-of-stream or close(), never a
+                // with no exception at all — a clean end-of-stream or close(). Never a
                 // DISCONNECT, which always closes the stream out from under the very next
                 // parser.next() call and so always surfaces as an exception above instead.
                 consecutiveSetbacks = setbackThisAttempt ? consecutiveSetbacks + 1 : 0;
@@ -1104,6 +1175,8 @@ final class DefaultSseListener implements SseListener {
             }
 
             HttpResponse<InputStream> response = spec.stream();
+            currentUri.set(response.request().uri());
+
             return response.body();
         }
 
@@ -1116,26 +1189,26 @@ final class DefaultSseListener implements SseListener {
          * field is explicitly present is looked up in {@code handlerPipelines}, falling
          * back to {@code unhandledPipeline} when no handler is registered for that exact
          * value. This distinguishes "the producer didn't set an event type" from "the
-         * producer explicitly chose the name message" — conflating the two would let an
+         * producer explicitly chose the name message". Conflating the two would let an
          * untyped event be silently deserialized against whatever type a caller happened
          * to register under {@code "message"}.
          * <p>
          * Also computes the {@code registeredAs} identity passed to {@link #postWithPolicy}
          * — present only when {@code raw}'s explicit {@code event} field actually matched a
-         * key in {@code handlerPipelines}, mirroring exactly how {@link SseEventReceived
+         * key in {@code handlerPipelines}. This mirrors exactly how {@link SseEventReceived
          * #registeredAs()} / {@link SseEventProcessed#registeredAs()} distinguish a named
          * handler's pipeline from the unhandled one.
          *
-         * @return {@code true} if {@code raw} was actually handed off to a pipeline
-         * ({@link BufferFullPolicy#BLOCK} in the overwhelmingly common case — see
+         * @return {@code true} if {@code raw} was actually handed off to a pipeline.
+         * This is {@link BufferFullPolicy#BLOCK} in the overwhelmingly common case — see
          * {@link #postWithPolicy} for the one shutdown-driven exception; {@link BufferFullPolicy#DROP} /
-         * {@link BufferFullPolicy#DISCONNECT} only when capacity allowed it), {@code
-         * false} if it was dropped ({@link BufferFullPolicy#DROP}) — the caller must not
+         * {@link BufferFullPolicy#DISCONNECT} only when capacity allowed it. Returns {@code
+         * false} if it was dropped ({@link BufferFullPolicy#DROP}). The caller must not
          * advance {@link #lastEventId} for an event this method reports as not posted.
          * {@link BufferFullPolicy#DISCONNECT} overflowing capacity is reported by
          * {@link #postWithPolicy} throwing {@link DisconnectSignal} instead of returning
          * {@code false}, precisely so an event never handed to a pipeline can never be
-         * mistaken for one that was — it must still be replayed by the server after the
+         * mistaken for one that was. It must still be replayed by the server after the
          * resulting reconnect, not skipped.
          */
         private boolean dispatch(RawSseEvent raw) {
@@ -1154,27 +1227,29 @@ final class DefaultSseListener implements SseListener {
         /**
          * Applies {@link BufferFullPolicy} before posting. {@code BLOCK} posts
          * unconditionally via the pipeline's ordinary blocking {@code post(T)}, relying on
-         * {@code Buffer}/{@code Batch}'s natural blocking behavior — it is deliberately
+         * {@code Buffer}/{@code Batch}'s natural blocking behavior. It is deliberately
          * checked first and returns immediately, so it pays no cost for the drop-tracking
-         * machinery below. {@code DROP}/{@code DISCONNECT} instead call the pipeline's
-         * bounded-wait {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s
-         * "Bounded-Wait Posting" section) — an atomic, non-blocking accept-or-reject against
-         * the pipeline's own real capacity gate, with no separate capacity pre-check and
-         * therefore no race window between checking and posting.
+         * machinery below.
          * <p>
-         * {@code BLOCK}'s call to {@code target.post(raw)} can itself return {@code false}
-         * — not because of anything to do with {@code BLOCK}'s own semantics, but because
-         * {@code close()} now cancels this reader task via {@code Future.cancel(true)},
-         * which interrupts a thread blocked acquiring buffer capacity; {@code frisby-core}'s
+         * {@code DROP}/{@code DISCONNECT} instead call the pipeline's
+         * bounded-wait {@code post(T, Duration.ZERO)} (see {@code concurrency.md}'s
+         * "Bounded-Wait Posting" section). This is an atomic, non-blocking accept-or-reject
+         * against the pipeline's own real capacity gate, with no separate capacity
+         * pre-check and therefore no race window between checking and posting.
+         * <p>
+         * {@code BLOCK}'s call to {@code target.post(raw)} can itself return {@code false}.
+         * This is not because of anything to do with {@code BLOCK}'s own semantics, but
+         * because {@code close()} now cancels this reader task via {@code Future.cancel(true)},
+         * which interrupts a thread blocked acquiring buffer capacity. {@code frisby-core}'s
          * {@code AsyncBuffer.post(T)} catches that interrupt and returns {@code false}
-         * (item not enqueued) rather than throwing. Honoring that return value here —
-         * rather than assuming {@code BLOCK} always succeeds — is what stops the caller
+         * (item not enqueued) rather than throwing. Honoring that return value here,
+         * rather than assuming {@code BLOCK} always succeeds, is what stops the caller
          * from incorrectly advancing {@code lastEventId} for an event that was actually
-         * silently dropped by the shutdown race, which would otherwise permanently skip
+         * silently dropped by the shutdown race. That would otherwise permanently skip
          * replaying it on the next reconnect.
          * <p>
-         * {@code registeredAs} is carried directly on the thrown {@link DisconnectSignal} —
-         * see its javadoc for why a thrown signal, rather than a returned {@code false} plus
+         * {@code registeredAs} is carried directly on the thrown {@link DisconnectSignal}.
+         * See its Javadoc for why a thrown signal, rather than a returned {@code false} plus
          * a side-channel field, is what actually stops the reader from reading any further
          * events off a stream this method just closed.
          *
@@ -1207,31 +1282,40 @@ final class DefaultSseListener implements SseListener {
 
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "The SSE dispatch buffer is full; disconnecting and reconnecting per "
-                            + "BufferFullPolicy.DISCONNECT."
+                    withUri(
+                            currentUri.get(),
+                            "The SSE dispatch buffer is full; disconnecting and reconnecting per "
+                                    + "BufferFullPolicy.DISCONNECT."
+                    )
             );
 
             InputStream stream = currentStream.getAndSet(null);
-            closeStreamSafely(stream, "Failed to close the SSE input stream for a policy-driven disconnect.");
+            closeStreamSafely(
+                    stream,
+                    withUri(currentUri.get(), "Failed to close the SSE input stream for a policy-driven disconnect.")
+            );
 
             throw new DisconnectSignal(registeredAs);
         }
 
         /**
          * Records one dropped event: increments the running count for the current drop
-         * episode, logging a single {@code WARNING} the moment the episode begins (not
-         * once per dropped event, which would flood logs under the sustained high-volume
-         * conditions {@code DROP} is meant for), then notifies the caller's
-         * {@link SseListenerObserver#onDropped onDropped} observer method with the raw
-         * dropped event — that method fires for every drop, unsummarized, regardless of
-         * this built-in logging.
+         * episode, logging a single {@code WARNING} the moment the episode begins. This
+         * is instead of once per dropped event, which would flood logs under the
+         * sustained high-volume conditions {@code DROP} is meant for. Then notifies the
+         * caller's {@link SseListenerObserver#onDropped onDropped} observer method with
+         * the raw dropped event — that method fires for every drop, unsummarized,
+         * regardless of this built-in logging.
          */
         private void recordDrop(RawSseEvent raw) {
             if (1 == droppedCount.incrementAndGet()) {
                 dropEpisodeStart.set(Instant.now());
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "The SSE dispatch buffer is full; began dropping events per BufferFullPolicy.DROP."
+                        withUri(
+                                currentUri.get(),
+                                "The SSE dispatch buffer is full; began dropping events per BufferFullPolicy.DROP."
+                        )
                 );
             }
 
@@ -1252,7 +1336,7 @@ final class DefaultSseListener implements SseListener {
         /**
          * Logs the same drop-episode summary as {@link #recordRecoveryIfNeeded()}, but
          * for the case where the connection attempt itself ends (clean EOF, an error, or
-         * an explicit {@link #close()}) while a drop episode is still in progress —
+         * an explicit {@link #close()}) while a drop episode is still in progress.
          * {@link #recordRecoveryIfNeeded()} alone would never fire in that case, since it
          * only runs when there's a subsequent event to post, and one may never arrive
          * before the stream ends. Called once per connection attempt, regardless of
@@ -1274,7 +1358,10 @@ final class DefaultSseListener implements SseListener {
             Instant start = dropEpisodeStart.getAndSet(null);
             Duration episodeDuration = computeDropEpisodeDuration(start);
 
-            LOGGER.log(System.Logger.Level.WARNING, String.format(messageFormat, count, episodeDuration));
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    withUri(currentUri.get(), String.format(messageFormat, count, episodeDuration))
+            );
         }
 
         /**
@@ -1294,7 +1381,7 @@ final class DefaultSseListener implements SseListener {
 
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "The SSE onDropped observer threw an unexpected exception.",
+                        withUri(currentUri.get(), "The SSE onDropped observer threw an unexpected exception."),
                         ex
 
                 );
@@ -1307,27 +1394,27 @@ final class DefaultSseListener implements SseListener {
          * immediately — a pure internal control-flow signal, never surfaced to a caller.
          * Deliberately a {@code RuntimeException} rather than a new checked type, so it is
          * caught by the loop's own existing {@code catch (IOException | RuntimeException e)}
-         * block and handled by exactly the same {@code consecutiveSetbacks}/{@code onReconnect}
-         * logic already in place for a genuine transport failure — {@link #run()} tells the
+         * block. It is handled by exactly the same {@code consecutiveSetbacks}/
+         * {@code onReconnect} logic already in place for a genuine transport failure. {@link #run()} tells the
          * two apart with a single {@code instanceof} check, rather than needing any separate
          * shared state to communicate "a disconnect just happened, and here's which pipeline
-         * caused it" from {@link #postWithPolicy} across to that catch block; this signal
+         * caused it" from {@link #postWithPolicy} across to that catch block. This signal
          * carries {@link #eventType()} directly for exactly that purpose instead.
          * <p>
          * Thrown eagerly here rather than left to surface from the loop's own subsequent
          * {@code parser.next()} call (the original design, before a real data-loss bug was
-         * traced to it): once the stream is closed, looping back to read from it again can
+         * traced to it). Once the stream is closed, looping back to read from it again can
          * still succeed against bytes the underlying {@code BufferedReader} had already
-         * buffered from the socket before the close took effect — silently reading and
-         * dispatching a <em>later</em> event that was never meant to be posted at all, which
-         * can advance {@link #lastEventId} past the event that actually triggered this
+         * buffered from the socket before the close took effect. That can silently read
+         * and dispatch a <em>later</em> event that was never meant to be posted at all.
+         * It can advance {@link #lastEventId} past the event that actually triggered this
          * disconnect and cause the server's {@code Last-Event-ID} replay to skip it forever.
          * Throwing immediately, at the exact point the disconnect decision is made, closes
          * that window entirely.
          * <p>
          * Stack trace capture is suppressed ({@code super(null, null, false, false)}) since
          * this exception exists purely to unwind the loop and is never logged or inspected
-         * for its trace — capturing one would be pure overhead on what can legitimately be a
+         * for its trace. Capturing one would be pure overhead on what can legitimately be a
          * very hot path under sustained backpressure.
          */
         private static final class DisconnectSignal extends RuntimeException {

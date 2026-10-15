@@ -22,13 +22,12 @@ import java.util.function.Consumer;
 /**
  * Package-private implementation of {@link SseListenerBuilder}.
  * <p>
- * Navigation calls (path/parameter/header/cookie/security/firstByteTimeout) are recorded
- * as replayable operations in {@link #navigationOps} <em>and</em>, once
- * {@link #client(Client)} has been called, immediately applied to
- * {@link #navigationTemplate} — a throwaway {@code SseSpec} obtained from the client
- * solely so every navigation method can reuse {@code SseSpec}'s own validation (including
- * client-managed-header rejection and path placeholder checks) rather than duplicating it
- * here. Because {@link #client(Client)}
+ * Navigation calls (path/parameter/header/cookie/security) are recorded as replayable
+ * operations in {@link #navigationOps} <em>and</em>, once {@link #client(Client)} has
+ * been called, immediately applied to {@link #navigationTemplate}. A throwaway
+ * {@code SseSpec} obtained from the client solely so every navigation method can reuse
+ * {@code SseSpec}'s own validation (including client-managed-header rejection and path
+ * placeholder checks) rather than duplicating it here. Because {@link #client(Client)}
  * may be called at any point in the fluent chain, navigation calls made before it are
  * simply queued; {@link #client(Client)} replays them all against the newly created
  * template the moment it is called, so validation still happens exactly once per
@@ -50,6 +49,17 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
 
     private static final RetryDelay DEFAULT_RECONNECT_DELAY = RetryDelay.exponential(Duration.ofSeconds(3));
     private static final Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
+
+    /**
+     * The multiplier applied to the {@code Client}'s configured {@code readTimeout()} to
+     * compute the default {@link #idleTimeout}, when {@link #idleTimeout}
+     * is never called at all — see {@code resolveIdleTimeout()}. Matches the
+     * "set this comfortably longer than the server's own heartbeat interval — e.g. at
+     * least 3x" guidance already documented on {@link SseListenerBuilder#idleTimeout}
+     * itself, applied to the default so a caller who never calls that method still gets a
+     * working, reasonably conservative guard rather than none at all.
+     */
+    private static final int DEFAULT_IDLE_TIMEOUT_MULTIPLIER = 3;
 
     /**
      * The observer used whenever a caller never calls {@link #observer(SseListenerObserver)}
@@ -74,6 +84,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
     private SseBatchHandler<String> unhandledBatchHandler;
     private RetryDelay reconnectDelay;
     private Duration closeTimeout;
+    private Duration idleTimeout;
 
     DefaultSseListenerBuilder() {
         this.navigationOps = new ArrayList<>();
@@ -89,6 +100,7 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         this.unhandledBatchHandler = null;
         this.reconnectDelay = null;
         this.closeTimeout = null;
+        this.idleTimeout = null;
     }
 
 
@@ -115,8 +127,8 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
 
     /**
      * Rejects a registration for {@code event} if it is already registered via either
-     * {@link #onEvent(String, SseHandler)} or {@link #onEvent(String, SseBatchHandler)}
-     * — the two maps are populated independently, so without this check a later call
+     * {@link #onEvent(String, SseHandler)} or {@link #onEvent(String, SseBatchHandler)}.
+     * The two maps are populated independently, so without this check a later call
      * silently shadows an earlier one (same map) or resolves ambiguously at dispatch
      * time (across maps, inside {@link DefaultSseListener}'s pipeline construction)
      * instead of failing fast here.
@@ -175,10 +187,6 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         return applyNavigation(spec -> spec.security(provider));
     }
 
-    @Override
-    public SseListenerBuilder firstByteTimeout(Duration timeout) {
-        return applyNavigation(spec -> spec.firstByteTimeout(timeout));
-    }
 
     @Override
     public SseListenerBuilder lastEventId(String id) {
@@ -262,6 +270,52 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Validated with {@link Durations#positive}, matching
+     * {@link software.frisby.web.client.SseSpec#idleTimeout(Duration)} and
+     * {@link software.frisby.web.client.DownloadSpec#idleTimeout(Duration)} exactly — there
+     * is no zero-as-sentinel carve-out here; a caller who wants the {@code Client}'s own
+     * configured {@code idleTimeout} to apply simply never calls this method at all.
+     */
+    @Override
+    public SseListenerBuilder idleTimeout(Duration timeout) {
+        this.idleTimeout = Durations.positive(TIMEOUT_ARGUMENT_NAME, timeout);
+        return this;
+    }
+
+    /**
+     * Resolves the effective {@code idleTimeout} to apply, via
+     * {@link software.frisby.web.client.SseSpec#idleTimeout(Duration)}, to every
+     * connection and reconnect attempt. Always returns a positive value — this
+     * builder's {@code idleTimeout} always applies some listener-specific override,
+     * whether explicit or defaulted; there is no way to opt a connection back out to the
+     * {@code Client}'s own configured {@code idleTimeout} once this builder is in play.
+     * <p>
+     * Two cases, matching {@link SseListenerBuilder#idleTimeout}'s documented behavior
+     * exactly:
+     * <ul>
+     *     <li>{@link #idleTimeout} never called ({@code explicit == null}) —
+     *     defaults to {@code readTimeout × }{@value #DEFAULT_IDLE_TIMEOUT_MULTIPLIER}.</li>
+     *     <li>Called with a positive value — that exact value is used, overriding the
+     *     default entirely.</li>
+     * </ul>
+     * Package-private specifically so this resolution logic — in particular, the default
+     * multiplier arithmetic — is directly unit testable against plain {@link Duration}
+     * values, without needing a real {@link Client} or a live connection to exercise
+     * {@link #build()} itself.
+     *
+     * @param explicit    The value passed to {@link #idleTimeout}, or
+     *                    {@code null} if it was never called.
+     * @param readTimeout The {@code Client}'s configured {@code readTimeout()}, used as the
+     *                    basis for the default when {@code explicit} is {@code null}.
+     * @return The effective, positive {@code idleTimeout} override to apply.
+     */
+    static Duration resolveIdleTimeout(Duration explicit, Duration readTimeout) {
+        return null != explicit ? explicit : readTimeout.multipliedBy(DEFAULT_IDLE_TIMEOUT_MULTIPLIER);
+    }
+
     @Override
     public SseListener build() {
         Values.notNull(CLIENT_ARGUMENT_NAME, client);
@@ -276,9 +330,17 @@ final class DefaultSseListenerBuilder implements SseListenerBuilder {
             );
         }
 
+        Duration effectiveIdleTimeout = resolveIdleTimeout(
+                idleTimeout,
+                client.configuration().readTimeout()
+        );
+
+        List<Consumer<SseSpec>> effectiveNavigationOps = new ArrayList<>(navigationOps);
+        effectiveNavigationOps.add(spec -> spec.idleTimeout(effectiveIdleTimeout));
+
         return new DefaultSseListener(
                 client,
-                List.copyOf(navigationOps),
+                List.copyOf(effectiveNavigationOps),
                 lastEventId,
                 bufferFullPolicy,
                 null != observer ? observer : NO_OP_OBSERVER,

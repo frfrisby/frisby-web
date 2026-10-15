@@ -135,9 +135,11 @@ try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.b
 `SseSpec` supports the same navigation methods as every other verb spec —
 `path`/`parameter`/`header`/`cookie`/`security` — plus `stream()` and its async
 counterpart `streamAsync()`. It automatically sets `Accept: text/event-stream` unless
-you already set an `Accept` header, and — like `GetSpec.download()` — a configured
-`readTimeout` bounds only time-to-headers, so a long-held connection is never
-prematurely closed.
+you already set an `Accept` header, and — like `DownloadSpec.stream()` (obtained via
+`Client.download()`) — a configured `idleTimeout` bounds both the time-to-first-byte
+wait and any subsequent post-first-byte stall, so a long-held, actively-flowing
+connection is never prematurely closed. See `docs/client.md`'s timeouts section for the
+full two-phase mechanism.
 
 Resuming a stream after a drop is just another request — set `Headers.LAST_EVENT_ID`
 with the last successfully processed event's `id`:
@@ -197,13 +199,14 @@ either overload.
 
 ### Backpressure, observability, reconnection, executor, shutdown
 
-| Method                                | Default                                                   | Notes                                                                                                                                |
-|---------------------------------------|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `onBufferFull(BufferFullPolicy)`      | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                                                                                         |
-| `observer(SseListenerObserver)`       | —                                                         | Single registration point for failures, drops, reconnects, and per-event telemetry. See [§9](#9-observability--sselistenerobserver). |
-| `reconnectDelay(RetryDelay strategy)` | Server `retry` field when present, else `exponential(3s)` | See [§11](#11-reconnection-and-last-event-id-replay).                                                                                |
-| `executor(ExecutorService executor)`  | A dedicated `NamedExecutorService` per connection         | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                |
-| `closeTimeout(Duration timeout)`      | 30 seconds                                                | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                |
+| Method                                | Default                                                   | Notes                                                                                                                                                                                                                                                 |
+|---------------------------------------|-----------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `onBufferFull(BufferFullPolicy)`      | `BLOCK`                                                   | See [§8](#8-backpressure--bufferfullpolicy).                                                                                                                                                                                                          |
+| `observer(SseListenerObserver)`       | —                                                         | Single registration point for failures, drops, reconnects, and per-event telemetry. See [§9](#9-observability--sselistenerobserver).                                                                                                                  |
+| `reconnectDelay(RetryDelay strategy)` | Server `retry` field when present, else `exponential(3s)` | See [§11](#11-reconnection-and-last-event-id-replay).                                                                                                                                                                                                 |
+| `idleTimeout(Duration timeout)`       | `Client`'s configured `readTimeout()` × 3; **always on**  | Forces a reconnect if *no bytes at all* (not even a heartbeat) are received within this window — guards against a silently-dead connection no transport-level mechanism would otherwise detect. See [§11](#11-reconnection-and-last-event-id-replay). |
+| `executor(ExecutorService executor)`  | A dedicated `NamedExecutorService` per connection         | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                                                                                                                                 |
+| `closeTimeout(Duration timeout)`      | 30 seconds                                                | See [§12](#12-executor-virtual-threads-and-shutdown).                                                                                                                                                                                                 |
 
 ### Terminal
 
@@ -442,8 +445,8 @@ SseListener listener = SseListener.builder().client(client)
             public void onError(SseErrorEvent error) {
                 metrics.increment("sse.errors");
 
-                // listener isn't assigned until build() returns — read it back
-                // through a reference set immediately after build() completes below.
+                // listener isn't assigned yet at builder-construction time — read it
+                // back through a reference set immediately after build() completes below.
                 if (isUnrecoverable(error.cause())) {
                     SseListener current = listenerRef.get();
 
@@ -479,13 +482,13 @@ attempt count.
 ```java
 public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventType, int attempt, Duration delay)
 
-public enum SseReconnectCause { FAILURE, BUFFER_FULL }
+public enum SseReconnectCause { FAILURE, BUFFER_FULL, STALE_CONNECTION }
 ```
 
 | Field       | Meaning                                                                                                                                                                                                                     |
 |-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `DISCONNECT`; never paired with `onError`. |
-| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty for the catch-all pipeline.  |
+| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `DISCONNECT`; never paired with `onError`. `STALE_CONNECTION` — a watchdog-forced disconnect under `idleTimeout` (no bytes received at all within the configured timeout); never paired with `onError`. |
+| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`/`STALE_CONNECTION`, and empty for the catch-all pipeline.  |
 | `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                     |
 | `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                           |
 
@@ -617,6 +620,43 @@ Server replays missed events (if it supports it) — normal event flow resumes
   abstraction — `RetryDelay.fixed(Duration)`, `.linear(Duration)`,
   `.exponential(Duration)`, or a custom lambda. A server-supplied `retry` field takes
   precedence over this strategy for the very next reconnect attempt only.
+- `idleTimeout(Duration timeout)` is the connection's sole timeout concept — there is no
+  separate first-byte-only knob. It's a thin passthrough to `client`'s own
+  `SseSpec#idleTimeout(Duration)` override, applied via the same replayed navigation
+  template as `path`/`header`/etc. on the initial connection and every reconnect
+  attempt, and bounds two phases with one value:
+  1. Time-to-first-byte of the initial connection and every reconnect, via the JDK's
+     own request `timeout()` — once at least one byte has arrived, this half no longer
+     applies.
+  2. Any post-first-byte stall — the real gap a time-to-first-byte-only bound leaves
+     open. Once a connection has received at least one byte, nothing else in the
+     library would otherwise ever time out again on its own. A connection can die in a
+     way neither the OS nor the JDK's HTTP client detects — a dropped NAT/conntrack
+     entry, a torn-down container network namespace, a sleep/resume cycle, or a
+     middlebox silently discarding packets with no `RST` ever sent — leaving the reader
+     thread's blocking socket read waiting forever for bytes that are never coming. A
+     shared, `client`-level idle-stream watchdog tracks elapsed time since the most
+     recently received byte (not just a dispatched event — a lone heartbeat comment
+     resets it too) and, once this timeout is exceeded, forcibly closes the connection
+     and reconnects, firing `onReconnect` with `cause ==
+     SseReconnectCause.STALE_CONNECTION` (never paired with `onError` — this is a
+     deliberate disconnect, not a transport failure).
+
+  **Enabled by default** — unlike every other option on this builder, this one has no
+  "do nothing and get safe behavior" default: a client that silently stops receiving
+  bytes and never recovers is, for most real applications, a total outage
+  indistinguishable from a crash. When never called, defaults to **3× the `Client`'s
+  configured `readTimeout()`** — scaled up by the safety margin this method's own
+  guidance recommends (set it comfortably longer than the server's heartbeat interval,
+  e.g. at least 3×) so a caller who does nothing still gets a working, reasonably
+  conservative guard. Pass a different positive value to override the default entirely.
+  There is no way to opt a connection back out of its own listener-specific override
+  once this method has been called with a positive value — `client`'s own shared
+  watchdog always protects every stream it produces, at some `idleTimeout` value, by
+  design, so there is no "disabled" state to opt back into. Simply never call this
+  method at all to defer entirely to the `Client`'s own configured `idleTimeout` (its
+  own explicit value, or that value's own default), exactly like every other option on
+  this builder.
 
 ---
 

@@ -213,7 +213,7 @@ Obtain a builder via `ServerConfiguration.builder()`.
 | `logging(LoggingConfiguration)`                       | 8 KB body, no redaction    | Controls failure-log body size, header masking, and field redaction.                                                                                                  |
 | `logging(UnaryOperator<LoggingConfigurationBuilder>)` |                            | Inline lambda convenience overload.                                                                                                                                   |
 | `maxConcurrentRequests(int)`                          | `availableProcessors * 20` | Maximum number of requests processed concurrently. Excess requests receive `503` immediately. See [Concurrency configuration](#6-concurrency-configuration).          |
-| `executor(Executor)`                                  | none                       | Custom executor for request threads. Pass `Executors.newVirtualThreadPerTaskExecutor()` for virtual threads (Java 21+).                                               |
+| `executor(ExecutorService)`                           | none                       | Custom executor for request threads. Pass `Executors.newVirtualThreadPerTaskExecutor()` for virtual threads (Java 21+).                                               |
 | `stopTimeout(Duration)`                               | none                       | Enables graceful shutdown — waits up to the given duration for in-flight requests before forcibly closing connections.                                                |
 
 ---
@@ -237,7 +237,7 @@ the right value for your workload:
 
 ### Virtual threads (Java 21+)
 
-Pass any `Executor` via `executor(Executor)`. The primary use case is
+Pass any `ExecutorService` via `executor(ExecutorService)`. The primary use case is
 `Executors.newVirtualThreadPerTaskExecutor()`, which routes each request onto its own
 virtual thread.  Blocking I/O (database calls, downstream HTTP calls) suspends the carrier
 thread while waiting, enabling high concurrency without a large platform-thread pool:

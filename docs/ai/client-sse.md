@@ -101,7 +101,7 @@ SseSpec header(String name, String value)
 SseSpec header(String name, String... values)
 SseSpec cookie(HttpCookie cookie)
 SseSpec security(SecurityProvider provider)
-SseSpec firstByteTimeout(Duration timeout)
+SseSpec idleTimeout(Duration timeout)
 
 HttpResponse<InputStream>                    stream()
 CompletableFuture<HttpResponse<InputStream>> streamAsync()
@@ -121,17 +121,22 @@ CompletableFuture<HttpResponse<InputStream>> streamAsync()
           .header(Headers.LAST_EVENT_ID, lastReceivedId)
           .stream();
   ```
-- `readTimeout` (from `ClientConfiguration`) bounds only time-to-headers, not the full
-  body read — a long-held SSE connection is never prematurely closed by it, exactly
-  like `GetSpec.download()`.
-- `firstByteTimeout(Duration)` overrides `readTimeout` for this call only, with the same
-  time-to-first-byte-only semantics. Use it when a particular SSE endpoint may
-  legitimately take longer than the client's globally configured `readTimeout` to write
-  anything at all — e.g. a third-party service not built on this library's `server-sse`
-  module, or one of our own services whose resource method has no heartbeat configured
-  and doesn't write its first event immediately — without loosening `readTimeout` for
-  every other call made through the same `Client`. Must be positive; throws
-  `NullValueException`/`DurationOutsideRangeException` otherwise.
+- `idleTimeout` (see `ClientConfiguration#idleTimeout()` in `docs/ai/client.md`) is the
+  sole timeout concept applied to this stream — there is no separate first-byte-only
+  timeout. It bounds both the time-to-first-byte wait (via the JDK's own request
+  `timeout()`) and any subsequent post-first-byte stall (via `client`'s shared
+  idle-stream watchdog) with one value, so a long-held, actively-flowing SSE connection
+  is never prematurely closed, exactly like `DownloadSpec.stream()`.
+- `idleTimeout(Duration)` overrides, for this call only, the connection-wide
+  `ClientConfiguration#idleTimeout()` default (itself defaulting to `readTimeout()`'s
+  configured value when never set). Use it when a particular SSE endpoint may
+  legitimately take longer than the client's default to write anything at all, or sends
+  events only sporadically enough that the gap between them could otherwise exceed the
+  default — e.g. a third-party service not built on this library's `server-sse` module,
+  or one of our own services whose resource method has no heartbeat configured —
+  without loosening the default for every other call made through the same `Client`.
+  Must be positive; throws `NullValueException`/`DurationOutsideRangeException`
+  otherwise.
 
 ---
 
@@ -189,7 +194,7 @@ SseListenerBuilder header(String name, String value)
 SseListenerBuilder header(String name, String... values)
 SseListenerBuilder cookie(HttpCookie cookie)
 SseListenerBuilder security(SecurityProvider provider)                           // re-invoked on every reconnect
-SseListenerBuilder firstByteTimeout(Duration timeout)                            // time-to-first-byte only; see below
+SseListenerBuilder idleTimeout(Duration timeout)                                 // enabled by default; see below
 SseListenerBuilder lastEventId(String id)                                        // initial value only; see below
 ```
 
@@ -198,13 +203,50 @@ stream after a process restart, when no in-memory record of the last received id
 available. Once connected, the connection tracks the most recently processed event's
 `id` itself and applies it automatically to every subsequent reconnect attempt.
 
-`firstByteTimeout(Duration)` overrides `Client`'s configured `readTimeout()` for the
-initial connection attempt and every reconnect, with the same time-to-first-byte-only
-semantics as `SseSpec.firstByteTimeout(Duration)` — applied via the same replayed
-navigation template as `path`/`header`/etc. Useful when the endpoint may legitimately
-take longer than the client's globally configured `readTimeout` to write anything at
-all (a slow-starting third-party service, or one of our own services whose resource
-method has no heartbeat configured and doesn't write its first event immediately).
+`idleTimeout(Duration)` is a thin passthrough to `SseSpec#idleTimeout(Duration)` — its
+effective value is applied, via the same replayed navigation template as
+`path`/`header`/etc., on the initial connection and every reconnect attempt. It is the
+sole timeout concept for the connection, bounding both phases with one value (see
+`docs/ai/client.md`'s "Timeouts" section for the full two-phase mechanism):
+
+1. Time-to-first-byte, via the JDK's own request `timeout()`.
+2. Any post-first-byte stall — **no bytes at all**, not even a single `: comment`
+   heartbeat line — via `client`'s shared idle-stream watchdog.
+
+This covers a failure mode no `IOException` can ever surface on its own: a dropped
+NAT/conntrack entry, a torn-down container network namespace, a sleep/resume cycle, or
+a middlebox silently discarding packets with no `RST` ever sent leaves the reader
+thread's blocking socket read waiting forever for bytes that are never coming — a
+connection that looks, from this library's own perspective, identical to a perfectly
+healthy idle one.
+
+Once the bound is exceeded, the connection is forcibly closed — unblocking the reader
+thread's pending read, handled exactly like any other setback (the reconnect loop's
+backoff counter advances, a fresh attempt follows), with
+`SseListenerObserver#onReconnect` firing `cause == SseReconnectCause.STALE_CONNECTION`
+— never paired with `onError`, since this is a deliberate disconnect, not a transport
+failure.
+
+**Enabled by default** — unlike every other option on this builder, there is
+deliberately no "do nothing and get safe behavior" default here: a client that silently
+stops receiving bytes and never recovers is, for most real applications, a total
+application outage indistinguishable from a crash. When never called, defaults to
+**3× the `Client`'s configured `readTimeout()`** — scaled up by the same safety margin
+this method's own javadoc recommends ("set this comfortably longer than the server's own
+heartbeat interval — e.g. at least 3×"), so a caller who does nothing still gets a
+working, reasonably conservative guard rather than none at all. A server with a
+heartbeat interval longer than roughly a third of `readTimeout()` (or no heartbeat at
+all, with legitimately long gaps between events) should set an explicit value rather
+than relying on the default.
+
+Pass a different positive value to override the default entirely. There is no way to
+opt a connection back out of its own listener-specific override once this method has
+been called with a positive value — `client`'s own shared watchdog always protects
+every stream it produces, at some `idleTimeout` value, by design, so there is no
+"disabled" state to opt back into. Simply never call this method at all to defer
+entirely to the `Client`'s own configured
+`ClientConfigurationBuilder#idleTimeout(Duration)` (its own explicit value, or that
+value's own default), exactly like every other option on this builder.
 
 ### Dispatch registration
 
@@ -463,15 +505,15 @@ attempt count.
 ```java
 public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventType, int attempt, Duration delay)
 
-public enum SseReconnectCause { FAILURE, BUFFER_FULL }
+public enum SseReconnectCause { FAILURE, BUFFER_FULL, STALE_CONNECTION }
 ```
 
-| Field       | Meaning                                                                                                                                                                                                                                                            |
-|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `BufferFullPolicy.DISCONNECT`; never paired with `onError`.                       |
-| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`, and empty when the buffer belonged to the catch-all unhandled-event pipeline. |
-| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                                                            |
-| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                                                                  |
+| Field       | Meaning                                                                                                                                                                                                                                                                                                                                                                                                   |
+|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cause`     | `FAILURE` — a genuine transport failure or the initial connect attempt failing; always paired with the same failure also reported via `onError`. `BUFFER_FULL` — a policy-driven `BufferFullPolicy.DISCONNECT`; never paired with `onError`. `STALE_CONNECTION` — a watchdog-forced disconnect under `idleTimeout` (no bytes received at all within the configured timeout); never paired with `onError`. |
+| `eventType` | The handler event type whose dispatch buffer triggered the reconnect — present only when `cause == BUFFER_FULL` **and** the buffer belonged to a named handler; empty for `FAILURE`/`STALE_CONNECTION`, and empty when the buffer belonged to the catch-all unhandled-event pipeline.                                                                                                                     |
+| `attempt`   | The 1-based consecutive-setback count — the same counter driving the configured `reconnectDelay` strategy's escalation.                                                                                                                                                                                                                                                                                   |
+| `delay`     | The computed delay before this reconnect attempt.                                                                                                                                                                                                                                                                                                                                                         |
 
 ---
 

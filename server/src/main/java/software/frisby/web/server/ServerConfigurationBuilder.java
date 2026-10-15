@@ -5,7 +5,7 @@ import software.frisby.web.serial.JsonSerializer;
 
 import javax.net.ssl.SSLContext;
 import java.time.Duration;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.function.UnaryOperator;
 
 /**
@@ -347,7 +347,7 @@ public interface ServerConfigurationBuilder {
      * @return This builder.
      * @throws software.frisby.core.validation.NullValueException if {@code executor} is {@code null}.
      */
-    ServerConfigurationBuilder executor(Executor executor);
+    ServerConfigurationBuilder executor(ExecutorService executor);
 
     /**
      * Sets the maximum time the server will wait for in-flight requests to complete

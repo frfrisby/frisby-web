@@ -10,13 +10,14 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.zip.GZIPInputStream;
 
 final class DefaultClientConfigurationBuilder implements ClientConfigurationBuilder {
     private static final String URI_ARGUMENT_NAME = "uri";
     private static final String CONNECT_TIMEOUT_ARGUMENT_NAME = "connectTimeout";
     private static final String READ_TIMEOUT_ARGUMENT_NAME = "readTimeout";
+    private static final String IDLE_TIMEOUT_ARGUMENT_NAME = "idleTimeout";
     private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
     private static final String SSL_CONTEXT_ARGUMENT_NAME = "sslContext";
     private static final String REDIRECT_POLICY_ARGUMENT_NAME = "redirectPolicy";
@@ -27,21 +28,24 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
 
     private static final ContentDecompressor GZIP_DECOMPRESSOR =
             ContentDecompressor.of("gzip", GZIPInputStream::new);
+
     private final List<ContentDecompressor> decompressors;
     private URI uri;
     private Duration connectTimeout;
     private Duration readTimeout;
+    private Duration idleTimeout;
     private JsonSerializer serializer;
     private SSLContext sslContext;
     private HttpClient.Redirect redirectPolicy;
     private HttpClient.Version httpVersion;
-    private Executor executor;
+    private ExecutorService executor;
     private ClientLoggingConfiguration logging;
 
     DefaultClientConfigurationBuilder() {
         this.uri = null;
         this.connectTimeout = null;
         this.readTimeout = null;
+        this.idleTimeout = null;
         this.serializer = null;
         this.sslContext = null;
         this.redirectPolicy = HttpClient.Redirect.NORMAL;
@@ -66,6 +70,12 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
     @Override
     public ClientConfigurationBuilder readTimeout(Duration timeout) {
         this.readTimeout = Durations.positive(READ_TIMEOUT_ARGUMENT_NAME, timeout);
+        return this;
+    }
+
+    @Override
+    public ClientConfigurationBuilder idleTimeout(Duration timeout) {
+        this.idleTimeout = Durations.positive(IDLE_TIMEOUT_ARGUMENT_NAME, timeout);
         return this;
     }
 
@@ -105,7 +115,7 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
     }
 
     @Override
-    public ClientConfigurationBuilder executor(Executor executor) {
+    public ClientConfigurationBuilder executor(ExecutorService executor) {
         this.executor = Values.notNull(EXECUTOR_ARGUMENT_NAME, executor);
         return this;
     }
@@ -122,6 +132,7 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
                 uri,
                 connectTimeout,
                 readTimeout,
+                idleTimeout,
                 serializer,
                 sslContext,
                 redirectPolicy,
@@ -132,4 +143,3 @@ final class DefaultClientConfigurationBuilder implements ClientConfigurationBuil
         );
     }
 }
-

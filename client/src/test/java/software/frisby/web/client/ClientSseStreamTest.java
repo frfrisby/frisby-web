@@ -96,14 +96,22 @@ class ClientSseStreamTest {
 
     /**
      * The server holds the connection open for 2 seconds between the first and second
-     * events — well past the client's 500 ms {@code readTimeout()}.  If the timeout
-     * bounded the full body read (rather than just time-to-headers), this would throw
-     * a {@code ReadTimeoutException} before the second event ever arrived.
+     * events — well past the client's 500 ms {@code readTimeout()}, which
+     * {@link ClientConfiguration#idleTimeout()} falls back to here since it is never set
+     * explicitly. Unlike before the idle watchdog existed, {@code idleTimeout} now bounds
+     * <strong>both</strong> time-to-first-byte and any subsequent post-first-byte stall
+     * with the same value — so surviving a legitimately long gap between events requires
+     * an explicit per-call override wide enough to cover it, exercised here via
+     * {@link SseSpec#idleTimeout(Duration)}. See
+     * {@code stream_longHeldConnectionPastDefaultIdleTimeout_isClosedByWatchdog} below for
+     * the complementary case: the same 2-second gap, but relying on the short default,
+     * which now does get closed.
      */
     @Test
     void stream_longHeldConnectionPastReadTimeout_isNotPrematurelyClosed() throws IOException {
         HttpResponse<InputStream> response = client.sse()
                 .path("/sse-stream-test/slow")
+                .idleTimeout(Duration.ofSeconds(5))
                 .stream();
 
         assertEquals(200, response.statusCode());
@@ -117,13 +125,38 @@ class ClientSseStreamTest {
     }
 
     /**
+     * Complements {@code stream_longHeldConnectionPastReadTimeout_isNotPrematurelyClosed}
+     * above: the same {@code /slow} endpoint and its 2-second gap between events, but with
+     * no per-call {@link SseSpec#idleTimeout(Duration)} override, so the client's 500 ms
+     * {@code readTimeout()} applies as the fallback {@code idleTimeout} — proving the
+     * post-first-byte idle watchdog (wired through {@link StreamRequestSupport}, shared
+     * with {@link DownloadSpec}) is genuinely in effect for SSE streams, closing the
+     * connection and unblocking the pending read with an {@link IOException} well before
+     * the second event would otherwise arrive.
+     */
+    @Test
+    void stream_longHeldConnectionPastDefaultIdleTimeout_isClosedByWatchdog() throws IOException {
+        HttpResponse<InputStream> response = client.sse()
+                .path("/sse-stream-test/slow")
+                .stream();
+
+        assertEquals(200, response.statusCode());
+
+        try (InputStream stream = response.body()) {
+            assertThrows(IOException.class, stream::readAllBytes);
+        }
+    }
+
+
+    /**
      * The server writes <strong>nothing at all</strong> — not even a partial frame — for
      * 2 seconds, well past the client's 500 ms {@code readTimeout()}, before writing its
      * first (and only) byte.  This is the empirical test for whether {@code readTimeout}
      * bounds "time to headers" or "time to first byte": {@code stream_longHeldConnectionPastReadTimeout_isNotPrematurelyClosed}
-     * above proves reads are unbounded <em>after</em> a first byte has already arrived, but
-     * says nothing about what happens when the server is silent from the very start of the
-     * connection — see {@code temp/frisby-web-sse-reconnect-storm-investigation.md} §6.2.
+     * above proves reads (with a wide enough {@code idleTimeout}) can survive a gap
+     * <em>after</em> a first byte has already arrived, but says nothing about what happens
+     * when the server is silent from the very start of the connection — see
+     * {@code temp/frisby-web-sse-reconnect-storm-investigation.md} §6.2.
      */
     @Test
     void stream_totallySilentPastReadTimeout_throwsReadTimeoutException() {
@@ -163,18 +196,20 @@ class ClientSseStreamTest {
     }
 
     /**
-     * {@link SseSpec#firstByteTimeout(Duration)} overrides the client's globally
-     * configured {@code readTimeout()} for this call only — proves a stream that would
-     * otherwise throw per {@code stream_totallySilentPastReadTimeout_throwsReadTimeoutException}
-     * above succeeds once a longer, call-specific timeout is supplied, without touching
-     * the shared {@code client}'s configuration used by every other test in this class.
+     * {@link SseSpec#idleTimeout(Duration)} overrides the client's globally
+     * configured {@code readTimeout()} (which {@link ClientConfiguration#idleTimeout()}
+     * falls back to here, since it is never set explicitly) for this call only — proves
+     * a stream that would otherwise throw per
+     * {@code stream_totallySilentPastReadTimeout_throwsReadTimeoutException} above
+     * succeeds once a longer, call-specific timeout is supplied, without touching the
+     * shared {@code client}'s configuration used by every other test in this class.
      */
     @Test
-    void stream_firstByteTimeoutOverride_survivesSilencePastGlobalReadTimeout() throws IOException {
+    void stream_idleTimeoutOverride_survivesSilencePastGlobalReadTimeout() throws IOException {
         HttpResponse<InputStream> response = client.sse()
                 .path("/sse-stream-test/totally-silent")
                 .parameter("delayMs", "2000")
-                .firstByteTimeout(Duration.ofSeconds(5))
+                .idleTimeout(Duration.ofSeconds(5))
                 .stream();
 
         assertEquals(200, response.statusCode());
@@ -186,12 +221,12 @@ class ClientSseStreamTest {
     }
 
     @Test
-    void streamAsync_firstByteTimeoutOverride_survivesSilencePastGlobalReadTimeout()
+    void streamAsync_idleTimeoutOverride_survivesSilencePastGlobalReadTimeout()
             throws ExecutionException, InterruptedException, IOException {
         HttpResponse<InputStream> response = client.sse()
                 .path("/sse-stream-test/totally-silent")
                 .parameter("delayMs", "2000")
-                .firstByteTimeout(Duration.ofSeconds(5))
+                .idleTimeout(Duration.ofSeconds(5))
                 .streamAsync()
                 .get();
 
@@ -204,26 +239,26 @@ class ClientSseStreamTest {
     }
 
     @Test
-    void stream_nullFirstByteTimeout_throwsNullValueException() {
+    void stream_nullIdleTimeout_throwsNullValueException() {
         assertThrows(
                 software.frisby.core.validation.NullValueException.class,
-                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(null)
+                () -> client.sse().path("/sse-stream-test/accept-echo").idleTimeout(null)
         );
     }
 
     @Test
-    void stream_zeroFirstByteTimeout_throwsDurationOutsideRangeException() {
+    void stream_zeroIdleTimeout_throwsDurationOutsideRangeException() {
         assertThrows(
                 software.frisby.core.validation.DurationOutsideRangeException.class,
-                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(Duration.ZERO)
+                () -> client.sse().path("/sse-stream-test/accept-echo").idleTimeout(Duration.ZERO)
         );
     }
 
     @Test
-    void stream_negativeFirstByteTimeout_throwsDurationOutsideRangeException() {
+    void stream_negativeIdleTimeout_throwsDurationOutsideRangeException() {
         assertThrows(
                 software.frisby.core.validation.DurationOutsideRangeException.class,
-                () -> client.sse().path("/sse-stream-test/accept-echo").firstByteTimeout(Duration.ofSeconds(-1))
+                () -> client.sse().path("/sse-stream-test/accept-echo").idleTimeout(Duration.ofSeconds(-1))
         );
     }
 

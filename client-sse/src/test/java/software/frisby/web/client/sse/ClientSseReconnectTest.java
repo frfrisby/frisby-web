@@ -165,6 +165,94 @@ class ClientSseReconnectTest {
         }
     }
 
+    /**
+     * Proves {@link SseListenerBuilder#idleTimeout} actually forces a
+     * reconnect for a connection that never produces an {@link java.io.IOException} or
+     * end-of-stream at all — the exact failure mode {@code idleTimeout} exists
+     * for (see its javadoc). {@code closeAfterMs} on {@code SseTestResource} holds the
+     * connection open, writing <strong>zero</strong> bytes, for far longer than this
+     * test's own timeout budget; without the watchdog, nothing would ever end that
+     * connection or trigger a reconnect within this test's lifetime. Multiple connection
+     * attempts being observed (via {@code securityInvocations}, reapplied on every
+     * reconnect) within a few seconds is therefore only explainable by the watchdog
+     * forcibly closing each silent connection in turn.
+     */
+    @Test
+    void idleTimeout_forcesReconnect_whenNoDataReceivedAtAll() throws InterruptedException {
+        CountDownLatch secondAttempt = new CountDownLatch(2);
+        AtomicInteger securityInvocations = new AtomicInteger(0);
+        List<SseReconnectEvent> reconnects = new CopyOnWriteArrayList<>();
+        AtomicInteger errorCount = new AtomicInteger(0);
+
+        SecurityProvider countingProvider = request -> {
+            securityInvocations.incrementAndGet();
+            secondAttempt.countDown();
+        };
+
+        SseListener listener = SseListener.builder().client(client)
+                .path("/sse/stream")
+                .parameter("channel", "stale-connection-timeout-forces-reconnect")
+                .parameter("count", "1")
+                // heartbeat=true forces an immediate flush (response headers plus one
+                // ": keep-alive" comment line) before the server-side sleep below begins —
+                // without it, closeAfterMs delays the very first flush, so the response
+                // headers themselves never arrive and spec.stream() never even returns;
+                // the watchdog only protects a connection that has already connected and
+                // gone silent, not time-to-first-byte (that's the JDK's own request
+                // timeout's job, fed by the same idleTimeout value).
+                .parameter("heartbeat", "true")
+                // Far longer than this test's own wait budget below — the connection is
+                // held open, writing nothing at all after that one initial heartbeat, so
+                // only the watchdog (not the server ever actually closing the stream) can
+                // explain a second connection attempt happening in time.
+                .parameter("closeAfterMs", "60000")
+                .security(countingProvider)
+                .idleTimeout(Duration.ofMillis(300))
+                // Bounded exponential — same rationale as the sibling reconnect tests
+                // above: only cares that reconnects keep happening, not the exact cadence.
+                .reconnectDelay(RetryDelay.exponential(Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .onEvent("message", SseHandler.of(message -> {
+                }))
+                .observer(new SseListenerObserver() {
+                    @Override
+                    public void onReconnect(SseReconnectEvent event) {
+                        reconnects.add(event);
+                    }
+
+                    @Override
+                    public void onError(SseErrorEvent error) {
+                        errorCount.incrementAndGet();
+                    }
+                })
+                .build();
+
+        try {
+            listener.connectAsync();
+
+            assertTrue(
+                    secondAttempt.await(10, TimeUnit.SECONDS),
+                    "Expected the stale-connection watchdog to force at least one reconnect, saw "
+                            + securityInvocations.get() + " connection attempt(s) and "
+                            + reconnects.size() + " onReconnect invocation(s)"
+            );
+
+            assertFalse(reconnects.isEmpty(), "Expected at least one onReconnect invocation");
+            assertEquals(
+                    SseReconnectCause.STALE_CONNECTION,
+                    reconnects.get(0).cause(),
+                    "Expected the watchdog-forced reconnect to report STALE_CONNECTION, not a genuine failure"
+            );
+            assertEquals(
+                    0,
+                    errorCount.get(),
+                    "A watchdog-forced reconnect is a deliberate disconnect, not a transport failure — "
+                            + "onError should never fire for it"
+            );
+        } finally {
+            listener.close();
+        }
+    }
+
     @Test
     void serverRetryField_honoredForNextAttemptOnly_thenFallsBackToConfiguredStrategy() throws InterruptedException {
         List<Instant> connectTimestamps = new CopyOnWriteArrayList<>();

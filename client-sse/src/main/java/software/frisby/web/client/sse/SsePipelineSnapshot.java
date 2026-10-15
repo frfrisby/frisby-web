@@ -11,7 +11,7 @@ import java.util.Map;
  * unhandled-event pipeline.
  * <p>
  * The unhandled pipeline is deliberately a dedicated field rather than a sentinel entry in
- * {@link #handlers()} — it has no {@code String} event-type key of its own, and inventing
+ * {@link #handlers()}. It has no {@code String} event-type key of its own, and inventing
  * one (a reserved constant, or a {@code null} key) would be less honest than simply
  * mirroring {@code DefaultSseListener}'s own internal structure, which already tracks the
  * unhandled pipeline separately from the named-handler map.

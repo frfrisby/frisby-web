@@ -6,7 +6,7 @@ import javax.net.ssl.SSLContext;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 /**
  * A builder for creating an instance of {@link ClientConfiguration}.
@@ -59,6 +59,29 @@ public interface ClientConfigurationBuilder {
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
     ClientConfigurationBuilder readTimeout(Duration timeout);
+
+    /**
+     * Sets the idle timeout used by every stream-producing spec ({@code
+     * DownloadSpec}, {@code SseSpec}) — the sole timeout concept for a streamed
+     * response, feeding both the pre-first-byte and post-first-byte phases with one
+     * value. There is no separate first-byte-only timeout method anywhere.
+     * <p>
+     * Unlike {@link #connectTimeout(Duration)}/{@link #readTimeout(Duration)}, which
+     * bound a non-streaming {@code send(...)}/{@code sendAsync(...)} call end-to-end,
+     * {@code idleTimeout} bounds the gap since the <em>last</em> byte of activity on a
+     * stream. A per-call override is also available directly on {@code DownloadSpec}/
+     * {@code SseSpec} for a single slow or bulky endpoint, without loosening this
+     * connection-wide default for every other call made through the same {@link Client}.
+     * <p>
+     * Optional; defaults to {@link #readTimeout(Duration)}'s configured value when not
+     * called, so existing callers are not forced to add a new required builder call.
+     *
+     * @param timeout The idle timeout; must not be {@code null} or negative.
+     * @return This builder instance.
+     * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
+     * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
+     */
+    ClientConfigurationBuilder idleTimeout(Duration timeout);
 
     /**
      * Sets the JSON serializer used to serialize request bodies and deserialize
@@ -164,7 +187,7 @@ public interface ClientConfigurationBuilder {
     ClientConfigurationBuilder decompress(ContentDecompressor decompressor);
 
     /**
-     * Sets a custom {@link Executor} for the underlying {@link HttpClient}.
+     * Sets a custom {@link ExecutorService} for the underlying {@link HttpClient}.
      * <p>
      * The shared default executor is sufficient for the vast majority of use cases —
      * it prevents thread exhaustion when multiple {@link Client}
@@ -177,7 +200,7 @@ public interface ClientConfigurationBuilder {
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException if {@code executor} is null.
      */
-    ClientConfigurationBuilder executor(Executor executor);
+    ClientConfigurationBuilder executor(ExecutorService executor);
 
     /**
      * Sets the logging configuration that controls header masking, body field

@@ -32,6 +32,7 @@ package software.frisby.web.client;
  * @see DeleteSpec
  * @see HeadSpec
  * @see SseSpec
+ * @see DownloadSpec
  */
 public interface Client {
     /**
@@ -102,10 +103,22 @@ public interface Client {
     SseSpec sse();
 
     /**
+     * Begins a fluent raw file/binary download request.
+     * <p>
+     * Returns the raw response body as a watchdog-tracked {@link java.io.InputStream} —
+     * use this for downloading files, images, or any other binary content. Split off of
+     * {@link GetSpec} so a per-call {@link DownloadSpec#idleTimeout(java.time.Duration)}
+     * override can never be a silent no-op; see {@link DownloadSpec}'s class-level
+     * Javadoc for the full rationale.
+     *
+     * @return A {@link DownloadSpec} to configure and execute the download.
+     */
+    DownloadSpec download();
+
+    /**
      * Returns the {@link ClientConfiguration} used to create this client instance.
      *
      * @return The client configuration.
      */
     ClientConfiguration configuration();
 }
-

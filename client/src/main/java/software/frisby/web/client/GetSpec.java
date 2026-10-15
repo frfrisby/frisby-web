@@ -4,7 +4,6 @@ import software.frisby.web.client.exception.UriSyntaxException;
 import software.frisby.web.client.security.SecurityProvider;
 import software.frisby.web.serial.GenericType;
 
-import java.io.InputStream;
 import java.net.HttpCookie;
 import java.net.http.HttpResponse;
 import java.util.concurrent.CompletableFuture;
@@ -13,8 +12,8 @@ import java.util.concurrent.CompletableFuture;
  * A fluent builder for configuring and executing an HTTP {@code GET} request.
  * <p>
  * Obtained from {@link Client#get()}.  Configure the request by chaining methods;
- * the request is not sent until a terminal method ({@link #send(Class)},
- * {@link #send(GenericType)}, or {@link #download()}) is called.
+ * the request is not sent until a terminal method ({@link #send(Class)} or
+ * {@link #send(GenericType)}) is called.
  *
  * <pre>{@code
  * // Strongly typed JSON response
@@ -31,17 +30,16 @@ import java.util.concurrent.CompletableFuture;
  *         .send(new GenericType<List<Order>>() {})
  *         .body();
  *
- * // File download
- * HttpResponse<InputStream> file = client.get()
- *         .path("/documents/{id}", "id", docId)
- *         .download();
- *
  * // Non-blocking — fire and move on
  * client.get()
  *         .path("/users/{id}", "id", userId)
  *         .sendAsync(User.class)
  *         .thenAccept(response -> process(response.body()));
  * }</pre>
+ * <p>
+ * For a raw file/binary download, use {@link Client#download()} /
+ * {@link DownloadSpec} instead — see that type's Javadoc for why it is a separate
+ * spec rather than a method on this one.
  *
  * @see Client#get()
  */
@@ -228,17 +226,6 @@ public interface GetSpec {
     <T> HttpResponse<T> send(GenericType<T> responseType);
 
     /**
-     * Sends the {@code GET} request and returns the response body as a raw
-     * {@link InputStream}.
-     * <p>
-     * Use this method to download binary content (files, images, etc.) from the server.
-     * The caller is responsible for closing the stream.
-     *
-     * @return The HTTP response whose body is a stream of the raw response bytes.
-     */
-    HttpResponse<InputStream> download();
-
-    /**
      * Sends the {@code GET} request asynchronously and deserializes the JSON response
      * body to the specified type.
      *
@@ -266,14 +253,4 @@ public interface GetSpec {
      * @throws software.frisby.core.validation.NullValueException if {@code responseType} is null.
      */
     <T> CompletableFuture<HttpResponse<T>> sendAsync(GenericType<T> responseType);
-
-    /**
-     * Sends the {@code GET} request asynchronously and returns the response body as
-     * a raw {@link InputStream}.
-     * <p>
-     * The caller is responsible for closing the stream when the future completes.
-     *
-     * @return A {@link CompletableFuture} that completes with the HTTP response.
-     */
-    CompletableFuture<HttpResponse<InputStream>> downloadAsync();
 }

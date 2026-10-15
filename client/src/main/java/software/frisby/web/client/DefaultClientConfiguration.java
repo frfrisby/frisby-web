@@ -12,12 +12,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.StringJoiner;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 final class DefaultClientConfiguration implements ClientConfiguration {
     private static final String URI_ARGUMENT_NAME = "uri";
     private static final String CONNECT_TIMEOUT_ARGUMENT_NAME = "connectTimeout";
     private static final String READ_TIMEOUT_ARGUMENT_NAME = "readTimeout";
+    private static final String IDLE_TIMEOUT_ARGUMENT_NAME = "idleTimeout";
     private static final String SERIALIZER_ARGUMENT_NAME = "serializer";
     private static final String REDIRECT_POLICY_ARGUMENT_NAME = "redirectPolicy";
     private static final String HTTP_VERSION_ARGUMENT_NAME = "httpVersion";
@@ -27,29 +28,38 @@ final class DefaultClientConfiguration implements ClientConfiguration {
     private final URI uri;
     private final Duration connectTimeout;
     private final Duration readTimeout;
+    private final Duration idleTimeout;
     private final JsonSerializer serializer;
     private final SSLContext sslContext;
     private final HttpClient.Redirect redirectPolicy;
     private final HttpClient.Version httpVersion;
     private final List<ContentDecompressor> decompressors;
-    private final Executor executor;
+    private final ExecutorService executor;
     private final ClientLoggingConfiguration logging;
 
     @SuppressWarnings("java:S107")
-        // all parameters are required — this class is the product of DefaultConfigurationBuilder
+        // all parameters except idleTimeout (optional, falls back to readTimeout) are
+        // required — this class is the product of DefaultConfigurationBuilder
     DefaultClientConfiguration(URI uri,
                                Duration connectTimeout,
                                Duration readTimeout,
+                               Duration idleTimeout,
                                JsonSerializer serializer,
                                SSLContext sslContext,
                                HttpClient.Redirect redirectPolicy,
                                HttpClient.Version httpVersion,
                                List<ContentDecompressor> decompressors,
-                               Executor executor,
+                               ExecutorService executor,
                                ClientLoggingConfiguration logging) {
         this.uri = Values.notNull(URI_ARGUMENT_NAME, uri);
         this.connectTimeout = Durations.positive(CONNECT_TIMEOUT_ARGUMENT_NAME, connectTimeout);
         this.readTimeout = Durations.positive(READ_TIMEOUT_ARGUMENT_NAME, readTimeout);
+        // Optional — falls back to readTimeout's already-validated value when the
+        // caller never calls ClientConfigurationBuilder#idleTimeout(Duration), so
+        // existing callers are not forced to add a new required builder call.
+        this.idleTimeout = null != idleTimeout
+                ? Durations.positive(IDLE_TIMEOUT_ARGUMENT_NAME, idleTimeout)
+                : this.readTimeout;
         this.serializer = Values.notNull(SERIALIZER_ARGUMENT_NAME, serializer);
         this.sslContext = sslContext;
         this.redirectPolicy = Values.notNull(REDIRECT_POLICY_ARGUMENT_NAME, redirectPolicy);
@@ -101,6 +111,11 @@ final class DefaultClientConfiguration implements ClientConfiguration {
     }
 
     @Override
+    public Duration idleTimeout() {
+        return idleTimeout;
+    }
+
+    @Override
     public JsonSerializer serializer() {
         return serializer;
     }
@@ -126,7 +141,7 @@ final class DefaultClientConfiguration implements ClientConfiguration {
     }
 
     @Override
-    public Optional<Executor> executor() {
+    public Optional<ExecutorService> executor() {
         return Optional.ofNullable(executor);
     }
 
@@ -135,4 +150,3 @@ final class DefaultClientConfiguration implements ClientConfiguration {
         return logging;
     }
 }
-

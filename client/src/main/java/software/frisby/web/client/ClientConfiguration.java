@@ -9,7 +9,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Defines the configuration options used by a {@link Client} to connect to a remote
@@ -51,6 +51,28 @@ public interface ClientConfiguration {
      * @return The read timeout.
      */
     Duration readTimeout();
+
+    /**
+     * Returns the idle timeout used by every stream-producing spec ({@code
+     * DownloadSpec}, {@code SseSpec}) — the sole timeout concept for a streamed
+     * response, feeding both the pre-first-byte and post-first-byte phases with one
+     * value. There is no separate first-byte-only timeout concept.
+     * <p>
+     * Unlike {@link #connectTimeout()}/{@link #readTimeout()}, which bound a
+     * non-streaming {@code send(...)}/{@code sendAsync(...)} call end-to-end,
+     * {@code idleTimeout} bounds the gap since the <em>last</em> byte of activity on a
+     * stream — covering both "nothing has arrived yet" (handed to the JDK's own
+     * {@code HttpRequest.Builder#timeout(Duration)} mechanism) and "it stopped
+     * arriving partway through" (enforced by a shared idle-stream watchdog) with the
+     * same value. {@code readTimeout()} itself is unaffected and keeps its existing
+     * meaning for non-streaming calls.
+     * <p>
+     * When {@link ClientConfigurationBuilder#idleTimeout(Duration)} is not called,
+     * defaults to {@link #readTimeout()}'s value.
+     *
+     * @return The idle timeout.
+     */
+    Duration idleTimeout();
 
     /**
      * Returns the JSON serializer used to serialize request bodies and deserialize
@@ -105,15 +127,15 @@ public interface ClientConfiguration {
     List<ContentDecompressor> decompressors();
 
     /**
-     * Returns the optional custom {@link Executor} used by the underlying
+     * Returns the optional custom {@link ExecutorService} used by the underlying
      * {@link HttpClient} for async operations.
      * <p>
      * When empty, the shared default executor is used — the recommended choice for
      * most applications.
      *
-     * @return The {@link Executor} when configured; otherwise empty.
+     * @return The {@link ExecutorService} when configured; otherwise empty.
      */
-    Optional<Executor> executor();
+    Optional<ExecutorService> executor();
 
     /**
      * Returns the logging configuration that controls header masking, body field

@@ -4,14 +4,11 @@ import software.frisby.core.validation.Values;
 import software.frisby.web.client.security.SecurityProvider;
 import software.frisby.web.serial.GenericType;
 
-import java.io.InputStream;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 import static software.frisby.web.client.RequestConstants.RESPONSE_TYPE_ARGUMENT_NAME;
 
@@ -146,27 +143,6 @@ final class GetRequest implements GetSpec {
     }
 
     @Override
-    public HttpResponse<InputStream> download() {
-        URI uri = state.resolveUri(engine.configuration().uri());
-
-        return engine.send(
-                GET,
-                uri,
-                () -> OutboundRequest.of(
-                        state.buildRequest(
-                                uri,
-                                GET,
-                                HttpRequest.BodyPublishers.noBody(),
-                                false,
-                                null,
-                                engine.configuration().readTimeout()
-                        )
-                ),
-                downloadBodyHandler(uri)
-        );
-    }
-
-    @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(Class<T> responseType) {
         Values.notNull(RESPONSE_TYPE_ARGUMENT_NAME, responseType);
 
@@ -222,49 +198,5 @@ final class GetRequest implements GetSpec {
                         engine.configuration().decompressors()
                 )
         );
-    }
-
-    @Override
-    public CompletableFuture<HttpResponse<InputStream>> downloadAsync() {
-        URI uri = state.resolveUri(engine.configuration().uri());
-
-        return engine.sendAsync(
-                GET,
-                uri,
-                () -> OutboundRequest.of(
-                        state.buildRequest(
-                                uri,
-                                GET,
-                                HttpRequest.BodyPublishers.noBody(),
-                                false,
-                                null,
-                                engine.configuration().readTimeout()
-                        )
-                ),
-                downloadBodyHandler(uri)
-        );
-    }
-
-    private HttpResponse.BodyHandler<InputStream> downloadBodyHandler(URI uri) {
-        return responseInfo -> {
-            if (ExceptionFactory.isError(responseInfo.statusCode())) {
-                return HttpResponse.BodySubscribers.mapping(
-                        HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
-                        (Function<String, InputStream>) body -> {
-                            String errorBody = body.isBlank() ? null : body;
-
-                            throw ExceptionFactory.create(
-                                    errorBody,
-                                    GET,
-                                    uri,
-                                    responseInfo.statusCode(),
-                                    responseInfo.headers()
-                            );
-                        }
-                );
-            }
-
-            return HttpResponse.BodySubscribers.ofInputStream();
-        };
     }
 }
