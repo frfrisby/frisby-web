@@ -36,7 +36,7 @@ package software.frisby.web.client.sse;
  * Every method here is invoked from whichever internal thread produced the event
  * (typically the reader thread for {@link #onError}/{@link #onReconnect}/{@link #onDropped}/
  * {@link #onEventReceived}, or a handler's own dispatch-pipeline worker thread for
- * {@link #onEventProcessed}) and is isolated from any exception it throws — a misbehaving
+ * {@link #onEventProcessed}) and is isolated from any exception it throws. A misbehaving
  * observer is logged at {@code WARNING} and cannot take down a reader or worker thread.
  *
  * @see SseListenerBuilder#observer(SseListenerObserver)
@@ -46,7 +46,7 @@ public interface SseListenerObserver {
      * Called when a callback exception, deserialization failure, or connect/reconnect
      * failure occurs.
      * <p>
-     * See the class-level javadoc above for the full behavior this mirrors: {@code event}
+     * See the class-level Javadoc above for the full behavior this mirrors: {@code event}
      * pairs the failure with whatever raw event context was available, does not stop the
      * connection, and is the only mechanism for a caller to decide a connection is
      * unrecoverable and call {@link SseListener#close()}.

@@ -110,7 +110,7 @@ Obtain via `ServerConfiguration.builder()`.
 | `logging(ServerLoggingConfiguration)`                       | See below                  | Header masking, field redaction, body size cap.                                                                                                                                                                                                                                                                                                                                            |
 | `logging(UnaryOperator<ServerLoggingConfigurationBuilder>)` | —                          | Lambda convenience overload.                                                                                                                                                                                                                                                                                                                                                               |
 | `maxConcurrentRequests(int)`                                | `availableProcessors * 20` | In-flight request cap.  Excess requests receive HTTP 503 with `Retry-After: 1`.                                                                                                                                                                                                                                                                                                            |
-| `executor(Executor)`                                        | Platform threads           | Pass `Executors.newVirtualThreadPerTaskExecutor()` (Java 21+) for virtual threads.                                                                                                                                                                                                                                                                                                         |
+| `executor(ExecutorService)`                                 | Platform threads           | Pass `Executors.newVirtualThreadPerTaskExecutor()` (Java 21+) for virtual threads.                                                                                                                                                                                                                                                                                                         |
 | `stopTimeout(Duration)`                                     | immediate                  | Graceful shutdown: server waits up to this duration for in-flight requests to drain before closing connections.                                                                                                                                                                                                                                                                            |
 
 ---
@@ -436,7 +436,7 @@ Server.builder()
 JacksonSerializer serializer = JacksonSerializer.builder().build();
 
 // Graceful-shutdown executor
-Executor executor = Executors.newVirtualThreadPerTaskExecutor();
+ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
 Server server = Server.builder()
         .configuration(

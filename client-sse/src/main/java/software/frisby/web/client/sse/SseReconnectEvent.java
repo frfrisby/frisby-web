@@ -12,7 +12,7 @@ import java.util.Optional;
  * transport failure or a policy-driven {@link BufferFullPolicy#DISCONNECT}.
  * <p>
  * Fired once per reconnect attempt that follows a setback of either kind, immediately
- * before the computed {@link #delay()} is actually waited out — never fired for a clean
+ * before the computed {@link #delay()} is actually waited out. Never fired for a clean
  * end-of-stream reconnect, since that is not a setback and does not advance the backoff
  * strategy's attempt count.
  *
@@ -72,6 +72,19 @@ public record SseReconnectEvent(SseReconnectCause cause, Optional<String> eventT
      */
     static SseReconnectEvent bufferFull(String eventType, int attempt, Duration delay) {
         return new SseReconnectEvent(SseReconnectCause.BUFFER_FULL, Optional.ofNullable(eventType), attempt, delay);
+    }
+
+    /**
+     * Creates an {@link SseReconnectEvent} for a watchdog-driven
+     * {@link SseReconnectCause#STALE_CONNECTION} disconnect.
+     *
+     * @param attempt The 1-based consecutive-setback count.
+     * @param delay   The computed delay before this reconnect attempt.
+     * @return A new {@link SseReconnectEvent} with {@link SseReconnectCause#STALE_CONNECTION}
+     * and an empty {@link #eventType()}.
+     */
+    static SseReconnectEvent staleConnection(int attempt, Duration delay) {
+        return new SseReconnectEvent(SseReconnectCause.STALE_CONNECTION, Optional.empty(), attempt, delay);
     }
 }
 

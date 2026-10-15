@@ -9,7 +9,7 @@ import software.frisby.web.serial.JsonSerializer;
 import javax.net.ssl.SSLContext;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 final class DefaultServerConfiguration implements ServerConfiguration {
     private final int port;
@@ -22,7 +22,7 @@ final class DefaultServerConfiguration implements ServerConfiguration {
     private final CorsConfiguration cors;
     private final ServerLoggingConfiguration logging;
     private final int maxConcurrentRequests;
-    private final Executor executor;
+    private final ExecutorService executor;
     private final Duration stopTimeout;
 
     @SuppressWarnings("java:S107")
@@ -37,7 +37,7 @@ final class DefaultServerConfiguration implements ServerConfiguration {
                                CorsConfiguration cors,
                                ServerLoggingConfiguration logging,
                                int maxConcurrentRequests,
-                               Executor executor,
+                               ExecutorService executor,
                                Duration stopTimeout) {
         this.port = Numbers.range("port", port, 0, 65535);
         this.host = Strings.notBlank("host", host);
@@ -104,7 +104,7 @@ final class DefaultServerConfiguration implements ServerConfiguration {
     }
 
     @Override
-    public Optional<Executor> executor() {
+    public Optional<ExecutorService> executor() {
         return Optional.ofNullable(executor);
     }
 

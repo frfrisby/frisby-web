@@ -169,30 +169,69 @@ public interface SseListenerBuilder {
     SseListenerBuilder security(SecurityProvider provider);
 
     /**
-     * Overrides how long the initial connection attempt and every reconnect attempt
-     * will wait to receive the very first byte of the response before giving up.
+     * Sets the maximum time this connection will tolerate receiving <strong>no bytes at
+     * all</strong>. Not just no complete, dispatchable event, but not even a single
+     * {@code : comment} heartbeat line — before treating the connection as silently dead
+     * and forcibly reconnecting, even though the underlying transport never itself
+     * reported an {@link java.io.IOException} or end-of-stream.
      * <p>
-     * This bounds <strong>time-to-first-byte only</strong> — see
-     * {@link software.frisby.web.client.SseSpec#firstByteTimeout(Duration)} for the exact
-     * semantics; the {@code client}'s configured {@code readTimeout()} is used when this
-     * method is never called. Applied as part of the same replayed navigation template as
-     * {@link #path}/{@link #header}/etc., so it takes effect on the initial connection and
-     * every subsequent reconnect alike.
+     * A thin passthrough to {@link software.frisby.web.client.SseSpec#idleTimeout(Duration)}
+     * — this method's effective value is simply applied, via the same replayed navigation
+     * template as {@link #path}/{@link #header}/etc., on the initial connection and every
+     * reconnect attempt. The bound is enforced entirely by {@code client}'s own shared
+     * idle-stream watchdog (bounding any post-first-byte stall) together with the JDK's
+     * own request timeout (bounding time-to-first-byte) — both fed by this one value, the
+     * same two-phase mechanism documented on {@code SseSpec#idleTimeout}. This exists for
+     * a failure mode no {@link java.io.IOException} can ever surface on its own: a
+     * dropped NAT/conntrack entry, a torn-down container network namespace, a
+     * sleep/resume cycle, or a middlebox silently discarding packets with no RST ever
+     * sent leaves the reader thread's blocking socket read waiting forever for bytes that
+     * are never coming, with nothing to catch and nothing to trigger the reconnect loop.
+     * A connection in that state looks, from this library's own perspective, identical to
+     * a perfectly healthy idle one.
      * <p>
-     * Useful when the {@link Client}'s globally configured {@code readTimeout()} is tuned
-     * for ordinary request/response calls but is too short for a particular SSE endpoint
-     * that may legitimately take longer to write anything at all. For example, a
-     * third-party service not built on this library's {@code server-sse} module, or one of
-     * our own services whose resource method has no heartbeat configured and does not
-     * write its first event immediately.
+     * Once the bound is exceeded, the connection is forcibly closed — unblocking the
+     * reader thread's pending read, which is handled exactly like any other setback: the
+     * reconnect loop's backoff counter advances, {@link SseListenerObserver#onReconnect}
+     * fires with {@link SseReconnectCause#STALE_CONNECTION}, and a fresh connection
+     * attempt follows after the configured {@link #reconnectDelay}. Unlike a genuine
+     * transport failure, this is never paired with {@link SseListenerObserver#onError} —
+     * see {@link SseReconnectCause#STALE_CONNECTION} for why.
+     * <p>
+     * <strong>Set this comfortably longer than the server's own heartbeat interval</strong>
+     * — e.g. at least 3x — so ordinary heartbeat jitter or a single missed tick never
+     * triggers a false-positive disconnect of an otherwise healthy connection. A
+     * connection to a server with no heartbeat configured at all should use a timeout
+     * long enough to tolerate its real, legitimate gaps between events.
+     * <p>
+     * <strong>Enabled by default</strong> — unlike every other option on this builder,
+     * there is deliberately no "safe to just not think about this" default of doing
+     * nothing. A client that silently stops receiving bytes and never recovers is, for
+     * most real applications, a total application outage indistinguishable from a crash.
+     * This is a correctness guard, not an optional tuning knob, and every connection gets
+     * one whether this method is ever called or not. When never called, defaults to
+     * <strong>3x the {@code Client}'s configured
+     * {@link software.frisby.web.client.ClientConfiguration#readTimeout() readTimeout()}</strong>
+     * — scaled up by the same safety margin recommended above, so a caller who does
+     * nothing still gets a working, reasonably conservative guard rather than silence. This
+     * default is a heuristic, not a guarantee of correctness for every endpoint. A server
+     * with a heartbeat interval longer than roughly a third of {@code readTimeout()} (or
+     * one with no heartbeat at all and legitimately long gaps between events) should set an
+     * explicit value here rather than relying on the default.
+     * <p>
+     * There is no way to opt a connection out of this override back to the
+     * {@code Client}'s own configured
+     * {@link software.frisby.web.client.ClientConfiguration#idleTimeout() idleTimeout} once
+     * this method has been called with a positive value — simply never call this method
+     * at all to get that behavior, exactly like every other option on this builder.
      *
-     * @param timeout The maximum time to wait for the first byte of the response; must be
-     *                positive.
+     * @param timeout The maximum tolerated gap, with no bytes received at all, before a
+     *                connection is treated as stale; must be positive.
      * @return This builder instance.
      * @throws software.frisby.core.validation.NullValueException            if {@code timeout} is null.
      * @throws software.frisby.core.validation.DurationOutsideRangeException if {@code timeout} is not positive.
      */
-    SseListenerBuilder firstByteTimeout(Duration timeout);
+    SseListenerBuilder idleTimeout(Duration timeout);
 
     /**
      * Sets the initial {@code Last-Event-ID} to send on the first connection attempt.

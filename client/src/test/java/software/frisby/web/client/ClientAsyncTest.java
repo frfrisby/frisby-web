@@ -117,9 +117,9 @@ class ClientAsyncTest {
 
         @Test
         void downloadAsync_completesCorrectly() {
-            HttpResponse<InputStream> response = client.get()
+            HttpResponse<InputStream> response = client.download()
                     .path("/stream")
-                    .downloadAsync()
+                    .streamAsync()
                     .join();
 
             assertEquals(200, response.statusCode());

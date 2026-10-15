@@ -140,7 +140,7 @@ class ClientErrorMappingTest {
 
     /**
      * Returns a 404 with no response entity — used to exercise the {@code body.isBlank()}
-     * branch in {@code GetRequest.downloadBodyHandler} (and {@code voidBodyHandler}).
+     * branch in {@code StreamRequestSupport.bodyHandler} (and {@code voidBodyHandler}).
      */
     @Path("/empty-error")
     public static class EmptyErrorResource {
@@ -358,7 +358,7 @@ class ClientErrorMappingTest {
 
     /**
      * These tests exercise the error path inside {@code RequestState.voidBodyHandler}
-     * and {@code GetRequest.downloadBodyHandler} which are never triggered by the typed
+     * and {@code StreamRequestSupport.bodyHandler} which are never triggered by the typed
      * GET tests above (those use {@link JsonBodyHandler}).
      */
     @Nested
@@ -402,15 +402,15 @@ class ClientErrorMappingTest {
         }
 
         /**
-         * {@code download()} receives a 4xx error response.
-         * Exercises the error branch inside {@code GetRequest.downloadBodyHandler}
+         * {@code stream()} receives a 4xx error response.
+         * Exercises the error branch inside {@code StreamRequestSupport.bodyHandler}
          * which the successful-download tests never reach.
          */
         @Test
         void download_4xxResponseWithBody_throwsHttpResponseException() {
             NotFoundException ex = assertThrows(
                     NotFoundException.class,
-                    () -> client.get().path("/status/404").download()
+                    () -> client.download().path("/status/404").stream()
             );
 
             assertEquals(404, ex.statusCode());
@@ -418,15 +418,15 @@ class ClientErrorMappingTest {
         }
 
         /**
-         * {@code download()} error response with no entity body.
+         * {@code stream()} error response with no entity body.
          * The empty body string exercises the {@code body.isBlank()} → {@code errorBody = null}
-         * branch inside {@code downloadBodyHandler}.
+         * branch inside {@code bodyHandler}.
          */
         @Test
         void download_4xxResponseWithEmptyBody_exceptionBodyIsEmpty() {
             NotFoundException ex = assertThrows(
                     NotFoundException.class,
-                    () -> client.get().path("/empty-error").download()
+                    () -> client.download().path("/empty-error").stream()
             );
 
             assertEquals(404, ex.statusCode());
@@ -440,7 +440,7 @@ class ClientErrorMappingTest {
          * When the redirect policy is {@link HttpClient.Redirect#NEVER} and the server
          * returns a 3xx status, the client returns the response as-is: the status code is
          * preserved and the body stream is non-null (the raw bytes are available for
-         * download via {@link GetSpec#download()}).
+         * download via {@link DownloadSpec#stream()}).
          */
         @Test
         void neverPolicy_302Response_returnsRedirectStatusCode() {
@@ -456,9 +456,9 @@ class ClientErrorMappingTest {
                     )
                     .build();
 
-            HttpResponse<InputStream> response = neverClient.get()
+            HttpResponse<InputStream> response = neverClient.download()
                     .path("/status/302")
-                    .download();
+                    .stream();
 
             assertEquals(302, response.statusCode());
         }
@@ -475,12 +475,12 @@ class ClientErrorMappingTest {
         void normalPolicy_302WithNoLocation_raisesIoException() {
             // With NORMAL redirect policy and a 302 that has no Location header,
             // the JDK throws an IOException ("Invalid redirection").
-            // Use download() which wraps it as TransportException.
+            // Use stream() which wraps it as TransportException.
             org.junit.jupiter.api.Assertions.assertThrows(
                     TransportException.class,
-                    () -> client.get()
+                    () -> client.download()
                             .path("/status/302")
-                            .download()
+                            .stream()
             );
         }
     }

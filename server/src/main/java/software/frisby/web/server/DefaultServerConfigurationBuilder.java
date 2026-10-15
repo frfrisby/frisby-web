@@ -8,7 +8,7 @@ import software.frisby.web.serial.JsonSerializer;
 
 import javax.net.ssl.SSLContext;
 import java.time.Duration;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 final class DefaultServerConfigurationBuilder implements ServerConfigurationBuilder {
     private static final String DEFAULT_HOST = "0.0.0.0";
@@ -36,7 +36,7 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
     private CorsConfiguration cors;
     private ServerLoggingConfiguration logging;
     private Integer maxConcurrentRequests;
-    private Executor executor;
+    private ExecutorService executor;
     private Duration stopTimeout;
 
     DefaultServerConfigurationBuilder() {
@@ -115,7 +115,7 @@ final class DefaultServerConfigurationBuilder implements ServerConfigurationBuil
     }
 
     @Override
-    public ServerConfigurationBuilder executor(Executor executor) {
+    public ServerConfigurationBuilder executor(ExecutorService executor) {
         this.executor = Values.notNull(EXECUTOR_ARGUMENT_NAME, executor);
         return this;
     }

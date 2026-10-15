@@ -235,7 +235,7 @@ class ClientHttpVerbTest {
     }
 
     // -------------------------------------------------------------------------
-    // GET — download / downloadAsync
+    // Download — stream / streamAsync
     // -------------------------------------------------------------------------
 
     @Nested
@@ -246,9 +246,9 @@ class ClientHttpVerbTest {
          */
         @Test
         void download_successStatus_returnsInputStream() {
-            HttpResponse<InputStream> response = client.get()
+            HttpResponse<InputStream> response = client.download()
                     .path("/persons/person-1")
-                    .download();
+                    .stream();
 
             assertEquals(200, response.statusCode());
             assertNotNull(response.body());
@@ -263,7 +263,7 @@ class ClientHttpVerbTest {
         void download_errorStatus_withBody_throwsException() {
             assertThrows(
                     BadRequestException.class,
-                    () -> client.get().path("/status/400").download()
+                    () -> client.download().path("/status/400").stream()
             );
         }
 
@@ -277,7 +277,7 @@ class ClientHttpVerbTest {
         void download_errorStatus_withBlankBody_throwsException() {
             assertThrows(
                     UnauthorizedException.class,
-                    () -> client.get().path("/status/401").download()
+                    () -> client.download().path("/status/401").stream()
             );
         }
 
@@ -286,9 +286,9 @@ class ClientHttpVerbTest {
          */
         @Test
         void downloadAsync_successStatus_returnsInputStream() {
-            HttpResponse<InputStream> response = client.get()
+            HttpResponse<InputStream> response = client.download()
                     .path("/persons/person-1")
-                    .downloadAsync()
+                    .streamAsync()
                     .join();
 
             assertEquals(200, response.statusCode());
@@ -303,7 +303,7 @@ class ClientHttpVerbTest {
         void downloadAsync_errorStatus_throwsCompletionException() {
             CompletionException ex = assertThrows(
                     CompletionException.class,
-                    () -> client.get().path("/status/400").downloadAsync().join()
+                    () -> client.download().path("/status/400").streamAsync().join()
             );
 
             assertInstanceOf(BadRequestException.class, ex.getCause());

@@ -177,20 +177,21 @@ Obtain a builder via `Client.builder()`.
 
 Obtain a builder via `Configuration.builder()`.
 
-| Method                                | Default                            | Description                                                                                                                                     |
-|---------------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `uri(URI)`                            | — *required*                       | Base URI of the target service.  All request paths are resolved against this.                                                                   |
-| `connectTimeout(Duration)`            | — *required*                       | Maximum time to wait for a TCP connection.                                                                                                      |
-| `readTimeout(Duration)`               | — *required*                       | Maximum time to wait for a response after a request is sent.                                                                                    |
-| `serializer(JsonSerializer)`          | — *required*                       | JSON serializer used to serialize request bodies and deserialize response bodies.                                                               |
-| `sslContext(SSLContext)`              | JDK default                        | Custom TLS context — private CA trust store, mutual TLS client certificate, etc.                                                                |
-| `redirectPolicy(HttpClient.Redirect)` | `NORMAL`                           | Whether redirects are followed automatically.  See [Response handling](#10-response-handling).                                                  |
-| `httpVersion(HttpClient.Version)`     | `HTTP_1_1`                         | HTTP protocol version preference.                                                                                                               |
-| `decompress()`                        | off                                | Registers the built-in gzip response decompressor.  Additive — call multiple times for multiple encodings.  See [Compression](#12-compression). |
-| `decompress(ContentDecompressor)`     | off                                | Registers a custom response decompressor.  Additive.                                                                                            |
-| `executor(Executor)`                  | shared default                     | Custom `Executor` for the underlying `HttpClient`.  Virtual threads: `Executors.newVirtualThreadPerTaskExecutor()`.                             |
-| `logging(ClientLoggingConfiguration)` | 8 KB body, built-in headers masked | Controls header masking, body field redaction, and body size limits for log entries.                                                            |
-| `build()`                             |                                    | Returns a `Configuration` instance.                                                                                                             |
+| Method                                | Default                            | Description                                                                                                                                                                                                                                                                                                                                                                         |
+|---------------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `uri(URI)`                            | — *required*                       | Base URI of the target service.  All request paths are resolved against this.                                                                                                                                                                                                                                                                                                       |
+| `connectTimeout(Duration)`            | — *required*                       | Maximum time to wait for a TCP connection.                                                                                                                                                                                                                                                                                                                                          |
+| `readTimeout(Duration)`               | — *required*                       | Maximum time to wait for a response after a request is sent.  Applies to `send(...)`/`sendAsync(...)` calls only — fully-buffered JSON bodies.                                                                                                                                                                                                                                      |
+| `serializer(JsonSerializer)`          | — *required*                       | JSON serializer used to serialize request bodies and deserialize response bodies.                                                                                                                                                                                                                                                                                                   |
+| `idleTimeout(Duration)`               | `readTimeout()`'s value            | Timeout for stream-producing calls only (`client.download()`, `client.sse()`) — bounds both time-to-first-byte and any subsequent post-first-byte stall with one value.  A per-call override is also available directly on the download/SSE spec.  Optional; defaults to the configured `readTimeout()` value so existing callers aren't forced to add a new required builder call. |
+| `sslContext(SSLContext)`              | JDK default                        | Custom TLS context — private CA trust store, mutual TLS client certificate, etc.                                                                                                                                                                                                                                                                                                    |
+| `redirectPolicy(HttpClient.Redirect)` | `NORMAL`                           | Whether redirects are followed automatically.  See [Response handling](#10-response-handling).                                                                                                                                                                                                                                                                                      |
+| `httpVersion(HttpClient.Version)`     | `HTTP_1_1`                         | HTTP protocol version preference.                                                                                                                                                                                                                                                                                                                                                   |
+| `decompress()`                        | off                                | Registers the built-in gzip response decompressor.  Additive — call multiple times for multiple encodings.  See [Compression](#12-compression).                                                                                                                                                                                                                                     |
+| `decompress(ContentDecompressor)`     | off                                | Registers a custom response decompressor.  Additive.                                                                                                                                                                                                                                                                                                                                |
+| `executor(ExecutorService)`           | shared default                     | Custom `ExecutorService` for the underlying `HttpClient`.  Virtual threads: `Executors.newVirtualThreadPerTaskExecutor()`.                                                                                                                                                                                                                                                          |
+| `logging(ClientLoggingConfiguration)` | 8 KB body, built-in headers masked | Controls header masking, body field redaction, and body size limits for log entries.                                                                                                                                                                                                                                                                                                |
+| `build()`                             |                                    | Returns a `Configuration` instance.                                                                                                                                                                                                                                                                                                                                                 |
 
 `build()` throws `IllegalStateException` if any required option is absent, and
 `DuplicateElementsException` if two registered decompressors share the same encoding token.
@@ -232,6 +233,21 @@ All specs support:
 `GET`, `HEAD`, and `DELETE` additionally support `send(GenericType<T>)` for generic
 response types.  `POST`, `PUT`, and `PATCH` also support `compress()` /
 `compress(ContentCompressor)`.
+
+Two additional, dedicated specs cover raw streamed responses rather than fully-buffered
+JSON bodies — each is its own spec (not an overload on `GetSpec`) specifically so its
+`idleTimeout(Duration)` per-call override is never a silent no-op:
+
+```java
+// File / binary download
+HttpResponse<InputStream> file = client.download().path("/documents/{id}", "id", docId).stream();
+
+// Server-Sent Events — raw stream; see docs/sse.md for the full-featured client-sse module
+HttpResponse<InputStream> events = client.sse().path("/notifications/stream").stream();
+```
+
+See [Timeouts](#5-configurationbuilder-reference) above for how `idleTimeout` bounds
+these two specs, and `docs/sse.md` for everything SSE-related.
 
 ---
 

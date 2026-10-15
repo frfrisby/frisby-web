@@ -208,7 +208,7 @@ public final class NotificationResource {
 ## Why `SseEmitter` always writes an immediate leading comment
 
 A client-side per-request read timeout (e.g. `Client`'s `readTimeout()`, or
-`SseSpec`/`SseListenerBuilder`'s `firstByteTimeout(Duration)`) typically bounds only
+`SseSpec`/`SseListenerBuilder`'s `idleTimeout(Duration)`) typically bounds only
 time-to-first-byte, not an already-open stream. If a resource method builds an
 `SseEmitter` but doesn't write its own first event right away (e.g. it's waiting on a
 slow upstream call), a client could otherwise see the connection fail before anything

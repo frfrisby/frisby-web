@@ -233,13 +233,14 @@ class DefaultSseListenerBuilderTest {
         }
     }
 
+
     @Nested
-    class FirstByteTimeout {
+    class IdleTimeout {
         @Test
         void nullTimeout_throwsNullValueException() {
             assertThrows(
                     NullValueException.class,
-                    () -> SseListener.builder().client(client).firstByteTimeout(null)
+                    () -> SseListener.builder().client(client).idleTimeout(null)
             );
         }
 
@@ -247,7 +248,7 @@ class DefaultSseListenerBuilderTest {
         void zeroTimeout_throwsDurationOutsideRangeException() {
             assertThrows(
                     DurationOutsideRangeException.class,
-                    () -> SseListener.builder().client(client).firstByteTimeout(Duration.ZERO)
+                    () -> SseListener.builder().client(client).idleTimeout(Duration.ZERO)
             );
         }
 
@@ -255,25 +256,38 @@ class DefaultSseListenerBuilderTest {
         void negativeTimeout_throwsDurationOutsideRangeException() {
             assertThrows(
                     DurationOutsideRangeException.class,
-                    () -> SseListener.builder().client(client).firstByteTimeout(Duration.ofSeconds(-1))
+                    () -> SseListener.builder().client(client).idleTimeout(Duration.ofSeconds(-1))
             );
         }
 
         @Test
         void validTimeout_returnsBuilder() {
-            assertNotNull(SseListener.builder().client(client).firstByteTimeout(Duration.ofSeconds(5)));
+            assertNotNull(
+                    SseListener.builder().client(client).idleTimeout(Duration.ofSeconds(5))
+            );
         }
 
-        @Test
-        void calledBeforeClient_stillValidatesOnceClientIsCalled() {
-            // Mirrors clientCalledAfterNavigation_stillValidatesNavigation above —
-            // firstByteTimeout is applied via the same queued-navigation-op mechanism as
-            // path/parameter/header/cookie/security, so an invalid value queued before
-            // client(...) must still surface once client(...) replays it.
-            assertThrows(
-                    DurationOutsideRangeException.class,
-                    () -> SseListener.builder().firstByteTimeout(Duration.ZERO).client(client)
-            );
+        @Nested
+        class ResolveIdleTimeout {
+            @Test
+            void neverCalled_defaultsToThreeTimesReadTimeout() {
+                assertEquals(
+                        Duration.ofSeconds(90),
+                        DefaultSseListenerBuilder.resolveIdleTimeout(null, Duration.ofSeconds(30))
+                );
+            }
+
+
+            @Test
+            void calledWithExplicitPositiveValue_overridesTheDefaultEntirely() {
+                assertEquals(
+                        Duration.ofMillis(300),
+                        DefaultSseListenerBuilder.resolveIdleTimeout(
+                                Duration.ofMillis(300),
+                                Duration.ofSeconds(30)
+                        )
+                );
+            }
         }
     }
 

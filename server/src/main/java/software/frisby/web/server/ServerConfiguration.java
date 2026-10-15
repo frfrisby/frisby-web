@@ -5,7 +5,7 @@ import software.frisby.web.serial.JsonSerializer;
 import javax.net.ssl.SSLContext;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Runtime configuration options for a {@link Server} instance.
@@ -171,7 +171,7 @@ public interface ServerConfiguration {
      * @return An {@link Optional} containing the executor, or
      * {@link Optional#empty()} if not set (platform threads apply).
      */
-    Optional<Executor> executor();
+    Optional<ExecutorService> executor();
 
     /**
      * Returns the graceful-shutdown timeout, if one was configured.

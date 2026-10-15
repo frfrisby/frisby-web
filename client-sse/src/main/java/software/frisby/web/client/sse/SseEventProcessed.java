@@ -13,7 +13,7 @@ import java.util.Optional;
  * <p>
  * Carries the same identity fields as {@link SseEventReceived}, plus two latency
  * measurements and {@link #succeeded()}. Fires unconditionally once the callback has been
- * attempted — {@link #succeeded()} is {@code false} whenever the callback threw, rather
+ * attempted. {@link #succeeded()} is {@code false} whenever the callback threw, rather
  * than suppressing the event entirely, so a caller building throughput/latency telemetry
  * always sees every dispatched item's timing, not just the ones that happened to succeed.
  * A failed callback is still fully reported, with its exception and raw context, via
@@ -24,11 +24,11 @@ import java.util.Optional;
  * Deliberately computed directly around the callback invocation itself (inside
  * {@code DefaultSseListener}'s own dispatch wrapper) rather than derived from any
  * {@code frisby-core} pipeline block's own notification hooks — see the class-level
- * javadoc on {@code DefaultSseListener} for why that distinction matters.
+ * Javadoc on {@code DefaultSseListener} for why that distinction matters.
  * <p>
  * For a batch handler ({@code onEvent(String, SseBatchHandler)}), one
  * {@code SseEventProcessed} fires per item in the delivered batch — mirroring one
- * {@link SseEventReceived} per raw item — each with its own accurate {@link #totalLatency()}
+ * {@link SseEventReceived} per raw item. Each with its own accurate {@link #totalLatency()}
  * measured against its own {@link #receivedAt()}, but all sharing the same
  * {@link #processingDuration()} and {@link #succeeded()}, since the callback ran once for
  * the whole batch.

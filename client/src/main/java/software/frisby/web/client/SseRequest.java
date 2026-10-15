@@ -1,163 +1,96 @@
 package software.frisby.web.client;
 
-import software.frisby.core.validation.Durations;
 import software.frisby.web.client.security.SecurityProvider;
 
 import java.io.InputStream;
 import java.net.HttpCookie;
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 /**
  * Package-private implementation of {@link SseSpec}.
  * <p>
- * Navigation state is held by a {@link RequestState} instance; this class is
- * responsible only for assembling and dispatching the SSE stream request via the
- * shared {@link HttpEngine}.  Structurally identical to {@link GetRequest}, except the
- * terminal methods return the raw response stream rather than a deserialized body.
+ * A thin wrapper around a {@link StreamRequestSupport} constructed with {@code
+ * defaultAcceptHeaderValue = "text/event-stream"} — every navigation method and both
+ * terminals are one-line delegations, identical in shape to {@link DownloadRequest}.
  */
 final class SseRequest implements SseSpec {
-    private static final String GET = "GET";
     private static final String TEXT_EVENT_STREAM = "text/event-stream";
-    private static final String TIMEOUT_ARGUMENT_NAME = "timeout";
 
-    private final HttpEngine engine;
-    private final RequestState state;
-    private Duration firstByteTimeout;
+    private final StreamRequestSupport support;
 
     SseRequest(HttpEngine engine, SecurityProvider defaultSecurity) {
-        this.engine = engine;
-        this.state = new RequestState(defaultSecurity);
-        this.firstByteTimeout = null;
+        this.support = new StreamRequestSupport(engine, defaultSecurity, TEXT_EVENT_STREAM);
     }
 
     @Override
     public SseSpec path(String path) {
-        state.path(path);
+        support.path(path);
         return this;
     }
 
     @Override
     public SseSpec path(String path, String parameterId, String parameterValue) {
-        state.path(path, parameterId, parameterValue);
+        support.path(path, parameterId, parameterValue);
         return this;
     }
 
     @Override
     public SseSpec path(String path, PathParameter... parameters) {
-        state.path(path, parameters);
+        support.path(path, parameters);
         return this;
     }
 
     @Override
     public SseSpec parameter(String name, String value) {
-        state.parameter(name, value);
+        support.parameter(name, value);
         return this;
     }
 
     @Override
     public SseSpec parameter(String name, String... values) {
-        state.parameter(name, values);
+        support.parameter(name, values);
         return this;
     }
 
     @Override
     public SseSpec header(String name, String value) {
-        state.header(name, value);
+        support.header(name, value);
         return this;
     }
 
     @Override
     public SseSpec header(String name, String... values) {
-        state.header(name, values);
+        support.header(name, values);
         return this;
     }
 
     @Override
     public SseSpec cookie(HttpCookie cookie) {
-        state.cookie(cookie);
+        support.cookie(cookie);
         return this;
     }
 
     @Override
     public SseSpec security(SecurityProvider provider) {
-        state.security(provider);
+        support.security(provider);
         return this;
     }
 
     @Override
-    public SseSpec firstByteTimeout(Duration timeout) {
-        this.firstByteTimeout = Durations.positive(TIMEOUT_ARGUMENT_NAME, timeout);
+    public SseSpec idleTimeout(Duration timeout) {
+        support.idleTimeout(timeout);
         return this;
     }
 
     @Override
     public HttpResponse<InputStream> stream() {
-        URI uri = state.resolveUri(engine.configuration().uri());
-
-        return engine.send(
-                GET,
-                uri,
-                () -> OutboundRequest.of(buildStreamRequest(uri)),
-                streamBodyHandler(uri)
-        );
+        return support.execute();
     }
 
     @Override
     public CompletableFuture<HttpResponse<InputStream>> streamAsync() {
-        URI uri = state.resolveUri(engine.configuration().uri());
-
-        return engine.sendAsync(
-                GET,
-                uri,
-                () -> OutboundRequest.of(buildStreamRequest(uri)),
-                streamBodyHandler(uri)
-        );
-    }
-
-    private HttpRequest buildStreamRequest(URI uri) {
-        Duration effectiveReadTimeout = null != firstByteTimeout
-                ? firstByteTimeout
-                : engine.configuration().readTimeout();
-
-        HttpRequest.Builder builder = state.prepareBuilder(
-                uri, GET, HttpRequest.BodyPublishers.noBody(),
-                false, null, effectiveReadTimeout
-        );
-
-        if (!state.hasHeader(Headers.ACCEPT)) {
-            builder.header(Headers.ACCEPT, TEXT_EVENT_STREAM);
-        }
-
-        return builder.build();
-    }
-
-    private HttpResponse.BodyHandler<InputStream> streamBodyHandler(URI uri) {
-        return responseInfo -> {
-            if (ExceptionFactory.isError(responseInfo.statusCode())) {
-                return HttpResponse.BodySubscribers.mapping(
-                        HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
-                        (Function<String, InputStream>) body -> {
-                            String errorBody = body.isBlank() ? null : body;
-
-                            throw ExceptionFactory.create(
-                                    errorBody,
-                                    GET,
-                                    uri,
-                                    responseInfo.statusCode(),
-                                    responseInfo.headers()
-                            );
-                        }
-                );
-            }
-
-            return HttpResponse.BodySubscribers.ofInputStream();
-        };
+        return support.executeAsync();
     }
 }
-

@@ -65,6 +65,16 @@ class ClientServerSseImmediateEventRaceTest {
     private static final int EVENT_COUNT = 5000;
     private static final long HEARTBEAT_MILLIS = 7L;
 
+    // Deliberately NOT tied to HEARTBEAT_MILLIS. idleTimeout() bounds both the
+    // time-to-first-byte wait on every single reconnect AND any post-first-byte stall --
+    // a value anywhere near the heartbeat cadence is nowhere near enough time for a brand
+    // new TCP connection + Jersey/Jetty dispatch + a fresh SseEmitter to produce its first
+    // byte, especially while this test's own send loop is hammering the JVM. Too tight a
+    // value here doesn't test the heartbeat-vs-send race at all -- it just guarantees the
+    // watchdog kills every single reconnect attempt before it can ever get going again,
+    // which is indistinguishable from this test hanging forever.
+    private static final Duration IDLE_TIMEOUT = Duration.ofSeconds(2);
+
     private static Server server;
     private static Client client;
 
@@ -110,6 +120,7 @@ class ClientServerSseImmediateEventRaceTest {
                 .path("/immediate-race/stream")
                 .parameter("heartbeatMs", String.valueOf(HEARTBEAT_MILLIS))
                 .parameter("eventCount", String.valueOf(EVENT_COUNT))
+                .idleTimeout(IDLE_TIMEOUT)
                 .onEvent(RACE_EVENT, SseHandler.of(message -> {
                     receivedIds.add(Integer.valueOf(message.id().orElseThrow()));
                     delivered.countDown();
@@ -124,7 +135,7 @@ class ClientServerSseImmediateEventRaceTest {
             listener.connectAsync();
 
             assertTrue(
-                    delivered.await(120, TimeUnit.SECONDS),
+                    delivered.await(240, TimeUnit.SECONDS),
                     () -> "Expected " + EVENT_COUNT + " events, only received " + receivedIds.size() + " distinct ids"
             );
         }

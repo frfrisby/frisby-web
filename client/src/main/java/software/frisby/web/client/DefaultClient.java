@@ -51,8 +51,12 @@ final class DefaultClient implements Client {
     }
 
     @Override
+    public DownloadSpec download() {
+        return new DownloadRequest(engine, defaultSecurity);
+    }
+
+    @Override
     public ClientConfiguration configuration() {
         return engine.configuration();
     }
 }
-

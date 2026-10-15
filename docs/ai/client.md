@@ -87,18 +87,59 @@ Obtain via `ClientConfiguration.builder()`.
 
 ### Optional options
 
-| Method                                | Default        | Description                                                                                                                    |
-|---------------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------|
-| `sslContext(SSLContext)`              | JDK default    | Custom TLS — private CA, mTLS.                                                                                                 |
-| `redirectPolicy(HttpClient.Redirect)` | `NORMAL`       | `NORMAL` follows HTTP→HTTP and HTTPS→HTTPS redirects.  `NEVER` returns 3xx directly; `response.body()` will be `null` for 3xx. |
-| `httpVersion(HttpClient.Version)`     | `HTTP_1_1`     | Set to `HTTP_2` for HTTP/2.                                                                                                    |
-| `decompress()`                        | —              | Registers built-in gzip decompressor; adds `Accept-Encoding: gzip`.                                                            |
-| `decompress(ContentDecompressor)`     | —              | Custom decompressor (e.g. brotli).  Calls are additive.                                                                        |
-| `executor(Executor)`                  | Shared default | Custom thread pool or virtual threads (Java 21+).                                                                              |
-| `logging(ClientLoggingConfiguration)` | See below      | Header/field redaction and body size cap for log entries.                                                                      |
+| Method                                | Default                 | Description                                                                                                                           |
+|---------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `sslContext(SSLContext)`              | JDK default             | Custom TLS — private CA, mTLS.                                                                                                        |
+| `redirectPolicy(HttpClient.Redirect)` | `NORMAL`                | `NORMAL` follows HTTP→HTTP and HTTPS→HTTPS redirects.  `NEVER` returns 3xx directly; `response.body()` will be `null` for 3xx.        |
+| `httpVersion(HttpClient.Version)`     | `HTTP_1_1`              | Set to `HTTP_2` for HTTP/2.                                                                                                           |
+| `idleTimeout(Duration)`               | `readTimeout()`'s value | See [Timeouts — `connectTimeout` vs. `readTimeout` vs. `idleTimeout`](#timeouts--connecttimeout-vs-readtimeout-vs-idletimeout) below. |
+| `decompress()`                        | —                       | Registers built-in gzip decompressor; adds `Accept-Encoding: gzip`.                                                                   |
+| `decompress(ContentDecompressor)`     | —                       | Custom decompressor (e.g. brotli).  Calls are additive.                                                                               |
+| `executor(ExecutorService)`           | Shared default          | Custom thread pool or virtual threads (Java 21+).                                                                                     |
+| `logging(ClientLoggingConfiguration)` | See below               | Header/field redaction and body size cap for log entries.                                                                             |
 
 `build()` throws `DuplicateElementsException` if two registered decompressors share the
 same `encoding()` token.
+
+---
+
+## Timeouts — `connectTimeout` vs. `readTimeout` vs. `idleTimeout`
+
+Three distinct timeout concepts, each bounding a different phase of a request:
+
+| Concept          | Bounds                                                                    | Applies to                                                                     |
+|------------------|---------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `connectTimeout` | Time to establish the TCP connection.                                     | Every request.                                                                 |
+| `readTimeout`    | Time from request sent to the full response received.                     | `send(...)`/`sendAsync(...)` calls only — fully-buffered JSON bodies.          |
+| `idleTimeout`    | Time-to-first-byte **and** the gap since the most recently received byte. | Stream-producing calls only — `DownloadSpec`/`SseSpec` (`download()`/`sse()`). |
+
+`idleTimeout` is the sole timeout concept for a streamed response — there is no
+separate first-byte-only knob anywhere in this library. It feeds two mechanisms with
+one value:
+
+1. The JDK's own `HttpRequest.Builder#timeout(idleTimeout)` — bounds time-to-first-byte,
+   exactly like `readTimeout` bounds a non-streaming call end-to-end.
+2. A shared, internal idle-stream watchdog — a single daemon-thread
+   `ScheduledExecutorService` common to every `Client` instance (not one thread per
+   stream) — that tracks the gap since the most recently received byte on every
+   currently-open stream it produced, and forcibly closes any stream whose gap exceeds
+   its own `idleTimeout`. Closing unblocks a thread parked in `read()` with an
+   `IOException`, instead of leaving it blocked forever. This guards against a stall the
+   JDK's own `readTimeout`/`timeout()` mechanism cannot detect once headers have already
+   arrived — a server that accepts the connection, sends a few bytes, then goes silent
+   (box crash, an upstream load balancer blackholing the socket with no RST ever sent,
+   etc.).
+
+A stream that is properly closed or drained to EOF deregisters itself from the watchdog
+immediately, at no ongoing cost. A stream the caller never closes or drains is
+eventually closed once idle past `idleTimeout` — a free, partial self-healing
+improvement over an abandoned stream leaking its underlying socket forever.
+
+`ClientConfiguration.idleTimeout()` is the connection-wide default, applied to every
+stream-producing call unless overridden. A per-call `idleTimeout(Duration)` override is
+also available directly on `DownloadSpec`/`SseSpec`, for a single slow or bulky endpoint
+that shouldn't force loosening the default for every other call made through the same
+`Client`.
 
 ---
 
@@ -173,17 +214,18 @@ Overrides the default security provider for this individual request.
 <T> HttpResponse<T>                    send(Class<T> responseType)
 <T> HttpResponse<T>                    send(GenericType<T> responseType)
 
-// Binary / streaming download
-HttpResponse<InputStream>              download()
-
 // Async variants
 <T> CompletableFuture<HttpResponse<T>> sendAsync(Class<T> responseType)
 <T> CompletableFuture<HttpResponse<T>> sendAsync(GenericType<T> responseType)
-CompletableFuture<HttpResponse<InputStream>> downloadAsync()
 ```
 
 Deserialization is performed only for `2xx` responses.  With `NEVER` redirect policy,
 a `3xx` returns a response with a `null` body — always check `statusCode()` first.
+
+`GetSpec` has no streaming terminal methods — `download()`/`downloadAsync()` live on
+`DownloadSpec` (`Client.download()`) instead, so that a per-call `idleTimeout` override
+can never be a silent no-op on a call that isn't actually stream-producing. See
+`DownloadSpec` below.
 
 ---
 
@@ -260,6 +302,57 @@ CompletableFuture<HttpResponse<Void>> sendAsync()
 
 Common uses: existence checks, `Content-Length` pre-flight, cache validation via `ETag`
 / `Last-Modified`, lightweight liveness probes.
+
+---
+
+## `DownloadSpec`
+
+Obtained from `Client.download()` (not `Client.get()`). Split off of `GetSpec`
+specifically so the per-call `idleTimeout(Duration)` override below can never be a
+silent no-op — `GetSpec` is shared by fully-buffered `send(...)`/`sendAsync(...)` calls,
+for which no idle-stream concept applies, so an `idleTimeout` override placed there
+instead would silently do nothing whenever the next call made happened to be a
+`send(...)`.
+
+```java
+DownloadSpec path(String path)
+DownloadSpec path(String path, String parameterId, String parameterValue)
+DownloadSpec path(String path, PathParameter... parameters)
+DownloadSpec parameter(String name, String value)
+DownloadSpec parameter(String name, String... values)
+DownloadSpec header(String name, String value)
+DownloadSpec header(String name, String... values)
+DownloadSpec cookie(HttpCookie cookie)
+DownloadSpec security(SecurityProvider provider)
+DownloadSpec idleTimeout(Duration timeout)
+
+HttpResponse<InputStream>                    stream()
+CompletableFuture<HttpResponse<InputStream>> streamAsync()
+```
+
+- `stream()`/`streamAsync()` return the raw response body as a watchdog-tracked
+  `InputStream` — the caller is responsible for closing it. A stall past the effective
+  `idleTimeout` — before the first byte or at any point afterward — closes the stream
+  automatically, unblocking a pending `read()` with an `IOException`, rather than
+  blocking it forever.
+- `idleTimeout(Duration)` overrides, for this call only, the connection-wide
+  `ClientConfiguration#idleTimeout()` default. See
+  [Timeouts — `connectTimeout` vs. `readTimeout` vs. `idleTimeout`](#timeouts--connecttimeout-vs-readtimeout-vs-idletimeout)
+  above for the full mechanism. Useful when a single slow or bulky download endpoint
+  shouldn't force loosening the default for every other call made through the same
+  `Client`.
+
+```java
+HttpResponse<InputStream> file = client.download()
+        .path("/documents/{id}", "id", docId)
+        .stream();
+
+// Non-blocking
+client.download()
+        .path("/documents/{id}", "id", docId)
+        .streamAsync()
+        .thenAccept(response -> process(response.body()));
+```
 
 ---
 
