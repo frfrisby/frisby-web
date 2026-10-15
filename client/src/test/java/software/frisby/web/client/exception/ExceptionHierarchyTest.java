@@ -3,6 +3,7 @@ package software.frisby.web.client.exception;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpHeaders;
 import java.util.List;
@@ -1222,6 +1223,36 @@ class ExceptionHierarchyTest {
         @Test
         void gatewayTimeoutException_causeOnly_preserves504() {
             assertEquals(504, new GatewayTimeoutException(CAUSE).statusCode());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // IdleTimeoutException
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class IdleTimeoutExceptionTests {
+        @Test
+        void messageConstructor_messageIsAccessibleAndCauseIsNull() {
+            var ex = new IdleTimeoutException("idleTimeout elapsed with no activity");
+
+            assertEquals("idleTimeout elapsed with no activity", ex.getMessage());
+            assertNull(ex.getCause());
+        }
+
+        @Test
+        void messageAndCauseConstructor_messageAndCauseAreAccessible() {
+            var cause = new IOException("connection reset");
+
+            var ex = new IdleTimeoutException("idleTimeout elapsed with no activity", cause);
+
+            assertEquals("idleTimeout elapsed with no activity", ex.getMessage());
+            assertEquals(cause, ex.getCause());
+        }
+
+        @Test
+        void isIOException() {
+            assertInstanceOf(IOException.class, new IdleTimeoutException("idle"));
         }
     }
 

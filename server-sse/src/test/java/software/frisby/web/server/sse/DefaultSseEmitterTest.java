@@ -654,6 +654,39 @@ class DefaultSseEmitterTest {
             }
         }
 
+        /**
+         * Covers the {@code isLoggable(INFO)} == {@code false} branch inside {@code
+         * sendHeartbeatSafely}'s catch block — a distinct code path from the constructor's
+         * and {@code close()}'s own {@code isLoggable(INFO)} guards, which {@code
+         * loggerAtWarning_infoLifecycleMessagesAreNotLogged} below already covers. With
+         * logging raised to WARNING, a heartbeat send failure must not attempt to log at
+         * INFO at all.
+         */
+        @Test
+        void heartbeatSendThrowsAndLoggerAtWarning_doesNotLog() throws InterruptedException {
+            RuntimeException cause = new RuntimeException("Simulated heartbeat send failure.");
+            CapturingSink sink = new CapturingSink();
+            sink.sendException = cause;
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.WARNING)
+                    .build();
+                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                         sink,
+                         new CapturingSse(),
+                         Duration.ofMillis(20)
+                 )) {
+                // sink.send() always throws before it could ever count down a
+                // CountDownLatch, so there is no send-based signal to await here — instead,
+                // sleep comfortably past several heartbeat ticks (20ms interval) to give
+                // multiple failed heartbeat attempts a chance to have logged, if they were
+                // going to.
+                Thread.sleep(150);
+
+                assertEquals(0, verifier.infoCount());
+            }
+        }
+
         @Test
         void loggerAtWarning_infoLifecycleMessagesAreNotLogged() {
             try (SystemLogVerifier verifier = SystemLogVerifier.builder()

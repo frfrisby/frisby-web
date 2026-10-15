@@ -35,7 +35,7 @@ final class WatchdogEntry {
     WatchdogEntry(Duration idleTimeout, Closeable closeable, URI uri) {
         this.lastActivityNanos = new AtomicLong(System.nanoTime());
 
-        // Duration.toNanos() performs an overflow-checked multiplication on every call;
+        // Duration.toNanos() performs an overflow-checked multiplication on every call.
         // isExpired() is invoked once per entry on every StreamWatchdog sweep tick for
         // this entry's entire registered lifetime, so it is computed once here instead.
         this.idleTimeoutNanos = idleTimeout.toNanos();
