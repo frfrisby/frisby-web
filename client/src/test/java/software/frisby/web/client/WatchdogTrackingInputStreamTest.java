@@ -66,6 +66,36 @@ class WatchdogTrackingInputStreamTest {
         }
     }
 
+    /**
+     * An {@link InputStream} whose {@code read()} throws a genuine transport-level
+     * {@link IOException} immediately — never touched by {@link StreamWatchdog} at all —
+     * used to exercise the {@code expiredByWatchdog.get()} == {@code false} branch of
+     * {@code WatchdogTrackingInputStream#translateIfExpired}, where the original
+     * exception must be rethrown as-is rather than wrapped in an {@link
+     * IdleTimeoutException}.
+     */
+    private static final class ThrowingInputStream extends InputStream {
+        @Override
+        public int read() throws IOException {
+            throw new IOException("Simulated genuine transport failure.");
+        }
+    }
+
+    @Test
+    void genuineIoException_notExpiredByWatchdog_rethrownUnwrapped() {
+        ThrowingInputStream raw = new ThrowingInputStream();
+        WatchdogTrackingInputStream tracked = new WatchdogTrackingInputStream(raw, GENEROUS_WAIT, URI.create("https://example.com"));
+
+        try {
+            IOException thrown = assertThrows(IOException.class, tracked::read);
+
+            assertFalse(thrown instanceof IdleTimeoutException);
+            assertEquals("Simulated genuine transport failure.", thrown.getMessage());
+        } finally {
+            StreamWatchdog.deregister(tracked);
+        }
+    }
+
     @Test
     void idlePastTimeout_underlyingStreamClosedAndPendingReadThrows() throws Exception {
         StallingInputStream raw = new StallingInputStream(new byte[]{1, 2});
