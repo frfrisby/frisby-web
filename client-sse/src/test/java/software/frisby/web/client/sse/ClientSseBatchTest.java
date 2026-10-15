@@ -89,6 +89,21 @@ class ClientSseBatchTest {
         }
     }
 
+    /**
+     * Regression test for a CI flake: {@code BatchBlock}'s own javadoc (see
+     * {@code software.frisby.core.concurrency.BatchBlock#timeout()}) is explicit that the
+     * flush timeout elapses from the instant the <strong>first</strong> item is added to the
+     * batch — not a per-item inactivity timer that resets as each subsequent event arrives.
+     * {@code SseTestResource} writes both events back-to-back with no artificial delay, so
+     * under normal conditions event-2 lands a few milliseconds after event-1 and well inside
+     * any reasonable batchTimeout. But a previously-used 200ms timeout left essentially no
+     * margin for a loaded/slow CI runner, where the extra TCP + HTTP parsing + pipeline
+     * dispatch latency for event-2 occasionally pushed its arrival past the 200ms mark,
+     * flushing a partial batch containing only event-1 and failing this test. A generous 5s
+     * timeout preserves the test's actual intent — asserting a timeout-triggered partial
+     * flush, since batchSize(10) is deliberately never reached — without racing ordinary
+     * single-digit-millisecond delivery latency against an overly tight deadline.
+     */
     @Test
     void batchTimeoutElapses_deliversPartialBatch() throws InterruptedException {
         List<List<String>> batches = new CopyOnWriteArrayList<>();
@@ -101,13 +116,13 @@ class ClientSseBatchTest {
                 .onEvent("message", SseBatchHandler.of((List<SseMessage<String>> messages) -> {
                     batches.add(messages.stream().map(SseMessage::body).toList());
                     latch.countDown();
-                }).batchSize(10).batchTimeout(Duration.ofMillis(200)))
+                }).batchSize(10).batchTimeout(Duration.ofSeconds(5)))
                 .build();
 
         try {
             listener.connectAsync();
 
-            assertTrue(latch.await(10, TimeUnit.SECONDS));
+            assertTrue(latch.await(20, TimeUnit.SECONDS));
             assertEquals(1, batches.size());
             assertEquals(List.of("event-1", "event-2"), batches.get(0));
         } finally {
