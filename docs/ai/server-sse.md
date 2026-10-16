@@ -20,6 +20,8 @@ Maven:
 - Build outbound wire events with `SseEvent` / `SseEventBuilder`.
 - Send over a Jersey stream using `SseEmitter`.
 - Use `SseEvents` when serializing typed payloads to JSON.
+- Use `ScheduledEvent` / `ScheduledEventBuilder` for recurring, application-visible events
+  independent of whatever the resource method's own main loop is doing.
 
 ---
 
@@ -128,7 +130,92 @@ Terminal:
 
 ---
 
-## `SseEvents` (typed convenience)
+## `ScheduledEvent` (recurring application-level push)
+
+Purpose: have an `SseEmitter` periodically send a real, application-visible `SseEvent` on
+its own schedule, independent of whatever the resource method's own main loop is doing.
+Unlike `heartbeat(Duration)` — an invisible SSE *comment* frame purely for keep-alive —
+a scheduled event is dispatched through the exact same `onEvent(name, handler)` pipeline
+on the client as any event a resource method sends manually. No client-side changes are
+needed to consume one.
+
+Factory:
+
+```java
+ScheduledEventBuilder builder = ScheduledEvent.builder();
+```
+
+Accessors:
+
+- `Duration interval()`
+- `Supplier<SseEvent> supplier()`
+
+### `ScheduledEventBuilder`
+
+- `interval(Duration interval)`
+  - required before `build()`
+  - must be positive (same validation as `heartbeat(Duration)`)
+- `supplier(Supplier<SseEvent> supplier)`
+  - required before `build()`
+  - rejects `null`
+  - invoked once per tick; returning `null` from the supplier is a first-class "skip this
+    tick" signal — not an error, not logged as a failure
+  - a supplier that throws does not prevent subsequent ticks from firing
+- `build()`
+  - rejects missing `interval` or `supplier`
+
+### `SseEmitterBuilder.scheduledEvent(ScheduledEvent)`
+
+```java
+SseEmitterBuilder scheduledEvent(ScheduledEvent event);
+```
+
+- optional; additive — may be called more than once to register multiple independently
+  -scheduled events; the common case is a single scheduled event, but nothing prevents
+  configuring more
+- independent of, and composable with, `heartbeat(Duration)` — the two serve different
+  purposes and are commonly configured at different cadences (for example a 15 second
+  keep-alive alongside a 15 minute "report your stats" prompt)
+- a scheduled event's first tick fires after one full `interval` has elapsed, not
+  immediately — unlike `heartbeat(Duration)`'s first tick, which exists specifically to
+  beat a client's time-to-first-byte read timeout; that guard is already unconditionally
+  satisfied by the leading comment frame `build()` always writes, independent of whether
+  any scheduled event is configured
+- every scheduled event and the comment heartbeat (if configured) share the same
+  single-thread scheduler owned by the `SseEmitter` — **keep suppliers fast**; a slow
+  supplier delays every other tick due to fire around the same moment. If slow I/O is
+  needed, do it asynchronously elsewhere and have the supplier return a
+  precomputed/cached snapshot
+- a supplier that throws, or a `sink.send(...)` failure, is logged at best-effort (`INFO`)
+  and does not prevent subsequent ticks — exactly as resilient as a heartbeat send
+  failure
+- `close()` cancels every scheduled-event future, not just the heartbeat's
+- don't give scheduled "wake up and act" events an `id` unless you specifically want them
+  replayed on client reconnect via `Last-Event-ID` — they represent "current state, right
+  now," not a historical fact worth replaying
+
+```java
+ScheduledEvent statsPrompt = ScheduledEvent.builder()
+        .interval(Duration.ofMinutes(15))
+        .supplier(() -> SseEvents.of(serializer)
+                .event("stats-request")
+                .data(buildStatsPrompt())
+                .toEvent())
+        .build();
+
+try (SseEmitter emitter = SseEmitter.builder()
+        .sink(sink)
+        .sse(sse)
+        .heartbeat(Duration.ofSeconds(15))
+        .scheduledEvent(statsPrompt)
+        .build()) {
+    // ...
+}
+```
+
+---
+
+
 
 Purpose: build a wire-ready `SseEvent` while serializing typed payloads via `JsonSerializer`.
 

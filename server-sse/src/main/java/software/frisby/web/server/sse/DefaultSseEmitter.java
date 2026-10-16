@@ -6,6 +6,8 @@ import jakarta.ws.rs.sse.SseEventSink;
 import software.frisby.core.validation.Values;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -15,43 +17,68 @@ final class DefaultSseEmitter implements SseEmitter {
     private static final String EVENT_ARGUMENT_NAME = "event";
     private static final String SINK_ARGUMENT_NAME = "sink";
     private static final String SSE_ARGUMENT_NAME = "sse";
+    private static final String SCHEDULED_EVENTS_ARGUMENT_NAME = "scheduledEvents";
     private static final String HEARTBEAT_TEXT = "keep-alive";
     private static final String ABSENT_VALUE = "<none>";
 
     private final SseEventSink sink;
     private final Sse sse;
     private final AtomicBoolean closed;
-    private final ScheduledExecutorService heartbeatExecutor;
-    private final ScheduledFuture<?> heartbeatFuture;
+    private final ScheduledExecutorService scheduledExecutor;
+    private final List<ScheduledFuture<?>> scheduledFutures;
 
-    DefaultSseEmitter(SseEventSink sink, Sse sse, Duration heartbeatInterval) {
+    DefaultSseEmitter(SseEventSink sink, Sse sse, Duration heartbeatInterval, List<ScheduledEvent> scheduledEvents) {
         this.sink = Values.notNull(SINK_ARGUMENT_NAME, sink);
         this.sse = Values.notNull(SSE_ARGUMENT_NAME, sse);
         this.closed = new AtomicBoolean(false);
 
-        ScheduledExecutorService executor = null;
-        ScheduledFuture<?> future = null;
+        Values.notNull(SCHEDULED_EVENTS_ARGUMENT_NAME, scheduledEvents);
 
-        if (null != heartbeatInterval) {
+        List<ScheduledFuture<?>> futures = new ArrayList<>();
+        ScheduledExecutorService executor;
+
+        if (null != heartbeatInterval || !scheduledEvents.isEmpty()) {
             executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "sse-emitter-heartbeat");
+                Thread thread = new Thread(runnable, "sse-emitter-scheduler");
                 thread.setDaemon(true);
                 return thread;
             });
 
-            // initialDelay is deliberately 0, not heartbeatInterval: a client whose
-            // readTimeout equals heartbeatInterval races the first heartbeat's arrival
-            // against its own timeout on every connect/reconnect if the first heartbeat
-            // (or any other data) doesn't arrive until a full interval has elapsed.
-            // Sending immediately on open removes that race entirely; the period still
-            // settles into heartbeatInterval for every subsequent heartbeat.
-            future = executor.scheduleAtFixedRate(
-                    this::sendHeartbeatSafely,
-                    0,
-                    heartbeatInterval.toMillis(),
-                    TimeUnit.MILLISECONDS
-            );
+            if (null != heartbeatInterval) {
+                // initialDelay is deliberately 0, not heartbeatInterval: a client whose
+                // readTimeout equals heartbeatInterval races the first heartbeat's arrival
+                // against its own timeout on every connect/reconnect if the first heartbeat
+                // (or any other data) doesn't arrive until a full interval has elapsed.
+                // Sending immediately on open removes that race entirely; the period still
+                // settles into heartbeatInterval for every subsequent heartbeat.
+                futures.add(executor.scheduleAtFixedRate(
+                        this::sendHeartbeatSafely,
+                        0,
+                        heartbeatInterval.toMillis(),
+                        TimeUnit.MILLISECONDS
+                ));
+            }
+
+            // Unlike the heartbeat's initialDelay == 0 above, a scheduled event's first tick
+            // fires after a full interval has elapsed -- its purpose is "wake up every N
+            // minutes," not "stand in for the connection-establishment guard," which is already
+            // unconditionally satisfied by the leading comment frame below regardless of whether
+            // any scheduled event is configured.
+            for (ScheduledEvent scheduledEvent : scheduledEvents) {
+                long intervalMillis = scheduledEvent.interval().toMillis();
+
+                futures.add(executor.scheduleAtFixedRate(
+                        () -> sendScheduledEventSafely(scheduledEvent),
+                        intervalMillis,
+                        intervalMillis,
+                        TimeUnit.MILLISECONDS
+                ));
+            }
         } else {
+            executor = null;
+        }
+
+        if (null == heartbeatInterval) {
             // No recurring heartbeat is configured, but a client's readTimeout still only
             // bounds time-to-first-byte, not the ongoing stream — if the resource method
             // doesn't write its own first event immediately (e.g. it's waiting on a slow
@@ -64,8 +91,8 @@ final class DefaultSseEmitter implements SseEmitter {
             sendHeartbeatSafely();
         }
 
-        this.heartbeatExecutor = executor;
-        this.heartbeatFuture = future;
+        this.scheduledExecutor = executor;
+        this.scheduledFutures = List.copyOf(futures);
 
         if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
             LOGGER.log(
@@ -119,12 +146,12 @@ final class DefaultSseEmitter implements SseEmitter {
             return;
         }
 
-        if (null != heartbeatFuture) {
-            heartbeatFuture.cancel(false);
+        for (ScheduledFuture<?> future : scheduledFutures) {
+            future.cancel(false);
         }
 
-        if (null != heartbeatExecutor) {
-            heartbeatExecutor.shutdownNow();
+        if (null != scheduledExecutor) {
+            scheduledExecutor.shutdownNow();
         }
 
         sink.close();
@@ -175,12 +202,40 @@ final class DefaultSseEmitter implements SseEmitter {
             return;
         }
 
+        runSafely(
+                () -> sink.send(
+                        sse.newEventBuilder()
+                                .comment(HEARTBEAT_TEXT)
+                                .build()
+                ),
+                "Heartbeat send failed; sink is presumed closed."
+        );
+    }
+
+    private void sendScheduledEventSafely(ScheduledEvent scheduledEvent) {
+        if (sink.isClosed()) {
+            return;
+        }
+
+        runSafely(
+                () -> {
+                    // supplier.get() is deliberately inside this try/catch, alongside the
+                    // resulting send() -- scheduleAtFixedRate's own contract permanently
+                    // suppresses all future ticks the moment any execution throws, so a
+                    // transient supplier failure (or send failure) must not escape here.
+                    SseEvent event = scheduledEvent.supplier().get();
+
+                    if (null != event) {
+                        sink.send(toOutboundEvent(event));
+                    }
+                },
+                "Scheduled event send failed; sink is presumed closed."
+        );
+    }
+
+    private void runSafely(Runnable action, String failureMessage) {
         try {
-            sink.send(
-                    sse.newEventBuilder()
-                            .comment(HEARTBEAT_TEXT)
-                            .build()
-            );
+            action.run();
         } catch (Exception ex) {
             // INFO, not DEBUG: this is the first (and, because of the isClosed() short-circuit
             // above, the only) point where the server observes that a write to this sink failed.
@@ -191,10 +246,12 @@ final class DefaultSseEmitter implements SseEmitter {
             if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
                 LOGGER.log(
                         System.Logger.Level.INFO,
-                        "Heartbeat send failed; sink is presumed closed.",
+                        failureMessage,
                         ex
                 );
             }
         }
     }
 }
+
+

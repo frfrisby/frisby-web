@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class SseEmitterBuilderTest {
     private static final String NULL_SINK_MESSAGE = "The 'sink' value is invalid. The value must not be null.";
     private static final String NULL_SSE_MESSAGE = "The 'sse' value is invalid. The value must not be null.";
+    private static final String NULL_SCHEDULED_EVENT_MESSAGE =
+            "The 'event' value is invalid. The value must not be null.";
 
     @Test
     void nullSink_throwsNullValueException() {
@@ -62,12 +64,52 @@ class SseEmitterBuilderTest {
     }
 
     @Test
+    void nullScheduledEvent_throwsNullValueException() {
+        NullValueException ex = assertThrows(
+                NullValueException.class,
+                () -> SseEmitter.builder().scheduledEvent(null)
+        );
+
+        assertEquals(NULL_SCHEDULED_EVENT_MESSAGE, ex.getMessage());
+    }
+
+    @Test
+    void scheduledEventCalledTwice_bothAreAccepted() {
+        SseEmitterBuilder builder = SseEmitter.builder()
+                .sink(new NoOpSink())
+                .sse(new NoOpSse());
+
+        ScheduledEvent first = ScheduledEvent.builder()
+                .interval(Duration.ofMinutes(15))
+                .supplier(() -> SseEvent.builder().data("first").build())
+                .build();
+
+        ScheduledEvent second = ScheduledEvent.builder()
+                .interval(Duration.ofMinutes(30))
+                .supplier(() -> SseEvent.builder().data("second").build())
+                .build();
+
+        assertSame(builder, builder.scheduledEvent(first));
+        assertSame(builder, builder.scheduledEvent(second));
+
+        try (SseEmitter emitter = builder.build()) {
+            assertNotNull(emitter);
+        }
+    }
+
+    @Test
     void validCalls_returnSameBuilder() {
         SseEmitterBuilder builder = SseEmitter.builder();
 
         assertSame(builder, builder.sink(new NoOpSink()));
         assertSame(builder, builder.sse(new NoOpSse()));
         assertSame(builder, builder.heartbeat(Duration.ofMillis(5)));
+        assertSame(builder, builder.scheduledEvent(
+                ScheduledEvent.builder()
+                        .interval(Duration.ofMinutes(15))
+                        .supplier(() -> SseEvent.builder().data("payload").build())
+                        .build()
+        ));
 
         try (SseEmitter ignored = builder.build()) {
             assertNotNull(ignored);

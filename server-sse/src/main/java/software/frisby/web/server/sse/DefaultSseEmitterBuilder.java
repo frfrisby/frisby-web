@@ -6,20 +6,25 @@ import software.frisby.core.validation.Durations;
 import software.frisby.core.validation.Values;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 final class DefaultSseEmitterBuilder implements SseEmitterBuilder {
     private static final String SINK_ARGUMENT_NAME = "sink";
     private static final String SSE_ARGUMENT_NAME = "sse";
     private static final String HEARTBEAT_ARGUMENT_NAME = "heartbeatInterval";
+    private static final String SCHEDULED_EVENT_ARGUMENT_NAME = "event";
 
     private SseEventSink sink;
     private Sse sse;
     private Duration heartbeatInterval;
+    private final List<ScheduledEvent> scheduledEvents;
 
     DefaultSseEmitterBuilder() {
         this.sink = null;
         this.sse = null;
         this.heartbeatInterval = null;
+        this.scheduledEvents = new ArrayList<>();
     }
 
     @Override
@@ -53,6 +58,16 @@ final class DefaultSseEmitterBuilder implements SseEmitterBuilder {
     }
 
     @Override
+    public SseEmitterBuilder scheduledEvent(ScheduledEvent event) {
+        scheduledEvents.add(Values.notNull(
+                SCHEDULED_EVENT_ARGUMENT_NAME,
+                event
+        ));
+
+        return this;
+    }
+
+    @Override
     public SseEmitter build() {
         Values.notNull(
                 SINK_ARGUMENT_NAME,
@@ -67,7 +82,8 @@ final class DefaultSseEmitterBuilder implements SseEmitterBuilder {
         return new DefaultSseEmitter(
                 sink,
                 sse,
-                heartbeatInterval
+                heartbeatInterval,
+                List.copyOf(scheduledEvents)
         );
     }
 }
