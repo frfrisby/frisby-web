@@ -16,6 +16,7 @@ import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -23,6 +24,29 @@ class DefaultSseEmitterTest {
     private static final String NULL_EVENT_MESSAGE = "The 'event' value is invalid. The value must not be null.";
     private static final String HEARTBEAT_COMMENT = "keep-alive";
     private static final String HEARTBEAT_FAILURE_MESSAGE = "Heartbeat send failed";
+    private static final String SCHEDULED_EVENT_FAILURE_MESSAGE = "Scheduled event send failed";
+
+    private static DefaultSseEmitter newEmitter(SseEventSink sink, Sse sse, Duration heartbeatInterval) {
+        return new DefaultSseEmitter(
+                sink,
+                sse,
+                heartbeatInterval,
+                List.of()
+        );
+    }
+
+    private static DefaultSseEmitter newEmitter(
+            SseEventSink sink,
+            Sse sse,
+            Duration heartbeatInterval,
+            List<ScheduledEvent> scheduledEvents) {
+        return new DefaultSseEmitter(
+                sink,
+                sse,
+                heartbeatInterval,
+                scheduledEvents
+        );
+    }
 
     private static final class CapturingSink implements SseEventSink {
         private final List<OutboundSseEvent> sentEvents;
@@ -287,7 +311,7 @@ class DefaultSseEmitterTest {
     class Send {
         @Test
         void nullEvent_throwsNullValueException() {
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     new CapturingSink(),
                     new CapturingSse(),
                     null
@@ -305,7 +329,7 @@ class DefaultSseEmitterTest {
         void sendSuccess_mapsWireFieldsAndCompletesFuture() {
             CapturingSink sink = new CapturingSink();
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -343,7 +367,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.sendResult = CompletableFuture.failedFuture(failure);
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -369,7 +393,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.sendResult = CompletableFuture.failedFuture(new CompletionException(rootCause));
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -395,7 +419,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.sendResult = CompletableFuture.failedFuture(completionException);
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -419,7 +443,7 @@ class DefaultSseEmitterTest {
             try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                     .configure(DefaultSseEmitter.class, System.Logger.Level.INFO)
                     .build();
-                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                 DefaultSseEmitter emitter = newEmitter(
                          new CapturingSink(),
                          new CapturingSse(),
                          null
@@ -442,7 +466,7 @@ class DefaultSseEmitterTest {
             CapturingSse sse = new CapturingSse();
             sse.newEventBuilderException = failure;
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     new CapturingSink(),
                     sse,
                     null
@@ -469,7 +493,7 @@ class DefaultSseEmitterTest {
         void isOpen_reflectsSinkClosedState() {
             CapturingSink sink = new CapturingSink();
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -486,7 +510,7 @@ class DefaultSseEmitterTest {
         void close_isIdempotentAndClosesSinkOnce() {
             CapturingSink sink = new CapturingSink();
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -504,7 +528,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.awaitedSends = new CountDownLatch(1);
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     Duration.ofMillis(20)
@@ -534,7 +558,7 @@ class DefaultSseEmitterTest {
 
             Duration heartbeatInterval = Duration.ofMillis(300);
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     heartbeatInterval
@@ -553,7 +577,7 @@ class DefaultSseEmitterTest {
             sink.closed = true;
             sink.awaitedSends = new CountDownLatch(1);
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     Duration.ofMillis(20)
@@ -578,7 +602,7 @@ class DefaultSseEmitterTest {
         void noHeartbeatConfigured_sendsOneLeadingCommentImmediately() {
             CapturingSink sink = new CapturingSink();
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -593,7 +617,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.closed = true;
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     null
@@ -614,7 +638,7 @@ class DefaultSseEmitterTest {
             CapturingSink sink = new CapturingSink();
             sink.awaitedSends = new CountDownLatch(1);
 
-            try (DefaultSseEmitter emitter = new DefaultSseEmitter(
+            try (DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     Duration.ofMillis(300)
@@ -645,7 +669,7 @@ class DefaultSseEmitterTest {
                             .build()
                     )
                     .build();
-                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                 DefaultSseEmitter emitter = newEmitter(
                          sink,
                          new CapturingSse(),
                          Duration.ofMillis(20)
@@ -671,7 +695,7 @@ class DefaultSseEmitterTest {
             try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                     .configure(DefaultSseEmitter.class, System.Logger.Level.WARNING)
                     .build();
-                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                 DefaultSseEmitter emitter = newEmitter(
                          sink,
                          new CapturingSse(),
                          Duration.ofMillis(20)
@@ -692,7 +716,7 @@ class DefaultSseEmitterTest {
             try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                     .configure(DefaultSseEmitter.class, System.Logger.Level.WARNING)
                     .build();
-                 DefaultSseEmitter emitter = new DefaultSseEmitter(
+                 DefaultSseEmitter emitter = newEmitter(
                          new CapturingSink(),
                          new CapturingSse(),
                          null
@@ -707,7 +731,7 @@ class DefaultSseEmitterTest {
             sink.closeDelay = Duration.ofMillis(150);
             sink.closeStarted = new CountDownLatch(1);
 
-            DefaultSseEmitter emitter = new DefaultSseEmitter(
+            DefaultSseEmitter emitter = newEmitter(
                     sink,
                     new CapturingSse(),
                     Duration.ofMillis(20)
@@ -731,6 +755,344 @@ class DefaultSseEmitterTest {
                 assertEquals(sentBeforeWait, sentAfterWait);
             } finally {
                 executor.shutdownNow();
+            }
+        }
+    }
+
+    @Nested
+    class ScheduledEvents {
+        @Test
+        void nullScheduledEventsList_throwsNullValueException() {
+            assertThrows(
+                    NullValueException.class,
+                    () -> newEmitter(new CapturingSink(), new CapturingSse(), null, null)
+            );
+        }
+
+        @Test
+        void scheduledEventConfigured_firstTickFiresAfterFullIntervalNotImmediately() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            Duration interval = Duration.ofMillis(300);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(interval)
+                    .supplier(() -> software.frisby.web.server.sse.SseEvent.builder().data("tick").build())
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                sink.awaitedSends = new CountDownLatch(1);
+
+                // Well under the configured interval -- the first tick must not have fired yet.
+                assertFalse(sink.awaitSend(Duration.ofMillis(120)));
+
+                assertTrue(sink.awaitSend(Duration.ofMillis(400)));
+                assertTrue(sink.sentEvents.stream().anyMatch(event -> "tick".equals(event.getData())));
+            } finally {
+                sink.awaitedSends = null;
+            }
+        }
+
+        @Test
+        void supplierReturnsNull_skipsTickWithoutSendingOrLogging() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            AtomicInteger supplierCalls = new AtomicInteger(0);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        supplierCalls.incrementAndGet();
+                        return null;
+                    })
+                    .build();
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.INFO)
+                    .build();
+                 DefaultSseEmitter emitter = newEmitter(
+                         sink,
+                         new CapturingSse(),
+                         null,
+                         List.of(scheduledEvent)
+                 )) {
+                // Several ticks' worth of time.
+                Thread.sleep(150);
+
+                assertTrue(supplierCalls.get() >= 3);
+
+                // Only the unconditional leading comment frame should ever have been sent.
+                assertEquals(1, sink.sentEvents.size());
+
+                // Exactly the two unconditional lifecycle messages ("stream opened" logged by
+                // now, "stream closed" logged once this block exits) -- a null-returning
+                // supplier must never be treated as, or logged as, a failure.
+                assertEquals(1, verifier.infoCount());
+            }
+        }
+
+        @Test
+        void scheduledEventConfiguredAndSinkClosed_doesNotSendOrCallSupplier() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            sink.closed = true;
+            AtomicInteger supplierCalls = new AtomicInteger(0);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        supplierCalls.incrementAndGet();
+                        return software.frisby.web.server.sse.SseEvent.builder().data("tick").build();
+                    })
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                Thread.sleep(100);
+
+                assertEquals(0, supplierCalls.get());
+                assertTrue(sink.sentEvents.isEmpty());
+            }
+        }
+
+        @Test
+        void supplierThrows_doesNotPreventSubsequentTicks() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            AtomicInteger callCount = new AtomicInteger(0);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        int call = callCount.incrementAndGet();
+
+                        if (1 == call) {
+                            throw new RuntimeException("Simulated supplier failure.");
+                        }
+
+                        return software.frisby.web.server.sse.SseEvent.builder()
+                                .data("tick-" + call)
+                                .build();
+                    })
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                sink.awaitedSends = new CountDownLatch(1);
+
+                assertTrue(sink.awaitSend(Duration.ofSeconds(2)));
+                assertTrue(callCount.get() >= 2);
+            } finally {
+                sink.awaitedSends = null;
+            }
+        }
+
+        @Test
+        void sinkSendFails_doesNotPreventSubsequentTicks() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            AtomicInteger supplierCalls = new AtomicInteger(0);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        supplierCalls.incrementAndGet();
+                        return software.frisby.web.server.sse.SseEvent.builder().data("tick").build();
+                    })
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                sink.sendException = new RuntimeException("Simulated send failure.");
+
+                int callsBefore = supplierCalls.get();
+
+                Thread.sleep(150);
+
+                assertTrue(supplierCalls.get() > callsBefore + 1);
+            }
+        }
+
+        @Test
+        void twoScheduledEvents_fireIndependentlyOnOwnIntervals() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            CountDownLatch firstTicks = new CountDownLatch(2);
+            CountDownLatch secondTicks = new CountDownLatch(2);
+
+            ScheduledEvent first = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        firstTicks.countDown();
+                        return software.frisby.web.server.sse.SseEvent.builder()
+                                .event("first")
+                                .data("tick")
+                                .build();
+                    })
+                    .build();
+
+            ScheduledEvent second = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(35))
+                    .supplier(() -> {
+                        secondTicks.countDown();
+                        return software.frisby.web.server.sse.SseEvent.builder()
+                                .event("second")
+                                .data("tick")
+                                .build();
+                    })
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(first, second)
+            )) {
+                assertTrue(firstTicks.await(2, TimeUnit.SECONDS));
+                assertTrue(secondTicks.await(2, TimeUnit.SECONDS));
+            }
+        }
+
+        @Test
+        void close_cancelsAllScheduledEventFutures() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            AtomicInteger tickCount = new AtomicInteger(0);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> {
+                        tickCount.incrementAndGet();
+                        return software.frisby.web.server.sse.SseEvent.builder().data("tick").build();
+                    })
+                    .build();
+
+            DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            );
+
+            // Allow a few ticks to fire before closing.
+            Thread.sleep(70);
+
+            emitter.close();
+
+            int countAtClose = tickCount.get();
+
+            // Comfortably longer than the configured interval.
+            Thread.sleep(120);
+
+            assertEquals(countAtClose, tickCount.get());
+        }
+
+        @Test
+        void scheduledEventConfiguredWithoutHeartbeat_stillSendsExactlyOneLeadingComment() {
+            CapturingSink sink = new CapturingSink();
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMinutes(15))
+                    .supplier(() -> software.frisby.web.server.sse.SseEvent.builder().data("tick").build())
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                assertEquals(1, sink.sentEvents.size());
+                assertEquals(HEARTBEAT_COMMENT, sink.sentEvents.get(0).getComment());
+            }
+        }
+
+        @Test
+        void scheduledEventSendThrows_logsDistinctInfoMessageWithCause() throws InterruptedException {
+            RuntimeException cause = new RuntimeException("Simulated scheduled event send failure.");
+            CapturingSink sink = new CapturingSink();
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(20))
+                    .supplier(() -> software.frisby.web.server.sse.SseEvent.builder().data("tick").build())
+                    .build();
+
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(DefaultSseEmitter.class, System.Logger.Level.INFO)
+                    .expect(LogExpectation.builder()
+                            .logger(DefaultSseEmitter.class)
+                            .level(System.Logger.Level.INFO)
+                            .predicate(e -> e.message().contains(SCHEDULED_EVENT_FAILURE_MESSAGE) && cause == e.thrown())
+                            .build()
+                    )
+                    .build();
+                 DefaultSseEmitter emitter = newEmitter(
+                         sink,
+                         new CapturingSse(),
+                         null,
+                         List.of(scheduledEvent)
+                 )) {
+                sink.sendException = cause;
+
+                verifier.assertExpectations(Duration.ofSeconds(2));
+            }
+        }
+
+        /**
+         * Validates the design doc's "no locking needed" claim under test: a resource-thread
+         * -style direct {@code emitter.send(...)} call racing a scheduled-event tick against
+         * the same sink must not throw or corrupt either stream of events.
+         */
+        @Test
+        void resourceThreadSendRacesScheduledEventTick_noExceptionOrCorruption() throws InterruptedException {
+            CapturingSink sink = new CapturingSink();
+            int eventCount = 200;
+            CountDownLatch resourceSendsDone = new CountDownLatch(1);
+
+            ScheduledEvent scheduledEvent = ScheduledEvent.builder()
+                    .interval(Duration.ofMillis(5))
+                    .supplier(() -> software.frisby.web.server.sse.SseEvent.builder()
+                            .event("scheduled")
+                            .data("tick")
+                            .build())
+                    .build();
+
+            try (DefaultSseEmitter emitter = newEmitter(
+                    sink,
+                    new CapturingSse(),
+                    null,
+                    List.of(scheduledEvent)
+            )) {
+                Thread resourceThread = new Thread(() -> {
+                    for (int i = 0; i < eventCount; i++) {
+                        emitter.send(software.frisby.web.server.sse.SseEvent.builder()
+                                .event("resource")
+                                .data("payload-" + i)
+                                .build()).join();
+                    }
+
+                    resourceSendsDone.countDown();
+                });
+
+                resourceThread.start();
+
+                assertTrue(resourceSendsDone.await(10, TimeUnit.SECONDS));
+
+                long resourceEventCount = sink.sentEvents.stream()
+                        .filter(event -> "resource".equals(event.getName()))
+                        .count();
+
+                assertEquals(eventCount, resourceEventCount);
             }
         }
     }

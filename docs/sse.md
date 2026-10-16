@@ -774,6 +774,9 @@ surface wire-focused:
 - `SseEvent` / `SseEventBuilder` model outbound `text/event-stream` fields.
 - `SseEmitter` / `SseEmitterBuilder` wrap Jersey's `SseEventSink` and `Sse`.
 - `SseEvents` is a convenience helper for serializer-backed typed payloads.
+- `ScheduledEvent` / `ScheduledEventBuilder` let the server push a recurring,
+  application-visible event on its own schedule — see
+  [Scheduled events](#scheduled-events) below.
 
 ### Dependency
 
@@ -853,6 +856,78 @@ SseEvent event = SseEvents.of(serializer)
   appropriate, and exit the resource method cleanly on failure.
 - Treat a failed send as terminal for that stream; do not rely on heartbeat failures for
   control flow.
+
+### Scheduled events
+
+`heartbeat(Duration)` keeps a connection alive, but it is invisible to client
+application code — SSE comment frames are discarded by the wire parser before ever
+reaching an `onEvent` handler, by design (see [§11](#11-reconnection-and-last-event-id-replay)).
+Sometimes you want the server itself to periodically push something *real* down an open
+stream — independent of whatever the resource method's own main loop is doing. For
+example: an endpoint long-polling an AWS SQS queue (20s receive-message timeout) already
+has a natural "wake up periodically" loop; `ScheduledEvent` lets that same endpoint also
+say "and every 15 minutes, ask the connected client to report its current stats,"
+without building any scheduling plumbing of its own.
+
+A scheduled event is a real, named `SseEvent`, sent through the exact same
+`send(SseEvent)` path a resource method would use manually. **No client-side changes are
+needed at all** — it arrives through the ordinary `onEvent(name, handler)` pipeline, same
+as any event sent directly by a resource method.
+
+```java
+ScheduledEvent statsPrompt = ScheduledEvent.builder()
+        .interval(Duration.ofMinutes(15))
+        .supplier(() -> SseEvents.of(serializer)
+                .event("stats-request")
+                .data(buildStatsPrompt())
+                .toEvent())
+        .build();
+
+try (SseEmitter emitter = SseEmitter.builder()
+        .sink(sink)
+        .sse(sse)
+        .heartbeat(Duration.ofSeconds(15))   // independent, different cadence — both OK together
+        .scheduledEvent(statsPrompt)
+        .build()) {
+    // ... resource method's own long-poll loop ...
+}
+```
+
+Key behaviors:
+
+- **Independent of `heartbeat(Duration)`** — the two are separately configurable and
+  typically run at different cadences (a fast keep-alive vs. a slow "report your
+  stats" prompt). Nothing stops disabling `heartbeat(...)` and relying on a fast-cadence
+  scheduled event instead, since real traffic also resets intermediary idle timeouts as
+  a side effect — but a real event costs more per tick than a comment (actual bytes,
+  actual client-side parse + handler dispatch), so don't reach for this as a free
+  heartbeat substitute if you truly have nothing meaningful to send that often.
+- **First tick fires after one full `interval`, not immediately** — unlike
+  `heartbeat(Duration)`'s first tick, which exists specifically to beat a client's
+  time-to-first-byte read timeout. That guard is already unconditionally satisfied by
+  the leading comment frame `build()` always writes, regardless of whether any scheduled
+  event is configured.
+- **`supplier.get() == null` skips that tick** — not an error, not logged. Composes
+  directly with an "only report if there's something new" supplier: just return `null`
+  when there's nothing to say, with no separate state tracking needed.
+- **A throwing supplier, or a failed send, does not kill the schedule** — logged
+  internally at best-effort (same `INFO` level and philosophy as a heartbeat send
+  failure, with distinct message text so an operator can tell them apart in logs) and
+  the next tick still fires normally.
+- **Additive** — `scheduledEvent(...)` may be called more than once to register multiple
+  independently-scheduled events; the common case is a single one, but nothing prevents
+  more.
+- **Share the heartbeat's scheduler — keep suppliers fast.** Every scheduled event and
+  the comment heartbeat run on the same single-thread scheduler owned by the emitter. A
+  slow supplier delays whatever else lands at the same moment. If slow I/O is needed, do
+  it elsewhere and have the supplier return a precomputed/cached snapshot.
+- **No locking needed** against a resource method's own concurrent `send(...)` calls —
+  same underlying guarantee as heartbeat-vs-resource-method interleaving: Jersey's
+  `ChunkedOutput` serializes writes internally.
+- **`close()` cancels every scheduled event**, not just the heartbeat.
+- **Don't give a scheduled event an `id`** unless you specifically want it replayed on
+  reconnect via `Last-Event-ID` — it represents "current state, right now," not a
+  historical fact worth replaying.
 
 ### Worked resource-method example
 

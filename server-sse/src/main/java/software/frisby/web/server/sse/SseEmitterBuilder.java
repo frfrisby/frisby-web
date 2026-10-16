@@ -13,6 +13,8 @@ import java.time.Duration;
  *     <li>{@link #sink(SseEventSink)} is required.</li>
  *     <li>{@link #sse(Sse)} is required.</li>
  *     <li>{@link #heartbeat(Duration)} is optional.</li>
+ *     <li>{@link #scheduledEvent(ScheduledEvent)} is optional, and may be called more than
+ *         once.</li>
  * </ul>
  */
 public interface SseEmitterBuilder {
@@ -54,6 +56,33 @@ public interface SseEmitterBuilder {
      *                                                                       positive.
      */
     SseEmitterBuilder heartbeat(Duration heartbeatInterval);
+
+    /**
+     * Registers a recurring, application-visible event, independent of
+     * {@link #heartbeat(Duration)}.
+     * <p>
+     * Additive — may be called more than once to register multiple independently-scheduled
+     * events; each fires on its own configured {@link ScheduledEvent#interval()}. The common
+     * case is a single scheduled event, but nothing prevents configuring more.
+     * <p>
+     * Every scheduled event and the comment heartbeat (if configured) share the same
+     * single-thread scheduler, so a slow {@link ScheduledEvent#supplier()} can delay another
+     * scheduled event's tick, or the heartbeat's, if they land at the same moment — keep
+     * suppliers fast; do slow I/O elsewhere and have the supplier return a precomputed/cached
+     * snapshot. A supplier that throws, or a send that fails, is logged at best-effort and does
+     * not prevent subsequent ticks — exactly as resilient as a heartbeat send failure.
+     * <p>
+     * A scheduled event's first tick fires after one full {@link ScheduledEvent#interval()} has
+     * elapsed, not immediately — unlike {@link #heartbeat(Duration)}'s first tick, which exists
+     * specifically to beat a client's time-to-first-byte read timeout. That guard is already
+     * unconditionally satisfied by the leading comment frame {@link #build()} always writes,
+     * independent of whether any scheduled event is configured.
+     *
+     * @param event The scheduled event to register.
+     * @return This builder.
+     * @throws software.frisby.core.validation.NullValueException if {@code event} is null.
+     */
+    SseEmitterBuilder scheduledEvent(ScheduledEvent event);
 
     /**
      * Creates a new emitter.
