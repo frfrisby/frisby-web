@@ -31,7 +31,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * without error.
  */
 class ServerThreadPoolTest {
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    // A fresh HttpClient per call, not a shared static instance, is deliberate: most
+    // tests in this class start and stop their own embedded server on an OS-assigned
+    // ephemeral port (port(0)) within the same test method, back-to-back with every
+    // other test method's server in the same JVM. HttpClient pools keep-alive
+    // connections keyed by host:port, scoped to the client instance -- if the OS ever
+    // reissues the same ephemeral port to a later test's server shortly after an
+    // earlier one (bound to that same port) was stopped, a shared client could still
+    // be holding a pooled connection to the *old* server and race a request onto
+    // whichever app is actually listening at that instant. A new client per call has
+    // an empty pool every time, so no connection can ever straddle two logically
+    // different embedded servers.
 
     // -------------------------------------------------------------------------
     // maxConcurrentRequests — bounded concurrency + 503 on overflow
@@ -142,12 +152,12 @@ class ServerThreadPoolTest {
                 URI pingUri = URI.create("http://localhost:" + port + "/ping-simple");
 
                 // Fire two blocking requests — each acquires one of the two semaphore permits.
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
@@ -171,7 +181,7 @@ class ServerThreadPoolTest {
                         )
                         .build()) {
 
-                    HttpResponse<String> response = HTTP.send(
+                    HttpResponse<String> response = HttpClient.newHttpClient().send(
                             HttpRequest.newBuilder(pingUri).GET().build(),
                             HttpResponse.BodyHandlers.ofString()
                     );
@@ -223,12 +233,12 @@ class ServerThreadPoolTest {
                 URI blockUri = URI.create("http://localhost:" + port + "/block");
                 URI pingUri = URI.create("http://localhost:" + port + "/ping-simple");
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
@@ -240,7 +250,7 @@ class ServerThreadPoolTest {
                         .configure(RequestLogger.class, System.Logger.Level.ERROR)
                         .build()) {
 
-                    HttpResponse<String> response = HTTP.send(
+                    HttpResponse<String> response = HttpClient.newHttpClient().send(
                             HttpRequest.newBuilder(pingUri).GET().build(),
                             HttpResponse.BodyHandlers.ofString()
                     );
@@ -277,7 +287,7 @@ class ServerThreadPoolTest {
             server.start();
 
             try {
-                HttpResponse<String> response = HTTP.send(
+                HttpResponse<String> response = HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(URI.create("http://localhost:" + server.port() + "/ping"))
                                 .GET()
                                 .build(),
@@ -334,12 +344,12 @@ class ServerThreadPoolTest {
                 URI blockUri = URI.create("http://localhost:" + port + "/block");
                 URI pingUri = URI.create("http://localhost:" + port + "/ping-simple");
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
@@ -357,7 +367,7 @@ class ServerThreadPoolTest {
                         )
                         .build()) {
 
-                    HttpResponse<String> response = HTTP.send(
+                    HttpResponse<String> response = HttpClient.newHttpClient().send(
                             HttpRequest.newBuilder(pingUri).GET().build(),
                             HttpResponse.BodyHandlers.ofString()
                     );
@@ -416,12 +426,12 @@ class ServerThreadPoolTest {
                 URI blockUri = URI.create("http://localhost:" + port + "/block");
                 URI pingUri = URI.create("http://localhost:" + port + "/ping-simple");
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
 
-                executor.submit(() -> HTTP.send(
+                executor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
@@ -438,7 +448,7 @@ class ServerThreadPoolTest {
                         .configure(RequestLogger.class, System.Logger.Level.ERROR)
                         .build()) {
 
-                    HttpResponse<String> response = HTTP.send(
+                    HttpResponse<String> response = HttpClient.newHttpClient().send(
                             HttpRequest.newBuilder(pingUri).GET().build(),
                             HttpResponse.BodyHandlers.ofString()
                     );
@@ -502,7 +512,7 @@ class ServerThreadPoolTest {
 
             try {
                 // Send one blocking request to hold one of the two permits.
-                clientExecutor.submit(() -> HTTP.send(
+                clientExecutor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(blockUri).GET().build(),
                         HttpResponse.BodyHandlers.discarding()
                 ));
@@ -522,7 +532,7 @@ class ServerThreadPoolTest {
                 // would succeed with 200 — this is the key assertion.
                 HttpResponse<String> probeResponse = null;
                 for (int attempt = 0; attempt < 20; attempt++) {
-                    HttpResponse<String> r = HTTP.send(
+                    HttpResponse<String> r = HttpClient.newHttpClient().send(
                             HttpRequest.newBuilder(pingUri).GET().build(),
                             HttpResponse.BodyHandlers.ofString()
                     );
@@ -595,7 +605,7 @@ class ServerThreadPoolTest {
 
             try {
                 // Hold the only permit with a blocking request.
-                clientExecutor.submit(() -> HTTP.send(
+                clientExecutor.submit(() -> HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(
                                 URI.create("http://localhost:" + server.port() + "/block")
                         ).GET().build(),
@@ -659,7 +669,7 @@ class ServerThreadPoolTest {
             server.start();
 
             try {
-                HttpResponse<String> response = HTTP.send(
+                HttpResponse<String> response = HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(URI.create("http://localhost:" + server.port() + "/ping"))
                                 .GET()
                                 .build(),
@@ -697,7 +707,7 @@ class ServerThreadPoolTest {
             server.start();
 
             try {
-                HttpResponse<String> response = HTTP.send(
+                HttpResponse<String> response = HttpClient.newHttpClient().send(
                         HttpRequest.newBuilder(URI.create("http://localhost:" + server.port() + "/ping"))
                                 .GET()
                                 .build(),

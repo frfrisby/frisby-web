@@ -28,7 +28,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * {@link ServerSecurityContext} wiring.
  */
 class ServerSecurityFilterTest {
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final String VALID_TOKEN = "valid-token";
     private static final String HEADER_X_TOKEN = "X-Token";
 
@@ -36,8 +35,18 @@ class ServerSecurityFilterTest {
     // Single provider — token-based scheme
     // -------------------------------------------------------------------------
 
+    // A fresh HttpClient per call, not a shared static instance, is deliberate: each
+    // @Nested class below starts and stops its own embedded server on an OS-assigned
+    // ephemeral port (port(0)), back-to-back within the same JVM. HttpClient pools
+    // keep-alive connections keyed by host:port, scoped to the client instance -- if
+    // the OS ever reissues the same ephemeral port to a later nested class's server
+    // shortly after an earlier one (bound to that same port) was stopped, a shared
+    // client could still be holding a pooled connection to the *old* server and race
+    // a request onto whichever app is actually listening at that instant. A new
+    // client per call has an empty pool every time, so no connection can ever
+    // straddle two logically-different embedded servers.
     private static HttpResponse<String> get(int port, String path, String token) throws Exception {
-        return HTTP.send(
+        return HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder()
                         .GET()
                         .uri(URI.create("http://localhost:" + port + path))
@@ -52,7 +61,7 @@ class ServerSecurityFilterTest {
     // -------------------------------------------------------------------------
 
     private static HttpResponse<String> getNoToken(int port, String path) throws Exception {
-        return HTTP.send(
+        return HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder()
                         .GET()
                         .uri(URI.create("http://localhost:" + port + path))
@@ -60,6 +69,7 @@ class ServerSecurityFilterTest {
                 HttpResponse.BodyHandlers.ofString()
         );
     }
+
 
     // -------------------------------------------------------------------------
     // Provider returns null SecurityContext
