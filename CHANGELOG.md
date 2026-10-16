@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/frfrisby/frisby-web/compare/v1.5.4...v1.6.0) (2026-10-16)
+
+
+### Features
+
+* Add a shared idle-stream watchdog with a unified idleTimeout across client, client-sse, and server. ([#83](https://github.com/frfrisby/frisby-web/issues/83)) ([c413ed7](https://github.com/frfrisby/frisby-web/commit/c413ed753011af1d414f79ac4f991c438cc5f6f4))
+* **server-sse:** Add recurring scheduled events to SseEmitter, independent of the heartbeat. ([#86](https://github.com/frfrisby/frisby-web/issues/86)) ([cb95911](https://github.com/frfrisby/frisby-web/commit/cb95911b84668af09239cdb1720e31793eb58421))
+
 ## [1.5.4](https://github.com/frfrisby/frisby-web/compare/v1.5.3...v1.5.4) (2026-10-10)
 
 
