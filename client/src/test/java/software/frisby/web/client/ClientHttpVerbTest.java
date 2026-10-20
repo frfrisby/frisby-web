@@ -17,6 +17,7 @@ import software.frisby.web.test.domain.Person;
 import software.frisby.web.test.domain.UpdatePersonRequest;
 
 import java.io.InputStream;
+import java.io.IOException;
 import java.net.HttpCookie;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -245,13 +246,21 @@ class ClientHttpVerbTest {
          * returns the raw {@link InputStream} subscriber without throwing.
          */
         @Test
-        void download_successStatus_returnsInputStream() {
+        void download_successStatus_returnsInputStream() throws IOException {
             HttpResponse<InputStream> response = client.download()
                     .path("/persons/person-1")
                     .stream();
 
-            assertEquals(200, response.statusCode());
-            assertNotNull(response.body());
+            // try-with-resources so the stream is closed even if an assertion below
+            // throws — otherwise this stream's StreamWatchdog registration lingers
+            // for up to the client's default 30s idle timeout in the shared,
+            // JVM-wide registry, starving coverage of StreamWatchdog's
+            // registry-becomes-empty cancellation path for the remainder of this
+            // module's reused Surefire fork.
+            try (InputStream stream = response.body()) {
+                assertEquals(200, response.statusCode());
+                assertNotNull(stream);
+            }
         }
 
         /**
@@ -285,14 +294,18 @@ class ClientHttpVerbTest {
          * Async download — success path returns a completed future with the raw stream.
          */
         @Test
-        void downloadAsync_successStatus_returnsInputStream() {
+        void downloadAsync_successStatus_returnsInputStream() throws IOException {
             HttpResponse<InputStream> response = client.download()
                     .path("/persons/person-1")
                     .streamAsync()
                     .join();
 
-            assertEquals(200, response.statusCode());
-            assertNotNull(response.body());
+            // See download_successStatus_returnsInputStream() above for why
+            // try-with-resources is required rather than an unconditional close().
+            try (InputStream stream = response.body()) {
+                assertEquals(200, response.statusCode());
+                assertNotNull(stream);
+            }
         }
 
         /**

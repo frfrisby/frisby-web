@@ -116,14 +116,22 @@ class ClientAsyncTest {
         }
 
         @Test
-        void downloadAsync_completesCorrectly() {
+        void downloadAsync_completesCorrectly() throws IOException {
             HttpResponse<InputStream> response = client.download()
                     .path("/stream")
                     .streamAsync()
                     .join();
 
-            assertEquals(200, response.statusCode());
-            assertNotNull(response.body());
+            // try-with-resources so the stream is closed even if an assertion below
+            // throws — otherwise this stream's StreamWatchdog registration lingers
+            // for up to the client's default 30s idle timeout in the shared,
+            // JVM-wide registry, starving coverage of StreamWatchdog's
+            // registry-becomes-empty cancellation path for the remainder of this
+            // module's reused Surefire fork.
+            try (InputStream stream = response.body()) {
+                assertEquals(200, response.statusCode());
+                assertNotNull(stream);
+            }
         }
     }
 
