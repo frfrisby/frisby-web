@@ -116,9 +116,7 @@ class ClientVirtualThreadsTest {
 
     @Test
     void requestLifecycle_submitsAtLeastOneTaskToConfiguredVirtualThreadExecutor() {
-        CountingVirtualThreadExecutor countingExecutor = new CountingVirtualThreadExecutor();
-
-        try {
+        try (CountingVirtualThreadExecutor countingExecutor = new CountingVirtualThreadExecutor()) {
             Client client = Client.builder()
                     .configuration(c -> c
                             .uri(server.uri())
@@ -139,8 +137,6 @@ class ClientVirtualThreadsTest {
                     "Expected the JDK HttpClient to submit at least one task to the "
                             + "configured virtual-thread executor during the request"
             );
-        } finally {
-            countingExecutor.shutdown();
         }
     }
 }
