@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class DefaultClientCredentialsSecurityProviderTest {
     private static final String TOKEN_PATH = "/oauth/token";
@@ -564,12 +565,38 @@ class DefaultClientCredentialsSecurityProviderTest {
             });
 
             thread.start();
-            Thread.sleep(300);
+            awaitTokenRequestReceived(Duration.ofSeconds(2));
             thread.interrupt();
             thread.join(3_000);
 
             assertInstanceOf(AbortedException.class, thrown.get());
             assertTrue(interruptFlagRestored.get(), "Interrupt flag must be restored after InterruptedException");
+        }
+
+        /**
+         * Polls WireMock's request journal until it has recorded the in-flight token request, then
+         * returns.  WireMock logs an incoming request as soon as it is routed to a matching stub --
+         * before any configured {@code withFixedDelay} is applied -- so once this returns, the
+         * background thread is guaranteed to already be blocked inside {@code HttpClient.send()},
+         * waiting on the (still-delayed) response.
+         * <p>
+         * Replaces a fixed {@code Thread.sleep(300)} margin, which was observed to occasionally
+         * interrupt the background thread <em>before</em> it reached the blocking HTTP call on a
+         * sufficiently loaded machine -- e.g. during JVM/JIT warm-up or WireMock's own server
+         * startup -- in which case the request either hadn't been sent yet or raced with the
+         * response, producing a {@link TokenEndpointException} (a WireMock "no match"/malformed
+         * response) instead of the expected {@link AbortedException}.
+         */
+        private void awaitTokenRequestReceived(Duration timeout) throws InterruptedException {
+            long deadlineNanos = System.nanoTime() + timeout.toNanos();
+
+            while (wireMock.findAll(postRequestedFor(urlEqualTo(TOKEN_PATH))).isEmpty()) {
+                if (System.nanoTime() > deadlineNanos) {
+                    fail("WireMock did not receive the token request within " + timeout);
+                }
+
+                Thread.sleep(10);
+            }
         }
     }
 
