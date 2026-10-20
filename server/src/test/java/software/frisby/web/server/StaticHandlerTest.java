@@ -8,6 +8,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.resource.Resource;
+import org.eclipse.jetty.util.resource.ResourceFactory;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import software.frisby.core.util.StopWatch;
@@ -427,7 +428,7 @@ class StaticHandlerTest {
                     .build();
 
             // Construct but do NOT start — baseResource stays null.
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             Method method = StaticHandler.class.getDeclaredMethod("resourceExists", String.class);
             method.setAccessible(true);
@@ -443,7 +444,7 @@ class StaticHandlerTest {
                     .classpath("/static-test-assets")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             // Inject a NullResolvingResource as baseResource so that resolve() returns null.
             Field baseResourceField = StaticHandler.class.getDeclaredField("baseResource");
@@ -464,7 +465,7 @@ class StaticHandlerTest {
                     .classpath("/static-test-assets")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             // ExistingNonDirectoryResource.resolve() returns itself: exists=true,
             // isReadable=false, isDirectory=false.  This exercises the final
@@ -510,7 +511,7 @@ class StaticHandlerTest {
                     .errorPage(404, "404.html")
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             Field baseResourceField = StaticHandler.class.getDeclaredField("baseResource");
             baseResourceField.setAccessible(true);
@@ -823,7 +824,7 @@ class StaticHandlerTest {
                     })
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             HttpURI uri = HttpURI.from("http://localhost/index.html");
 
@@ -898,7 +899,7 @@ class StaticHandlerTest {
                     })
                     .build();
 
-            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of());
+            StaticHandler handler = new StaticHandler(config, NoOpServerEventListener.INSTANCE, new RequestLogger(), Set.of(), ResourceFactory.root());
 
             HttpURI uri = HttpURI.from("http://localhost/index.html");
 

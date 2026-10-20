@@ -1,12 +1,14 @@
 package software.frisby.web.server;
 
 import org.junit.jupiter.api.Test;
+import org.eclipse.jetty.util.resource.ResourceFactory;
 import software.frisby.web.test.log.LogExpectation;
 import software.frisby.web.test.log.SystemLogVerifier;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.URI;
@@ -88,6 +90,42 @@ class ServerLifecycleTest {
         stub.start();   // puts stub in STARTED state; doStop() is only invoked from there
 
         Field field = DefaultServer.class.getDeclaredField("jettyServer");
+        field.setAccessible(true);
+        field.set(server, stub);
+    }
+
+    /**
+     * Replaces the private {@code staticAssetsResourceFactory} field of a started
+     * {@link DefaultServer} with a dynamic proxy whose {@code stop()} always throws, so that
+     * {@code DefaultServer.stopStaticAssetsResourceFactory()}'s {@code catch} block runs during
+     * the next {@link Server#stop()} call.  A {@link Proxy} is used rather than a hand-written
+     * stub class because {@link ResourceFactory.LifeCycle} combines {@code LifeCycle}, {@code
+     * ResourceFactory}, and {@code Dumpable} — only {@code stop()} needs real behavior here.
+     */
+    private static void injectThrowingStaticAssetsResourceFactory(Server server) throws Exception {
+        ResourceFactory.LifeCycle stub = (ResourceFactory.LifeCycle) Proxy.newProxyInstance(
+                ResourceFactory.LifeCycle.class.getClassLoader(),
+                new Class<?>[] {ResourceFactory.LifeCycle.class},
+                (proxy, method, args) -> {
+                    if ("stop".equals(method.getName())) {
+                        throw new Exception("Simulated static assets resource factory stop failure");
+                    }
+
+                    Class<?> returnType = method.getReturnType();
+
+                    if (boolean.class == returnType) {
+                        return false;
+                    }
+
+                    if (int.class == returnType) {
+                        return 0;
+                    }
+
+                    return null;
+                }
+        );
+
+        Field field = DefaultServer.class.getDeclaredField("staticAssetsResourceFactory");
         field.setAccessible(true);
         field.set(server, stub);
     }
@@ -332,6 +370,69 @@ class ServerLifecycleTest {
         server.start();
 
         injectThrowingJettyServer(server);
+
+        try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                .configure(DefaultServer.class, System.Logger.Level.ERROR)
+                .build()) {
+            server.stop();   // must not propagate — exception is swallowed
+
+            assertEquals(0, verifier.warningCount());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // staticAssetsResourceFactory — defensive null guard
+    // -------------------------------------------------------------------------
+
+    @Test
+    void stop_staticAssetsResourceFactoryAlreadyNull_doesNotThrow() throws Exception {
+        // Exercises the defensive null-guard at the top of
+        // DefaultServer.stopStaticAssetsResourceFactory(). Under normal operation the field is
+        // always created in start() before jettyServer is assigned and cleared alongside it in
+        // stop(), so the guard is unreachable through the public API alone -- it only matters if
+        // ResourceFactory.lifecycle() itself were to throw before the field assignment completes.
+        // Clearing the field via reflection after a successful start() reproduces that same
+        // "field is null while jettyServer is not" state so the guard clause is covered and
+        // proven not to throw a NullPointerException.
+        Server server = buildServer();
+        server.start();
+
+        Field field = DefaultServer.class.getDeclaredField("staticAssetsResourceFactory");
+        field.setAccessible(true);
+        field.set(server, null);
+
+        server.stop();   // must not throw NullPointerException
+
+        assertFalse(server.isRunning());
+    }
+
+    @Test
+    void stop_staticAssetsResourceFactoryStopThrows_warningIsLogged() throws Exception {
+        Server server = buildServer();
+        server.start();
+
+        injectThrowingStaticAssetsResourceFactory(server);
+
+        try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                .expect(LogExpectation.builder()
+                        .logger(DefaultServer.class)
+                        .level(System.Logger.Level.WARNING)
+                        .predicate(e -> e.message().contains("Exception while releasing static assets resources"))
+                        .build()
+                )
+                .build()) {
+            server.stop();   // must not propagate — exception is swallowed
+            verifier.assertExpectations();
+        }
+    }
+
+    @Test
+    void stop_staticAssetsResourceFactoryStopThrows_warningLevelDisabled_exceptionIsStillSwallowed()
+            throws Exception {
+        Server server = buildServer();
+        server.start();
+
+        injectThrowingStaticAssetsResourceFactory(server);
 
         try (SystemLogVerifier verifier = SystemLogVerifier.builder()
                 .configure(DefaultServer.class, System.Logger.Level.ERROR)

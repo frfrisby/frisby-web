@@ -15,6 +15,7 @@ import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.server.handler.SizeLimitHandler;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.resource.ResourceFactory;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.glassfish.jersey.internal.inject.Providers;
@@ -99,6 +100,16 @@ final class DefaultServer implements Server {
     // Guarded by syncRoot
     private org.eclipse.jetty.server.Server jettyServer;
 
+    /**
+     * Guarded by syncRoot. Created fresh in {@link #start()} and stopped in {@link #stop()} (or
+     * on a failed {@link #start()}). Ties every classpath/jar resource mount made while resolving
+     * {@link StaticAssetsConfiguration} sources (see {@link StaticAssetsResourceResolver}) to this
+     * server instance's own lifecycle, instead of the JVM-wide {@link ResourceFactory#root()} —
+     * which never releases jar mounts and logs a {@code "Leaked Mount"} {@code WARNING} the
+     * instant one is created.
+     */
+    private ResourceFactory.LifeCycle staticAssetsResourceFactory;
+
     // Volatile: written inside syncRoot during start(), read by port() without lock.
     private volatile int port;
 
@@ -125,6 +136,7 @@ final class DefaultServer implements Server {
         this.running = new AtomicBoolean(false);
 
         this.jettyServer = null;
+        this.staticAssetsResourceFactory = null;
         this.concurrencyLimitSemaphore = null;
         this.port = configuration.port();
     }
@@ -176,9 +188,11 @@ final class DefaultServer implements Server {
             String factoryUri = "http://" + configuration.host() + ":" + port + PATH_SEPARATOR;
 
             try {
-                ResourceConfig rc = buildResourceConfig();
+                staticAssetsResourceFactory = ResourceFactory.lifecycle();
 
-                jettyServer = buildJettyServer(factoryUri, rc);
+                ResourceConfig rc = buildResourceConfig(staticAssetsResourceFactory);
+
+                jettyServer = buildJettyServer(factoryUri, rc, staticAssetsResourceFactory);
 
                 configureConnectors(jettyServer);
 
@@ -200,6 +214,7 @@ final class DefaultServer implements Server {
             } catch (Exception ex) {
                 requestLogger.logStartFailed(ex);
                 jettyServer = null;
+                stopStaticAssetsResourceFactory(baseUri);
 
                 throw new UncheckedIOException(
                         new IOException("Failed to start server at '" + baseUri + "'.", ex)
@@ -253,9 +268,38 @@ final class DefaultServer implements Server {
                 jettyServer = null;
             }
 
+            stopStaticAssetsResourceFactory(baseUri);
+
             running.set(false);
 
             requestLogger.logStopped(baseUri);
+        }
+    }
+
+    /**
+     * Stops {@link #staticAssetsResourceFactory} if one was created, releasing every jar
+     * {@code FileSystem} mount it made while resolving {@link StaticAssetsConfiguration} sources,
+     * and clears the field regardless of outcome.  Called from both {@link #stop()} and the
+     * failure path of {@link #start()} so a mount is never left open longer than this server
+     * instance's own lifecycle.
+     */
+    private void stopStaticAssetsResourceFactory(String baseUri) {
+        if (null == staticAssetsResourceFactory) {
+            return;
+        }
+
+        try {
+            staticAssetsResourceFactory.stop();
+        } catch (Exception ex) {
+            if (LOGGER.isLoggable(System.Logger.Level.WARNING)) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Exception while releasing static assets resources at '" + baseUri + "'.",
+                        ex
+                );
+            }
+        } finally {
+            staticAssetsResourceFactory = null;
         }
     }
 
@@ -339,7 +383,9 @@ final class DefaultServer implements Server {
      * never-started temporary server and transferred to a new
      * {@link org.eclipse.jetty.server.Server} instance built with the custom pool.
      */
-    private org.eclipse.jetty.server.Server buildJettyServer(String factoryUri, ResourceConfig rc) {
+    private org.eclipse.jetty.server.Server buildJettyServer(String factoryUri,
+                                                              ResourceConfig rc,
+                                                              ResourceFactory resourceFactory) {
         URI uri = URI.create(factoryUri);
 
         // Let JettyHttpContainerFactory handle the MR-JAR Handler wiring, then transfer
@@ -395,7 +441,8 @@ final class DefaultServer implements Server {
                         config,
                         eventListener,
                         requestLogger,
-                        configuration.logging().redactedHeaders()
+                        configuration.logging().redactedHeaders(),
+                        resourceFactory
                 ));
             }
 
@@ -406,7 +453,7 @@ final class DefaultServer implements Server {
         return server;
     }
 
-    private ResourceConfig buildResourceConfig() {
+    private ResourceConfig buildResourceConfig(ResourceFactory resourceFactory) {
         ResourceConfig rc = new ResourceConfig();
 
         // Bridge our JsonSerializer into Jersey's message body pipeline.
@@ -528,7 +575,7 @@ final class DefaultServer implements Server {
         // segment over a template variable, regardless of registration order. A resource
         // registered at the literal "/api/widgets" always wins over this catch-all, which is
         // only ever invoked for a path nothing more specific claimed.
-        registerSpaFallbackResources(rc);
+        registerSpaFallbackResources(rc, resourceFactory);
 
         return rc;
     }
@@ -537,20 +584,20 @@ final class DefaultServer implements Server {
      * Mounts one SPA-fallback JAX-RS resource per {@link StaticAssetsConfiguration} with
      * {@code spaFallback()} enabled, validating each asset root and its {@code index.html}
      * up front.  See the comment block at this method's call site in
-     * {@link #buildResourceConfig()} for why this is a JAX-RS resource rather than a
+     * {@link #buildResourceConfig(ResourceFactory)} for why this is a JAX-RS resource rather than a
      * {@link StaticHandler} behavior.
      *
      * @throws IllegalStateException if an asset root is missing, is not a directory, or
      *                               does not contain a readable {@code index.html}.
      */
-    private void registerSpaFallbackResources(ResourceConfig rc) {
+    private void registerSpaFallbackResources(ResourceConfig rc, ResourceFactory resourceFactory) {
         for (StaticAssetsConfiguration staticAssetsConfig : staticAssetsConfigurations) {
             if (!staticAssetsConfig.spaFallback()) {
                 continue;
             }
 
             org.eclipse.jetty.util.resource.Resource baseResource =
-                    StaticAssetsResourceResolver.resolveBaseResource(staticAssetsConfig);
+                    StaticAssetsResourceResolver.resolveBaseResource(staticAssetsConfig, resourceFactory);
 
             if (null == baseResource || !baseResource.isDirectory()) {
                 // Same invalid-configuration contract as StaticHandler.doStart() — mirrored here
@@ -941,7 +988,7 @@ final class DefaultServer implements Server {
      * Requests with no {@code Content-Type} header are buffered optimistically since they
      * typically carry no body.
      * <p>
-     * Registered by {@link DefaultServer#buildResourceConfig()} at priority
+     * Registered by {@link DefaultServer#buildResourceConfig(ResourceFactory)} at priority
      * {@link Priorities#USER}{@code  - 1} so it runs before user-registered filters.
      * When {@code maxLogBodySize == 0} the filter is a no-op.
      */
