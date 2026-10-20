@@ -93,12 +93,23 @@
             virtual-threads-smoke-tests/**
         </sonar.coverage.exclusions>
         <!-- Exclude the same modules from Sonar analysis entirely — issues in
-             never-deployed test scaffolding do not reflect production code quality. -->
+             never-deployed test scaffolding do not reflect production code quality.
+             sonar.exclusions only filters Sonar's main-source file set (sonar.sources);
+             it has no effect on files under src/test/java, which belong to the separate
+             sonar.tests file set. sonar.test.exclusions (below) is required to actually
+             exclude these modules' test sources too — virtual-threads-smoke-tests in
+             particular has no src/main/java at all, so without sonar.test.exclusions
+             this property alone would exclude nothing from it whatsoever. -->
         <sonar.exclusions>
             test-log/**,
             test-support/**,
             virtual-threads-smoke-tests/**
         </sonar.exclusions>
+        <sonar.test.exclusions>
+            test-log/**,
+            test-support/**,
+            virtual-threads-smoke-tests/**
+        </sonar.test.exclusions>
 
         <!--
         DefaultClientLoggingConfiguration and DefaultServerLoggingConfiguration are
