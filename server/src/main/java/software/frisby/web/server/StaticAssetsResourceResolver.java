@@ -36,14 +36,24 @@ final class StaticAssetsResourceResolver {
 
     /**
      * Resolves {@code configuration}'s classpath-resource-path or filesystem-directory source
-     * into a Jetty {@link Resource}.
+     * into a Jetty {@link Resource}, mounting any backing jar {@code FileSystem} through
+     * {@code resourceFactory} rather than the JVM-wide {@link ResourceFactory#root()}.
+     *
+     * <p>{@code ResourceFactory.root()} is documented as having "no lifecycle that can clean up
+     * the mount" — every jar it mounts lives, and is logged by Jetty as a {@code "Leaked Mount"}
+     * {@code WARNING}, until the JVM exits. {@code resourceFactory} must instead be a factory
+     * whose lifecycle is tied to this server (see {@link DefaultServer#start()}, which creates one
+     * {@link ResourceFactory#lifecycle()} per server instance and stops it in {@link
+     * DefaultServer#stop()}), so that classpath resources packaged inside a jar (e.g. an
+     * application's own executable/shaded jar) are mounted without triggering that warning and are
+     * released when the server stops.
      *
      * <p>Does not validate that the result exists or is a directory — callers that need
      * fail-fast startup validation (both current callers do) must check
      * {@code null == resource || !resource.isDirectory()} themselves, since each produces a
      * differently-worded {@link IllegalStateException} tailored to its own call site.
      */
-    static Resource resolveBaseResource(StaticAssetsConfiguration configuration) {
+    static Resource resolveBaseResource(StaticAssetsConfiguration configuration, ResourceFactory resourceFactory) {
         String classpathPath = configuration.classpathResourcePath().orElse(null);
         Path filesystemPath = configuration.filesystemDirectory().orElse(null);
 
@@ -54,10 +64,10 @@ final class StaticAssetsResourceResolver {
         );
 
         if (null != classpathPath) {
-            return ResourceFactory.root().newClassLoaderResource(classpathPath);
+            return resourceFactory.newClassLoaderResource(classpathPath);
         }
 
-        return ResourceFactory.root().newResource(filesystemPath);
+        return resourceFactory.newResource(filesystemPath);
     }
 }
 

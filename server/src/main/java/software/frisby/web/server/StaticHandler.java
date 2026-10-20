@@ -7,6 +7,7 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.resource.Resource;
+import org.eclipse.jetty.util.resource.ResourceFactory;
 import org.eclipse.jetty.util.resource.Resources;
 import software.frisby.core.util.StopWatch;
 import software.frisby.web.server.event.RequestCompletedEvent;
@@ -52,6 +53,7 @@ final class StaticHandler extends Handler.Wrapper {
     private final ServerEventListener eventListener;
     private final RequestLogger requestLogger;
     private final Set<String> redactedHeaders;
+    private final ResourceFactory resourceFactory;
 
     /**
      * Set during {@link #doStart()}; used for resource existence checks,
@@ -62,12 +64,14 @@ final class StaticHandler extends Handler.Wrapper {
     StaticHandler(StaticAssetsConfiguration configuration,
                   ServerEventListener eventListener,
                   RequestLogger requestLogger,
-                  Set<String> redactedHeaders) {
+                  Set<String> redactedHeaders,
+                  ResourceFactory resourceFactory) {
         super(new ResourceHandler());
         this.configuration = configuration;
         this.eventListener = eventListener;
         this.requestLogger = requestLogger;
         this.redactedHeaders = redactedHeaders;
+        this.resourceFactory = resourceFactory;
         this.baseResource = null;
     }
 
@@ -222,7 +226,7 @@ final class StaticHandler extends Handler.Wrapper {
     // -------------------------------------------------------------------------
 
     private Resource createBaseResource() {
-        return StaticAssetsResourceResolver.resolveBaseResource(configuration);
+        return StaticAssetsResourceResolver.resolveBaseResource(configuration, resourceFactory);
     }
 
     private String describeSource() {
