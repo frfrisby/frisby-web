@@ -119,13 +119,22 @@ class ClientDownloadTest {
      * handler returns.
      */
     @Test
-    void download_responseStatusIs200() {
+    void download_responseStatusIs200() throws IOException {
         HttpResponse<InputStream> response = client.download()
                 .path("/stream")
                 .stream();
 
-        assertEquals(200, response.statusCode());
-        assertNotNull(response.body());
+        // try-with-resources so the stream is closed even if an assertion below
+        // throws — otherwise this test's registration lingers in the shared,
+        // JVM-wide StreamWatchdog registry for up to the client's default 30s idle
+        // timeout, keeping the registry non-empty for the rest of this module's
+        // test suite (which runs in a single, reused Surefire fork) and starving
+        // StreamWatchdogTest's own coverage of the registry-becomes-empty
+        // cancellation path.
+        try (InputStream stream = response.body()) {
+            assertEquals(200, response.statusCode());
+            assertNotNull(stream);
+        }
     }
 
     // -------------------------------------------------------------------------
