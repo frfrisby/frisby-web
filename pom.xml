@@ -89,13 +89,15 @@
              never deployed; their coverage numbers are not meaningful. -->
         <sonar.coverage.exclusions>
             test-log/**,
-            test-support/**
+            test-support/**,
+            virtual-threads-smoke-tests/**
         </sonar.coverage.exclusions>
         <!-- Exclude the same modules from Sonar analysis entirely — issues in
              never-deployed test scaffolding do not reflect production code quality. -->
         <sonar.exclusions>
             test-log/**,
-            test-support/**
+            test-support/**,
+            virtual-threads-smoke-tests/**
         </sonar.exclusions>
 
         <!--
@@ -479,6 +481,26 @@
     </build>
 
     <profiles>
+        <profile>
+            <!--
+                Reactors in the virtual-threads-smoke-tests module only when building with
+                a JDK 21+ toolchain, since that module's test sources call
+                Executors.newVirtualThreadPerTaskExecutor() (JDK 21+), which does not exist
+                under this project's normal, release-17 build. Activating purely on JDK
+                version (rather than requiring an explicit -P flag) means the module builds
+                and runs automatically on any CI leg already using JDK 21+ (e.g. this
+                project's own "21" build matrix entry and the SonarCloud workflow, both of
+                which already run on JDK 21) with no workflow changes required, while the
+                JDK 17 leg never even sees this module in the reactor.
+            -->
+            <id>virtual-thread-tests</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <modules>
+                <module>virtual-threads-smoke-tests</module>
+            </modules>
+        </profile>
         <profile>
             <!--
                 Activated by the 'publish.yml' workflow via: mvn -P release deploy
