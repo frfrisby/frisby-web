@@ -727,6 +727,20 @@ it the same way:
 software.frisby.web.server.RequestLogger.level = WARNING
 ```
 
+### Control-character sanitization
+
+Every value that reaches a log entry — the request path, headers, and the buffered
+request/response body described in [section 16](#16-failure-detail-logging-and-redaction)
+— is passed through `software.frisby.core.util.ControlCharacters` before being written
+out.  Control characters are replaced with a visible `\xHH` escape sequence.  This
+covers ASCII C0/C1 control codes, including ANSI/VT100 terminal escape sequences, so a
+request that happens to contain one cannot manipulate a terminal later used to view the
+raw log file.  `\t` and `\n` are preserved unchanged since they are purely structural
+for multi-line output; every other control character is escaped, including `\r`.
+
+This is unconditional — it applies at every log level, regardless of `redactHeaders` /
+`redactFields` configuration, and cannot be disabled.
+
 ---
 
 ## 16. Failure-detail logging and redaction
@@ -746,6 +760,8 @@ production.
     - `Cookie` — logged as `Cookie: name=[redacted]` (one line per cookie; names preserved).
     - `Set-Cookie` — logged as `name=[redacted]; Path=...; Secure; HttpOnly` (attributes preserved).
 - **No field redaction** — all JSON body fields are logged as-is.
+- **Control characters are always escaped** — see
+  [Control-character sanitization](#control-character-sanitization) in section 15.
 
 ### Customizing with LoggingConfiguration
 

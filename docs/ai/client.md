@@ -159,6 +159,16 @@ ClientLoggingConfiguration logging = ClientLoggingConfiguration.builder()
 - `redactFields` matching is case-sensitive; only `String`-typed JSON fields are affected.
 - Calls to `redactHeaders` and `redactFields` are cumulative.
 
+**Control-character sanitization (unconditional, not configurable):** before any log
+entry is written — the full detail block, the compact one-liner, and the URI in `INFO`
+logs — control characters are replaced with a visible `\xHH` escape sequence via
+`software.frisby.core.util.ControlCharacters`. This covers ASCII C0/C1 control codes,
+including ANSI/VT100 terminal escape sequences, so a request/response body or header
+value containing one cannot manipulate a terminal later used to view the raw log file.
+`\t` and `\n` are preserved unchanged (purely structural for multi-line output); every
+other control character is escaped, including `\r`. This applies at every log level
+regardless of `redactHeaders` / `redactFields` and cannot be disabled.
+
 Pass to `ClientConfigurationBuilder.logging(logging)`.
 
 ---

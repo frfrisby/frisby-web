@@ -39,6 +39,11 @@
         </dependency>
 
         <dependency>
+            <groupId>software.frisby.core</groupId>
+            <artifactId>util</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.glassfish.jersey.media</groupId>
             <artifactId>jersey-media-sse</artifactId>
         </dependency>

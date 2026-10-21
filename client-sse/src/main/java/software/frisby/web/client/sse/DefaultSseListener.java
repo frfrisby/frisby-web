@@ -3,6 +3,7 @@ package software.frisby.web.client.sse;
 import software.frisby.core.concurrency.GenericType;
 import software.frisby.core.concurrency.NamedExecutorService;
 import software.frisby.core.concurrency.fluent.*;
+import software.frisby.core.util.ControlCharacters;
 import software.frisby.web.client.Client;
 import software.frisby.web.client.Headers;
 import software.frisby.web.client.RetryDelay;
@@ -238,9 +239,15 @@ final class DefaultSseListener implements SseListener {
      * connection actually succeeds (see {@link ReaderTask#openStream}), never cleared back
      * to {@code null}. A listener whose very first connection attempt ever fails still logs
      * that base URI, rather than nothing at all.
+     * <p>
+     * {@code uri} is passed through {@link ControlCharacters#escape(String)} before being
+     * logged — its path and query parameters are supplied by the caller via
+     * {@code SseSpec#path(...)}/{@code parameter(...)}, so a control character embedded in
+     * one of them (attacker-controlled or otherwise) cannot manipulate a terminal that
+     * later views the raw log file.
      */
     private static String withUri(URI uri, String message) {
-        return "GET " + uri + " → " + message;
+        return "GET " + ControlCharacters.escape(uri.toString()) + " → " + message;
     }
 
     /**

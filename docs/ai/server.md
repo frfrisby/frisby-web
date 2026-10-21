@@ -133,6 +133,17 @@ ServerLoggingConfiguration logging = ServerLoggingConfiguration.builder()
 - `maxBodySize` clamps logged body length; truncated bodies are marked in the log.
 - Maximum `maxBodySize` is 100 MB; minimum is 0.
 
+**Control-character sanitization (unconditional, not configurable):** before any log
+entry is written — the request path (attacker-influenced, since it is the decoded
+request URI), the full failure-detail block, and the compact `INFO`/`TRACE` one-liners —
+control characters are replaced with a visible `\xHH` escape sequence via
+`software.frisby.core.util.ControlCharacters`. This covers ASCII C0/C1 control codes,
+including ANSI/VT100 terminal escape sequences, so a request's path, headers, or body
+cannot manipulate a terminal later used to view the raw log file. `\t` and `\n` are
+preserved unchanged (purely structural for multi-line output); every other control
+character is escaped, including `\r`. This applies at every log level regardless of
+`redactHeaders` / `redactFields` and cannot be disabled.
+
 Pass to `ServerConfigurationBuilder.logging(logging)`.
 
 ---

@@ -43,6 +43,11 @@
             <artifactId>validation</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>software.frisby.core</groupId>
+            <artifactId>util</artifactId>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

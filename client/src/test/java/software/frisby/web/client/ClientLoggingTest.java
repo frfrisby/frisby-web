@@ -74,7 +74,7 @@ class ClientLoggingTest {
                         new AuthorizationResponseResource(), new SensitiveErrorResource(),
                         new MultiValueResponseHeaderResource(), new MultiSetCookieResource(),
                         new BlankSetCookieResource(), new FlagSetCookieResource(),
-                        new NoAttributeSetCookieResource())
+                        new NoAttributeSetCookieResource(), new ControlCharacterResource())
                 .components(TestLogging.forClass(ClientLoggingTest.class))
                 .build();
 
@@ -282,6 +282,22 @@ class ClientLoggingTest {
             return Response.ok("{\"ok\":true}")
                     .type("application/json")
                     .header("Set-Cookie", "session=abc123")
+                    .build();
+        }
+    }
+
+    /**
+     * Returns a {@code 400} with a body containing a raw ESC ({@code U+001B}) control
+     * character, used to verify that {@link RequestLogger} escapes control characters
+     * in the response body before logging it.
+     */
+    @Path("/control-character-error")
+    public static class ControlCharacterResource {
+        @GET
+        public Response get() {
+            return Response.status(400)
+                    .entity("bad\u001bvalue")
+                    .type("text/plain")
                     .build();
         }
     }
@@ -939,6 +955,43 @@ class ClientLoggingTest {
                 } catch (ConnectException ignored2) {
                     // expected — we only care that logTransportError() was invoked without crashing
                 }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Control-character sanitization — response body is escaped before logging
+    // -------------------------------------------------------------------------
+
+    /**
+     * Verifies that a control character embedded in a response body is replaced with
+     * a visible {@code \xHH} escape sequence before being logged, rather than the raw
+     * control character ever reaching the log.
+     */
+    @Nested
+    class ControlCharacterSanitization {
+        @Test
+        void responseBodyContainingControlCharacter_logsEscapedForm() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.TRACE)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.TRACE)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the response "
+                                            + "body to be escaped, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+                try {
+                    client.get().path("/control-character-error").send(String.class);
+                } catch (Exception ignored) {
+                    // BadRequestException expected — we only care about the log
+                }
+
+                verifier.assertExpectations();
             }
         }
     }

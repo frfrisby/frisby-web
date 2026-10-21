@@ -3,6 +3,7 @@ package software.frisby.web.server.sse;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
 import jakarta.ws.rs.sse.SseEventSink;
+import software.frisby.core.util.ControlCharacters;
 import software.frisby.core.validation.Values;
 
 import java.time.Duration;
@@ -191,8 +192,8 @@ final class DefaultSseEmitter implements SseEmitter {
         LOGGER.log(
                 System.Logger.Level.TRACE,
                 "SSE event sent. id=''{0}'', event=''{1}'', retryMs=''{2}''.",
-                id,
-                name,
+                ControlCharacters.escape(id),
+                ControlCharacters.escape(name),
                 retry
         );
     }

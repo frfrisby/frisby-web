@@ -1,5 +1,6 @@
 package software.frisby.web.client;
 
+import software.frisby.core.util.ControlCharacters;
 import software.frisby.core.validation.Values;
 import software.frisby.web.client.exception.HttpResponseException;
 
@@ -38,6 +39,11 @@ import java.util.regex.Pattern;
  * Bodies are truncated to {@link ClientLoggingConfiguration#maxBodySize()} characters
  * and sensitive JSON / form-encoded field values are replaced with {@code [redacted]}
  * per {@link ClientLoggingConfiguration#redactedBodyFields()}.
+ * <p>
+ * Every full detail block (and the URI in the compact one-liner) is passed through
+ * {@link ControlCharacters#escape(String)} as a final step before being logged, so
+ * control characters embedded in a URI, header value, or body — attacker-controlled or
+ * otherwise — cannot manipulate a terminal that later views the raw log file.
  */
 final class RequestLogger {
     private static final System.Logger LOGGER = System.getLogger(RequestLogger.class.getName());
@@ -152,14 +158,14 @@ final class RequestLogger {
                 appendTruncatedBody(sb, bodyStr, false, RESPONSE_BODY);
             }
 
-            LOGGER.log(System.Logger.Level.TRACE, sb.toString());
+            LOGGER.log(System.Logger.Level.TRACE, ControlCharacters.escape(sb.toString()));
         } else if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
             if (retryAttempt > 1) {
                 LOGGER.log(
                         System.Logger.Level.INFO,
                         "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms, attempt {4})",
                         outbound.request().method(),
-                        outbound.request().uri(),
+                        ControlCharacters.escape(outbound.request().uri().toString()),
                         response.statusCode(),
                         latency.toMillis(),
                         retryAttempt
@@ -169,7 +175,7 @@ final class RequestLogger {
                         System.Logger.Level.INFO,
                         "{0} {1} " + ARROW_RIGHT + " {2} ({3}ms)",
                         outbound.request().method(),
-                        outbound.request().uri(),
+                        ControlCharacters.escape(outbound.request().uri().toString()),
                         response.statusCode(),
                         latency.toMillis()
                 );
@@ -207,7 +213,7 @@ final class RequestLogger {
         appendResponseHeaders(sb, exception.headers());
         exception.body().ifPresent(body -> appendTruncatedBody(sb, body, false, RESPONSE_BODY));
 
-        LOGGER.log(level, sb.toString());
+        LOGGER.log(level, ControlCharacters.escape(sb.toString()));
     }
 
     /**
@@ -234,7 +240,7 @@ final class RequestLogger {
 
         sb.append(cause.getClass().getSimpleName()).append(": ").append(cause.getMessage());
 
-        LOGGER.log(level, sb.toString());
+        LOGGER.log(level, ControlCharacters.escape(sb.toString()));
     }
 
     /**
@@ -260,7 +266,7 @@ final class RequestLogger {
 
         sb.append(cause.getClass().getSimpleName()).append(": ").append(cause.getMessage());
 
-        LOGGER.log(level, sb.toString());
+        LOGGER.log(level, ControlCharacters.escape(sb.toString()));
     }
 
     /**

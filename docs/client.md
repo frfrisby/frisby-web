@@ -674,6 +674,20 @@ The following are always masked regardless of configuration:
 - `Cookie` header → cookie names preserved, values replaced with `[redacted]`
 - `Set-Cookie` header → cookie name and attributes preserved, value replaced with `[redacted]`
 
+### Control-character sanitization
+
+Before any log entry is written — the full detail block, the compact one-liner, and
+the URI in `INFO` logs — control characters are replaced with a visible `\xHH` escape
+sequence via `software.frisby.core.util.ControlCharacters`.  This covers ASCII C0/C1
+control codes, including ANSI/VT100 terminal escape sequences, so a request or response
+body (or header value) that happens to contain one cannot manipulate a terminal later
+used to view the raw log file.  `\t` and `\n` are preserved unchanged since they are
+purely structural for multi-line output; every other control character is escaped,
+including `\r`.
+
+This is unconditional — it applies at every log level, regardless of `redactHeaders` /
+`redactFields` configuration, and cannot be disabled.
+
 ### Custom header and field redaction
 
 ```java

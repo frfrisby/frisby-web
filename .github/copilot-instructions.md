@@ -117,6 +117,25 @@ Full reference: attach `.github/docs/util.md` at session start.
   `new BigDecimal(0.1)` captures the binary floating-point representation, not the intended decimal value.
 - `Decimals.of(double/float)` routes through `String.valueOf()` and produces the exact decimal intended.
 
+### ControlCharacters
+
+- `ControlCharacters.escape(String)` replaces ASCII C0/C1 control characters (including ANSI/VT100
+  terminal escape sequences) with a visible `\xHH` escape sequence. `\t`/`\n` are preserved
+  unchanged; every other control character, including `\r`, is escaped. `null` in → `null` out.
+- **Any new log statement that includes dynamic data — a URI, header value, request/response body
+  fragment, file path, user-supplied identifier, etc. — must pass that data through
+  `ControlCharacters.escape(...)`** before it reaches the logger. See
+  `.github/docs/java-coding-style.md`'s "Logging" section for the full rationale and pattern.
+- `client`'s and `server`'s `RequestLogger` classes are the designated sanitization chokepoints —
+  **all** client/server request-lifecycle logging is already routed through them, and both already
+  escape their assembled messages (and, for the server, the request `path` parameter specifically,
+  since it feeds `MessageFormat`-style `LOGGER.log(level, pattern, params...)` calls with no single
+  string to wrap). New logging for request/response handling belongs in — or routes through — one
+  of these two classes rather than a new ad hoc `LOGGER.log(...)` call site elsewhere.
+- `server-sse`'s `DefaultSseEmitter` and `client-sse`'s `DefaultSseListener` also escape the
+  dynamic values they log (`SseEvent` `id`/`event` name; the resolved request URI, respectively) —
+  follow the same pattern for any new logging added to either SSE module.
+
 ## Java Coding Style
 
 Full guide: attach `.github/docs/java-coding-style.md` at session start. Essential rules:
@@ -129,6 +148,8 @@ Full guide: attach `.github/docs/java-coding-style.md` at session start. Essenti
 - **Static utility classes**: `public final class` with `private` no-arg constructor; all-static methods; repeated string literals extracted to `private static final String`.
 - **Field initialization**: if any field is initialized in the constructor, initialize *all* fields there.
 - **`Runnable` nested classes**: always `private static`; all dependencies passed via constructor.
+- **Logging**: any dynamic data (URI, header, body fragment, path, etc.) written to a log line must
+  be passed through `ControlCharacters.escape(...)` first — see the `ControlCharacters` section above.
 
 ## Exception Message Format
 
