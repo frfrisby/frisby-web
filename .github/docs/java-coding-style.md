@@ -805,6 +805,49 @@ Examples:
 
 ---
 
+## Logging
+
+### Sanitize dynamic data before it reaches a log line
+
+Any value written to a log message that did not originate as a hardcoded string literal —
+a URI, header value, request/response body fragment, user-supplied identifier, file path,
+etc. — must have ASCII control characters (including ANSI/VT100 terminal escape sequences)
+escaped before being logged.  An unescaped control character embedded in that data can
+manipulate a terminal that later views the raw log file (cursor movement, line overwrite,
+color changes) — a class of issue generally referred to as log injection (CWE-117/150).
+
+**Rule:** escape once, as the very last step before the string reaches the logging call —
+not at each place a fragment is appended.  Applying the escape to the fully-assembled
+message (or to each individual dynamic parameter, if the logging API takes separate
+arguments rather than one pre-built string) is both simpler to audit and harder to
+accidentally skip at a new call site than sanitizing fragments piecemeal.
+
+```java
+// Correct — escape applied once, at the final step
+String message = buildDetailBlock(request, response);
+LOGGER.log(Level.WARNING, ControlCharacters.escape(message));
+
+// Also correct — MessageFormat-style logging with no single assembled string;
+// escape the individual dynamic parameter before passing it
+LOGGER.log(Level.INFO, "{0} {1} -> {2}", method, ControlCharacters.escape(path), statusCode);
+
+// Wrong — raw dynamic data reaches the log unescaped
+LOGGER.log(Level.WARNING, "Request failed for path " + path);
+```
+
+`\t` and `\n` are typically safe to leave unescaped — they are purely structural for
+multi-line log output and carry no terminal-control side effect.  Every other ASCII C0/C1
+control character, including `\r` (which can overwrite a previously-written line), should
+be escaped.
+
+> **Note:** `ControlCharacters.escape(String)` is from `software.frisby.core:util`.
+> Substitute the equivalent utility from your project — or write one; the escaping logic
+> is a handful of lines — if no such utility exists.  The structural rule (sanitize once,
+> at the final step, covering every value that isn't a hardcoded literal) applies
+> regardless of which utility performs the escaping.
+
+---
+
 ## Testing Conventions
 
 ### Framework

@@ -178,4 +178,131 @@ class RequestLoggerTest {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Control-character sanitization — path and detail block are escaped before
+    // being logged, since a request's path is attacker-influenced (decoded from
+    // the raw URI) and the detail block carries headers/body content verbatim.
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ControlCharacterSanitization {
+
+        @Test
+        void pathContainingControlCharacter_logsEscapedFormInTraceBranch() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.TRACE)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.TRACE)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the path to be "
+                                            + "escaped, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+
+                logger.logRequest("GET", "/test\u001bpath", 200, 5L, "");
+
+                verifier.assertExpectations();
+            }
+        }
+
+        @Test
+        void pathContainingControlCharacter_logsEscapedFormInInfoBranch() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.INFO)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.INFO)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the path to be "
+                                            + "escaped in the INFO one-liner, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+
+                logger.logRequest("GET", "/test\u001bpath", 200, 5L, "");
+
+                verifier.assertExpectations();
+            }
+        }
+
+        @Test
+        void detailContainingControlCharacter_logsEscapedFormInFailureDetail() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.WARNING)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.WARNING)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the detail block "
+                                            + "to be escaped, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+
+                logger.logFailureDetail(
+                        "GET",
+                        "/api/orders",
+                        400,
+                        3L,
+                        "\n  Request Body:\n    bad\u001bvalue",
+                        null
+                );
+
+                verifier.assertExpectations();
+            }
+        }
+
+        @Test
+        void pathContainingControlCharacter_logsEscapedFormInHealthCheck() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.TRACE)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.TRACE)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the health-check "
+                                            + "path to be escaped, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+
+                logger.logHealthCheck("GET", "/health\u001b", 200, 1L);
+
+                verifier.assertExpectations();
+            }
+        }
+
+        @Test
+        void pathContainingControlCharacter_logsEscapedFormInCapacityRejection() {
+            try (SystemLogVerifier verifier = SystemLogVerifier.builder()
+                    .configure(RequestLogger.class, System.Logger.Level.WARNING)
+                    .expect(
+                            LogExpectation.builder()
+                                    .logger(RequestLogger.class)
+                                    .level(System.Logger.Level.WARNING)
+                                    .predicate(e -> e.message().contains("\\x1b")
+                                            && !e.message().contains("\u001b"))
+                                    .failureMessage("Expected the ESC character in the path to be "
+                                            + "escaped in the capacity-rejection log, not logged raw.")
+                                    .build()
+                    )
+                    .build()) {
+
+                logger.logCapacityRejection("GET", "/api/orders\u001b", 3L);
+
+                verifier.assertExpectations();
+            }
+        }
+    }
 }

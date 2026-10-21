@@ -441,3 +441,93 @@ Uris.withoutPath(URI.create("ftp://files.example.com/data"));
 // → ftp://files.example.com
 ```
 
+---
+
+## ControlCharacters
+
+Static utility for making arbitrary strings safe to write to a raw terminal or log file.
+
+### Why this class exists
+
+Untrusted text (HTTP request/response bodies, header values, user input, etc.) can
+contain terminal control characters — ANSI/VT100 escape sequences, bell, backspace
+tricks, and similar — that a terminal emulator interprets as commands rather than
+displaying as text. If such a string is ever viewed with a raw tool (`cat`, `tail`)
+rather than a viewer that renders plain text, an attacker-controlled control sequence
+can manipulate the terminal. `ControlCharacters.escape(String)` neutralizes this by
+replacing every control character with a visible, unambiguous escape sequence, leaving
+everything else untouched.
+
+### Key behaviors
+
+- **Escaped ranges** — C0 controls `\u0000`–`\u001F` (except `\t` and `\n`), `\u007F`
+  (DEL), and C1 controls `\u0080`–`\u009F`.
+- **`\t` and `\n` pass through unchanged** — purely structural for legitimate
+  multi-line output.
+- **`\r` IS escaped** — deliberately not exempted alongside `\t`/`\n`, because unlike
+  them it has a terminal-rendering side effect (cursor-to-column-0, enabling
+  line-overwrite/spoofing) rather than being purely structural.
+- **Escape format** — each escaped character becomes the literal 4-character text
+  `\xHH`, where `HH` is the lowercase two-digit hex code point (e.g. ESC → `\x1b`).
+  Every escapable code point fits in two hex digits, so the format is always
+  unambiguous.
+- **No allocation on the common path** — if `value` contains no control characters,
+  the same `String` instance is returned unchanged.
+- **`null` in, `null` out** — convenient for callers assembling a log message from
+  possibly-null fields.
+- **Not losslessly reversible** — a string that already contains the literal text
+  `\x1b` is indistinguishable, after escaping, from one that contained an actual ESC
+  character. This is an accepted trade-off for a "make this safe to display" transform,
+  not a serialization format — `escape` is not intended to be undone.
+
+### API
+
+```java
+import software.frisby.core.util.ControlCharacters;
+
+ControlCharacters.escape("plain text");           // "plain text"           (same instance)
+ControlCharacters.escape("line1\nline2\ttab");    // "line1\nline2\ttab"    (same instance)
+
+ControlCharacters.escape("a\rb");                 // "a\\x0db"
+ControlCharacters.escape("a\u0000b");             // "a\\x00b"
+ControlCharacters.escape("a\u001Bb");             // "a\\x1bb"  (ESC)
+ControlCharacters.escape("a\u007Fb");             // "a\\x7fb"  (DEL)
+ControlCharacters.escape("a\u009Bb");             // "a\\x9bb"  (C1 control)
+
+ControlCharacters.escape(null);                   // null
+```
+
+### Typical usage
+
+Apply as a final pass over an assembled log message before handing it to a logger:
+
+```java
+log.error("Request failed. Body={}", ControlCharacters.escape(requestBody));
+```
+
+### Method reference
+
+| Signature        | Description                                                                  |
+|------------------|------------------------------------------------------------------------------|
+| `escape(String)` | Replaces every control character with a `\xHH` escape sequence; `null`-safe. |
+
+### Throws
+
+| Method           | Throws |
+|------------------|--------|
+| `escape(String)` | —      |
+
+### Anti-patterns
+
+#### ❌ Hand-rolling a regex instead of using ControlCharacters.escape
+
+```java
+// Wrong — easy to miss a range (e.g. the C1 controls, u0080-u009F) or get the
+// \t/\n exemption wrong, and silently under-sanitize attacker-controlled text
+String safe = requestBody.replaceAll("[\\x00-\\x1f]", "");
+
+// Correct — every escaped range and exemption is centralized and tested in one place
+String safe = ControlCharacters.escape(requestBody);
+```
+
+

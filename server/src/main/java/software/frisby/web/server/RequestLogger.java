@@ -1,6 +1,7 @@
 package software.frisby.web.server;
 
 import jakarta.ws.rs.WebApplicationException;
+import software.frisby.core.util.ControlCharacters;
 
 /**
  * Formats and emits log messages for server lifecycle and request events.
@@ -22,6 +23,11 @@ import jakarta.ws.rs.WebApplicationException;
  *       (an unexpected application bug), and server startup failures, with full
  *       request context and attached stack trace</li>
  * </ul>
+ * <p>
+ * {@code path} (attacker-influenced, since it is the decoded request URI path) and the
+ * full detail block are passed through {@link ControlCharacters#escape(String)} before
+ * being logged, so control characters embedded in a request's path, headers, or body
+ * cannot manipulate a terminal that later views the raw log file.
  */
 final class RequestLogger {
     private static final System.Logger LOGGER = System.getLogger(RequestLogger.class.getName());
@@ -129,13 +135,13 @@ final class RequestLogger {
             String message = method + " " + path + " " + ARROW_RIGHT + " " + statusCode
                     + " (" + latencyMs + "ms)" + detail;
 
-            LOGGER.log(System.Logger.Level.TRACE, message);
+            LOGGER.log(System.Logger.Level.TRACE, ControlCharacters.escape(message));
         } else if (LOGGER.isLoggable(System.Logger.Level.INFO)) {
             LOGGER.log(
                     System.Logger.Level.INFO,
                     METHOD_PATH_PREFIX + ARROW_RIGHT + " {2} ({3}ms)",
                     method,
-                    path,
+                    ControlCharacters.escape(path),
                     statusCode,
                     latencyMs
             );
@@ -176,6 +182,7 @@ final class RequestLogger {
 
         String message = method + " " + path + " " + CROSS + " " + statusCode
                 + " (" + latencyMs + "ms)" + detail;
+        message = ControlCharacters.escape(message);
 
         // Attach the original exception only for ERROR-level entries so the full stack
         // trace appears in the log record — essential for root-cause analysis of
@@ -197,7 +204,7 @@ final class RequestLogger {
                     System.Logger.Level.TRACE,
                     METHOD_PATH_PREFIX + ARROW_RIGHT + " {2} ({3}ms)",
                     method,
-                    path,
+                    ControlCharacters.escape(path),
                     statusCode,
                     latencyMs
             );
@@ -225,7 +232,7 @@ final class RequestLogger {
                     System.Logger.Level.WARNING,
                     METHOD_PATH_PREFIX + CROSS + " 503 ({2}ms)  [capacity limit]",
                     method,
-                    path,
+                    ControlCharacters.escape(path),
                     latencyMs
             );
         }
