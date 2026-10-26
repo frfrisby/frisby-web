@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.0](https://github.com/frfrisby/frisby-web/compare/v1.5.4...v1.6.0) (2026-10-26)
+
+
+### Features
+
+* Add a shared idle-stream watchdog with a unified idleTimeout across client, client-sse, and server. ([#83](https://github.com/frfrisby/frisby-web/issues/83)) ([c413ed7](https://github.com/frfrisby/frisby-web/commit/c413ed753011af1d414f79ac4f991c438cc5f6f4))
+* **server-sse:** Add recurring scheduled events to SseEmitter, independent of the heartbeat. ([#86](https://github.com/frfrisby/frisby-web/issues/86)) ([cb95911](https://github.com/frfrisby/frisby-web/commit/cb95911b84668af09239cdb1720e31793eb58421))
+
+
+### Bug Fixes
+
+* **client:** Close leaked download streams to fix flaky StreamWatchdog coverage. ([#90](https://github.com/frfrisby/frisby-web/issues/90)) ([ce79036](https://github.com/frfrisby/frisby-web/commit/ce7903618e144b8fb18026cd7823073a1350443f))
+* **oauth2-security:** Eliminate flaky interrupt-handling test in DefaultClientCredentialsSecurityProviderTest. ([#89](https://github.com/frfrisby/frisby-web/issues/89)) ([8efc366](https://github.com/frfrisby/frisby-web/commit/8efc366c4801cbf758db54a901e91cab1de4b0e0))
+* **server:** Stop leaking Jetty jar-FileSystem mounts for classpath static assets. ([#88](https://github.com/frfrisby/frisby-web/issues/88)) ([f2f9357](https://github.com/frfrisby/frisby-web/commit/f2f93576f7ef116d33ca19dc3538d05c30c18a92))
+* **virtual-threads-smoke-tests:** Use try-with-resources for Counting VirtualThreadExecutor. ([#91](https://github.com/frfrisby/frisby-web/issues/91)) ([02bf346](https://github.com/frfrisby/frisby-web/commit/02bf346e7d8dd25019ac69c5fee345f13d8e184e))
+
 ## [1.5.4](https://github.com/frfrisby/frisby-web/compare/v1.5.3...v1.5.4) (2026-10-10)
 
 
