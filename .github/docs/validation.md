@@ -62,16 +62,40 @@ call:
 - `notEmpty` (and all size/duplicate methods) — rejects null, empty, and null elements.
   Use this in almost all cases.
 
-**Don't call `notEmpty` before a size or duplicate method.**  `minSize()`, `maxSize()`,
-`size()`, and `noDuplicates()` all include full `notEmpty` semantics.  A separate
-`notEmpty()` call before any of these is redundant.
+**`minSize`/`maxSize`/`size`/`noDuplicates` do *not* imply `notEmpty`.**  These methods
+reject `null` and reject a `null` element, but an empty container is only rejected when
+the size bound itself demands it:
+- `minSize(name, value, 0)` / `size(name, value, 0, max)` — empty is **valid** (size `0`
+  satisfies a `minSize` of `0`).
+- `minSize(name, value, n)` / `size(name, value, n, max)` with `n >= 1` — empty throws
+  `SequenceSizeOutsideRangeException` (not `MissingElementsException`), since `0 < n`.
+- `maxSize()` and `noDuplicates()` have no lower bound, so empty is always **valid** —
+  an empty container trivially satisfies "at most N elements" and "no duplicates."
+
+If a size bound of `>= 1` already expresses the non-emptiness requirement, fold it into
+that one call instead of adding a separate `notEmpty()`.  Reserve the standalone
+`notEmpty()` call for cases where no size bound is otherwise needed:
+
+```java
+// Not empty, no upper or lower bound beyond that — a single notEmpty() call
+Sequences.notEmpty("tags", tags);
+
+// Not empty, 1 to 100 elements — single call; minSize=1 implies non-empty
+Sequences.size("tags", tags, 1, 100);
+
+// Can be empty, no more than 100 elements — no notEmpty call needed
+Sequences.maxSize("tags", tags, 100);
+```
 
 ### Map rules
 
 The same layering applies.  `Maps.notEmpty()` atomically rejects: null map, empty map,
 null keys (`NullMapKeyException`), and null values (`NullMapValueException`).  Use it
-instead of `Values.notNull()` + manual entry iteration.  All size methods on `Maps`
-include these same checks.
+instead of `Values.notNull()` + manual entry iteration.  `Maps.minSize()`/`maxSize()`/
+`size()` check null keys and null values the same way, but — exactly as with
+`Sequences` — only reject an empty map when the size bound itself demands it (i.e.
+`minSize >= 1`).  Call `Maps.notEmpty()` explicitly if emptiness must always be rejected
+regardless of the size bound.
 
 To validate the content of keys or values as strings, compose `Maps.*` with
 `StringSequences.*` on `map.keySet()` / `map.values()`:
@@ -309,51 +333,59 @@ Values.optionalOneOf("role", role, Set.of("admin", "editor"));
 // Sequences — Collection<T> and T[] overloads exist for every method.
 // notNull          → rejects null container only; empty and null elements are allowed.
 // noNullElements   → rejects null container and null elements; empty is allowed.
-// notEmpty         → rejects null, empty, and null elements.  Use this in almost all cases.
-// All size and duplicate methods include full notEmpty semantics — do NOT call notEmpty first.
+// notEmpty         → rejects null, empty, and null elements. The ONLY method that
+//                     unconditionally rejects empty — not implied by any size/duplicate method.
 Sequences.notNull("queue", queue);                    // container must not be null; empty is accepted
 Sequences.noNullElements("tags", tags);               // not null, no null elements; empty is accepted
 Sequences.notEmpty("tags", tags);                     // not null, not empty, no null elements
-Sequences.minSize("tags", tags, 1);                   // notEmpty + size >= 1
-Sequences.maxSize("tags", tags, 10);                  // notEmpty + size <= 10
-Sequences.size("tags", tags, 1, 10);                  // notEmpty + 1 <= size <= 10
-Sequences.noDuplicates("ids", ids);                   // notEmpty + no duplicates (by equals)
-Sequences.noDuplicates("users", users, User::getId);  // notEmpty + no duplicate keys
+Sequences.minSize("tags", tags, 0);                   // not null, no null elements; empty is accepted (minSize satisfied by 0)
+Sequences.minSize("tags", tags, 1);                   // not null, no null elements; empty throws (size < 1)
+Sequences.maxSize("tags", tags, 10);                  // not null, no null elements; empty is accepted; size <= 10
+Sequences.size("tags", tags, 0, 10);                  // not null, no null elements; empty is accepted; size <= 10
+Sequences.size("tags", tags, 1, 10);                  // not null, no null elements; empty throws; 1 <= size <= 10
+Sequences.noDuplicates("ids", ids);                   // not null, no null elements; empty is accepted; no duplicates (by equals)
+Sequences.noDuplicates("users", users, User::getId);  // not null, no null elements; empty is accepted; no duplicate keys
 
 // Optional variants — null passes through unchanged; non-null values are fully validated
 Sequences.optionalNoNullElements("tags", tags);
 Sequences.optionalNotEmpty("tags", tags);
-Sequences.optionalMinSize("tags", tags, 1);
+Sequences.optionalMinSize("tags", tags, 0);
 Sequences.optionalMaxSize("tags", tags, 10);
-Sequences.optionalSize("tags", tags, 1, 10);
+Sequences.optionalSize("tags", tags, 0, 10);
 Sequences.optionalNoDuplicates("ids", ids);
 Sequences.optionalNoDuplicates("users", users, User::getId);
 
 // StringSequences — validates each String element within the collection/array.
-// notEmpty / notBlank / maxLength etc. reject an empty container.
+// notEmpty / notBlank reject an empty container by design (their name is the contract).
+// maxLength / minLength / length / matches validate per-element constraints only —
+// an empty container trivially satisfies them and is accepted.
 // noEmptyElements / noBlankElements accept an empty container but validate non-empty ones.
 StringSequences.notEmpty("tags", tags);                        // not null, not empty, elements not empty
 StringSequences.notBlank("tags", tags);                        // not null, not empty, elements not blank
 StringSequences.noEmptyElements("tags", tags);                 // not null, empty OK, elements not empty
 StringSequences.noBlankElements("tags", tags);                 // not null, empty OK, elements not blank
+StringSequences.maxLength("tags", tags, 64);                   // not null, empty OK, elements <= 64 code points
+StringSequences.matches("codes", codes, CODE_PATTERN);         // not null, empty OK, elements match pattern
 StringSequences.notBlankWithMaxLength("tags", tags, 64);
 StringSequences.notBlankWithMatches("codes", codes, CODE_PATTERN);
 StringSequences.optionalNoEmptyElements("tags", tags);         // null OK, empty OK, elements not empty
 StringSequences.optionalNoBlankElements("tags", tags);         // null OK, empty OK, elements not blank
 
 // Maps — notEmpty also rejects null keys (NullMapKeyException) and null values (NullMapValueException).
-// All size methods include the same null-key and null-value checks.
+// minSize/maxSize/size check the same null-key/null-value constraints, but only reject an
+// empty map when the size bound itself demands it (i.e. minSize >= 1) — same rule as Sequences.
 Maps.notNull("config", config);                    // map must not be null; empty is accepted
 Maps.notEmpty("headers", headers);                 // not null, not empty, no null keys, no null values
-Maps.minSize("headers", headers, 1);               // notEmpty + entry count >= 1
-Maps.maxSize("headers", headers, 50);              // notEmpty + entry count <= 50
-Maps.size("headers", headers, 1, 50);              // notEmpty + 1 <= entry count <= 50
+Maps.minSize("headers", headers, 0);               // no null keys/values; empty is accepted (minSize satisfied by 0)
+Maps.minSize("headers", headers, 1);               // no null keys/values; empty throws (entry count < 1)
+Maps.maxSize("headers", headers, 50);              // no null keys/values; empty is accepted; entry count <= 50
+Maps.size("headers", headers, 0, 50);              // no null keys/values; empty is accepted; entry count <= 50
 
 // Optional variants — null passes through unchanged
 Maps.optionalNotEmpty("metadata", metadata);
-Maps.optionalMinSize("metadata", metadata, 1);
+Maps.optionalMinSize("metadata", metadata, 0);
 Maps.optionalMaxSize("metadata", metadata, 50);
-Maps.optionalSize("metadata", metadata, 1, 50);
+Maps.optionalSize("metadata", metadata, 0, 50);
 ```
 
 ### Throws — Values
@@ -372,20 +404,30 @@ All methods throw `NullPointerException` if `name` is null or blank, or if the `
 
 All methods throw `NullPointerException` if `name` is null or blank.
 
-| Method family        | `NullValueException`    | `MissingElementsException` | `NullElementException` | `SequenceSizeOutsideRangeException` | `DuplicateElementsException` | `IllegalConfigurationException` |
-|----------------------|-------------------------|----------------------------|------------------------|-------------------------------------|------------------------------|---------------------------------|
-| `notNull`            | container is null       | —                          | —                      | —                                   | —                            | —                               |
-| `noNullElements`     | container is null       | —                          | element is null        | —                                   | —                            | —                               |
-| `notEmpty`           | container is null       | container is empty         | element is null        | —                                   | —                            | —                               |
-| `minSize`            | container is null       | container is empty         | element is null        | size < minSize                      | —                            | minSize < 1                     |
-| `maxSize`            | container is null       | container is empty         | element is null        | size > maxSize                      | —                            | maxSize < 1                     |
-| `size`               | container is null       | container is empty         | element is null        | size outside [min,max]              | —                            | bound < 1, or max < min         |
-| `noDuplicates`       | container is null       | container is empty         | element is null        | —                                   | duplicate element found      | —                               |
-| `optional*` variants | — (null passes through) | same if non-null           | same if non-null       | same if non-null                    | same if non-null             | same bound checks always apply  |
+| Method family        | `NullValueException`    | `MissingElementsException`                          | `NullElementException` | `SequenceSizeOutsideRangeException`                                                          | `DuplicateElementsException` | `IllegalConfigurationException` |
+|----------------------|-------------------------|-----------------------------------------------------|------------------------|----------------------------------------------------------------------------------------------|------------------------------|---------------------------------|
+| `notNull`            | container is null       | —                                                   | —                      | —                                                                                            | —                            | —                               |
+| `noNullElements`     | container is null       | —                                                   | element is null        | —                                                                                            | —                            | —                               |
+| `notEmpty`           | container is null       | container is empty                                  | element is null        | —                                                                                            | —                            | —                               |
+| `minSize`            | container is null       | — (empty fails as a range error instead; see below) | element is null        | size < minSize (empty fails here when minSize >= 1; empty is valid when minSize = 0)         | —                            | minSize < 0                     |
+| `maxSize`            | container is null       | — (empty is always valid)                           | element is null        | size > maxSize                                                                               | —                            | maxSize < 1                     |
+| `size`               | container is null       | — (empty fails as a range error instead; see below) | element is null        | size outside [min,max] (empty fails here when minSize >= 1; empty is valid when minSize = 0) | —                            | minSize < 0, or max < min       |
+| `noDuplicates`       | container is null       | — (empty is always valid)                           | element is null        | —                                                                                            | duplicate element found      | —                               |
+| `optional*` variants | — (null passes through) | same if non-null                                    | same if non-null       | same if non-null                                                                             | same if non-null             | same bound checks always apply  |
+
+`notEmpty` is the only method that unconditionally rejects an empty container.
+`minSize`/`size` reject empty only when `minSize >= 1` (via `SequenceSizeOutsideRangeException`,
+not `MissingElementsException`); `maxSize`/`noDuplicates` have no lower bound, so an
+empty container always passes.
 
 ### Throws — StringSequences
 
-Every method first applies the full `notEmpty` check on the container, then validates each string element. All methods throw `NullPointerException` if `name` is null or blank.
+`notEmpty`, `notBlank`, and the `notBlankWith*` composites unconditionally reject an empty
+container — container non-emptiness is part of their named contract, exactly parallel to
+`Sequences.notEmpty()`. `maxLength`, `minLength`, `length`, and `matches` validate only a
+per-element constraint (length or pattern) that has no relationship to container size, so
+an empty container trivially satisfies them and is accepted. All methods throw
+`NullPointerException` if `name` is null or blank.
 
 | Method family           | Container failures                                                       | Per-element failures                                       | `IllegalConfigurationException` |
 |-------------------------|--------------------------------------------------------------------------|------------------------------------------------------------|---------------------------------|
@@ -393,10 +435,10 @@ Every method first applies the full `notEmpty` check on the container, then vali
 | `noEmptyElements`       | `NullValueException`, `NullElementException`                             | `EmptyValueException`                                      | —                               |
 | `notBlank`              | `NullValueException`, `MissingElementsException`, `NullElementException` | `BlankValueException`                                      | —                               |
 | `noBlankElements`       | `NullValueException`, `NullElementException`                             | `BlankValueException`                                      | —                               |
-| `maxLength`             | `NullValueException`, `MissingElementsException`, `NullElementException` | `StringLengthOutsideRangeException`                        | maxItemLength < 1               |
-| `minLength`             | `NullValueException`, `MissingElementsException`, `NullElementException` | `StringLengthOutsideRangeException`                        | minItemLength < 1               |
-| `length`                | `NullValueException`, `MissingElementsException`, `NullElementException` | `StringLengthOutsideRangeException`                        | bound < 1, or max < min         |
-| `matches`               | `NullValueException`, `MissingElementsException`, `NullElementException` | `PatternMismatchException`                                 | pattern is null                 |
+| `maxLength`             | `NullValueException`, `NullElementException` (empty is always valid)     | `StringLengthOutsideRangeException`                        | maxItemLength < 1               |
+| `minLength`             | `NullValueException`, `NullElementException` (empty is always valid)     | `StringLengthOutsideRangeException`                        | minItemLength < 1               |
+| `length`                | `NullValueException`, `NullElementException` (empty is always valid)     | `StringLengthOutsideRangeException`                        | bound < 1, or max < min         |
+| `matches`               | `NullValueException`, `NullElementException` (empty is always valid)     | `PatternMismatchException`                                 | pattern is null                 |
 | `notBlankWithMaxLength` | `NullValueException`, `MissingElementsException`, `NullElementException` | `BlankValueException`, `StringLengthOutsideRangeException` | maxItemLength < 1               |
 | `notBlankWithMatches`   | `NullValueException`, `MissingElementsException`, `NullElementException` | `BlankValueException`, `PatternMismatchException`          | pattern is null                 |
 | `optional*` variants    | — (null passes through)                                                  | same as non-optional if non-null                           | same bound checks always apply  |
@@ -405,14 +447,18 @@ Every method first applies the full `notEmpty` check on the container, then vali
 
 All methods throw `NullPointerException` if `name` is null or blank.
 
-| Method family        | `NullValueException`    | `MissingElementsException` | `NullMapKeyException` | `NullMapValueException` | `MapSizeOutsideRangeException` | `IllegalConfigurationException` |
-|----------------------|-------------------------|----------------------------|-----------------------|-------------------------|--------------------------------|---------------------------------|
-| `notNull`            | map is null             | —                          | —                     | —                       | —                              | —                               |
-| `notEmpty`           | map is null             | map is empty               | null key found        | null value found        | —                              | —                               |
-| `minSize`            | map is null             | map is empty               | null key found        | null value found        | entry count < minSize          | minSize < 1                     |
-| `maxSize`            | map is null             | map is empty               | null key found        | null value found        | entry count > maxSize          | maxSize < 1                     |
-| `size`               | map is null             | map is empty               | null key found        | null value found        | count outside [min,max]        | bound < 1, or max < min         |
-| `optional*` variants | — (null passes through) | same if non-null           | same if non-null      | same if non-null        | same if non-null               | same bound checks always apply  |
+| Method family        | `NullValueException`    | `MissingElementsException`                          | `NullMapKeyException` | `NullMapValueException` | `MapSizeOutsideRangeException`                                                                | `IllegalConfigurationException` |
+|----------------------|-------------------------|-----------------------------------------------------|-----------------------|-------------------------|-----------------------------------------------------------------------------------------------|---------------------------------|
+| `notNull`            | map is null             | —                                                   | —                     | —                       | —                                                                                             | —                               |
+| `notEmpty`           | map is null             | map is empty                                        | null key found        | null value found        | —                                                                                             | —                               |
+| `minSize`            | map is null             | — (empty fails as a range error instead; see below) | null key found        | null value found        | entry count < minSize (empty fails here when minSize >= 1; empty is valid when minSize = 0)   | minSize < 0                     |
+| `maxSize`            | map is null             | — (empty is always valid)                           | null key found        | null value found        | entry count > maxSize                                                                         | maxSize < 1                     |
+| `size`               | map is null             | — (empty fails as a range error instead; see below) | null key found        | null value found        | count outside [min,max] (empty fails here when minSize >= 1; empty is valid when minSize = 0) | minSize < 0, or max < min       |
+| `optional*` variants | — (null passes through) | same if non-null                                    | same if non-null      | same if non-null        | same if non-null                                                                              | same bound checks always apply  |
+
+`notEmpty` is the only method that unconditionally rejects an empty map.
+`minSize`/`size` reject empty only when `minSize >= 1` (via `MapSizeOutsideRangeException`,
+not `MissingElementsException`); `maxSize` has no lower bound, so an empty map always passes.
 
 ---
 
@@ -508,15 +554,29 @@ for (Item item : items) {
 Sequences.notEmpty("items", items);
 ```
 
-### ❌ Calling `notEmpty` redundantly before a size or duplicate method
+### ❌ Calling `notEmpty` redundantly before `minSize`/`size` with a bound `>= 1`
 
 ```java
-// Wrong — notEmpty is already included in minSize/maxSize/size/noDuplicates
+// Wrong — minSize(name, value, 1) already rejects empty (0 < 1), so notEmpty is redundant
 Sequences.notEmpty("tags", tags);
 Sequences.size("tags", tags, 1, 10);
 
 // Correct
 Sequences.size("tags", tags, 1, 10);
+```
+
+This does **not** apply to `maxSize`, `noDuplicates`, or `minSize`/`size` called with a
+bound of `0` — none of those reject an empty container, so if emptiness must always be
+rejected, `notEmpty()` is required and is not redundant. See the next antipattern.
+
+### ❌ Assuming `maxSize`/`noDuplicates`/`minSize(..., 0)` reject an empty container
+
+```java
+// Wrong — tags can be an empty list; maxSize alone does not reject that if it's unwanted
+List<String> tags = Sequences.maxSize("tags", tags, 10);
+
+// Correct — fold the non-emptiness requirement into one call via minSize=1
+List<String> tags = Sequences.size("tags", tags, 1, 10);
 ```
 
 ### ❌ Using `Values.notNull()` on a map

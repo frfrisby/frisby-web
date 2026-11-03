@@ -81,7 +81,9 @@ All validation calls follow `(String name, T value, ...)` → returns `value` un
 
 Key rules:
 - Use `Sequences.notEmpty()` / `Maps.notEmpty()` — never `Values.notNull()` — for collections and maps.
-- `minSize()`, `maxSize()`, `size()`, `noDuplicates()` already include `notEmpty` semantics — don't call `notEmpty` first.
+- `minSize()`/`size()` reject empty only when the lower bound is `>= 1`; `maxSize()`/`noDuplicates()` have no
+  lower bound and always accept empty. Fold a `notEmpty()` into one of these calls only when its bound is
+  `>= 1` — otherwise call `notEmpty()` separately if emptiness must always be rejected.
 - `optional*` variants pass `null` through; use them only for genuinely optional fields.
 - `FieldGroups.onlyOne()`/`atLeastOne()` etc. handle mutually exclusive / co-required field groups.
 - Thrown exceptions are **not** `IllegalArgumentException` / `NullPointerException` — they are specific

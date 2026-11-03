@@ -64,11 +64,7 @@ final class DefaultClientConfiguration implements ClientConfiguration {
         this.sslContext = sslContext;
         this.redirectPolicy = Values.notNull(REDIRECT_POLICY_ARGUMENT_NAME, redirectPolicy);
         this.httpVersion = Values.notNull(HTTP_VERSION_ARGUMENT_NAME, httpVersion);
-        this.decompressors = Sequences.notNull(DECOMPRESSORS_ARGUMENT_NAME, decompressors);
-
-        if (!this.decompressors.isEmpty()) {
-            Sequences.noDuplicates(DECOMPRESSORS_ARGUMENT_NAME, this.decompressors, ContentDecompressor::encoding);
-        }
+        this.decompressors = Sequences.noDuplicates(DECOMPRESSORS_ARGUMENT_NAME, decompressors, ContentDecompressor::encoding);
 
         this.executor = executor;
         this.logging = Values.notNull(LOGGING_ARGUMENT_NAME, logging);
