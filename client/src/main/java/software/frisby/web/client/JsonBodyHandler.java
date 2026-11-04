@@ -129,11 +129,7 @@ final class JsonBodyHandler<T> implements HttpResponse.BodyHandler<T> {
             return HttpResponse.BodySubscribers.mapping(
                     HttpResponse.BodySubscribers.ofByteArray(),
                     bytes -> {
-                        try {
-                            InputStream decompressed = decompressor.decompress(
-                                    new ByteArrayInputStream(bytes)
-                            );
-
+                        try (InputStream decompressed = decompressor.decompress(new ByteArrayInputStream(bytes))) {
                             if (null == decompressed) {
                                 throw new IllegalStateException(
                                         "The 'ContentDecompressor' value is invalid." +

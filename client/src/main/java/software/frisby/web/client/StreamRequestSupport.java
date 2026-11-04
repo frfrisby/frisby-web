@@ -163,6 +163,14 @@ final class StreamRequestSupport {
         return builder.build();
     }
 
+    // No ContentDecompressor support here: ofInputStream() exposes the live, still-streaming
+    // network body, and a decompressing stream (e.g. GZIPInputStream) stops reading once it
+    // consumes the compression trailer — closing it before the underlying body reaches EOF can
+    // leave unread chunk-framing bytes behind and surface as a chunked-transfer-encoding read
+    // error. If decompression is ever added to this streaming path, the wrapping stream must
+    // first drain the underlying source to EOF (e.g. via InputStream#transferTo) before closing.
+    // JsonBodyHandler is unaffected: it decompresses over an in-memory byte[] already fully
+    // buffered by ofByteArray(), so there is no live connection left to disrupt.
     private HttpResponse.BodyHandler<InputStream> bodyHandler(URI uri, Duration effectiveIdleTimeout) {
         return responseInfo -> {
             if (ExceptionFactory.isError(responseInfo.statusCode())) {
