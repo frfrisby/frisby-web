@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.1](https://github.com/frfrisby/frisby-web/compare/v1.6.0...v1.6.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **client:** Close decompressed InputStream in JsonBodyHandler to avoid leak. ([#97](https://github.com/frfrisby/frisby-web/issues/97)) ([a7c284a](https://github.com/frfrisby/frisby-web/commit/a7c284a73f32aa8df7bd1cffd58b87a6a71b0180))
+* **client:** Simplify decompressor validation; update stale noDuplicates doc. ([#95](https://github.com/frfrisby/frisby-web/issues/95)) ([369001a](https://github.com/frfrisby/frisby-web/commit/369001a276ca43cd9034bb166f69227cf5941fcd))
+
 ## [1.6.0](https://github.com/frfrisby/frisby-web/compare/v1.5.4...v1.6.0) (2026-10-26)
 
 
